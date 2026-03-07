@@ -1,10 +1,23 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ConnectButton, useActiveAccount, useReadContract } from "thirdweb/react";
-import { getContract, prepareContractCall, sendTransaction, defineChain } from "thirdweb";
+import {
+  ConnectButton,
+  useActiveAccount,
+  useReadContract,
+} from "thirdweb/react";
+import {
+  getContract,
+  prepareContractCall,
+  sendTransaction,
+  defineChain,
+} from "thirdweb";
 import { client } from "@/lib/client";
-import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
+import {
+  AGENT_REGISTRY_ABI,
+  AGENT_REGISTRY_ADDRESS,
+} from "@/lib/contract";
 
 type Agent = {
   owner: string;
@@ -72,7 +85,14 @@ export default function Home() {
       return;
     }
 
-    if (!name || !description || !skill || !hourlyRate || !location || !availability) {
+    if (
+      !name ||
+      !description ||
+      !skill ||
+      !hourlyRate ||
+      !location ||
+      !availability
+    ) {
       setStatus("Fill all fields.");
       return;
     }
@@ -140,6 +160,8 @@ export default function Home() {
             justifyContent: "space-between",
             alignItems: "center",
             marginBottom: "40px",
+            gap: "16px",
+            flexWrap: "wrap",
           }}
         >
           <div>
@@ -207,40 +229,50 @@ export default function Home() {
               }}
             >
               Agent Guild helps designers, developers, and remote workers build
-              portable onchain profiles with skills, rates, location, and availability.
+              portable onchain profiles with skills, rates, location, and
+              availability.
             </p>
+
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+              <a href="#create" style={primaryLink}>
+                Create Profile
+              </a>
+
+              <a
+                href={`https://sepolia.celoscan.io/address/${AGENT_REGISTRY_ADDRESS}`}
+                target="_blank"
+                rel="noreferrer"
+                style={secondaryLink}
+              >
+                View Contract
+              </a>
+            </div>
           </div>
 
           <div style={{ display: "grid", gap: "16px" }}>
-            <div
-              style={{
-                border: "1px solid #202020",
-                borderRadius: "20px",
-                padding: "22px",
-                background: "#101010",
-              }}
-            >
-              <p style={{ margin: 0, opacity: 0.65, fontSize: "13px" }}>
-                Total Profiles
-              </p>
-              <h3 style={{ margin: "10px 0 0", fontSize: "42px" }}>
-                {agents.length}
+            <div style={metricCard}>
+              <p style={metricLabel}>Total Profiles</p>
+              <h3 style={metricValue}>{agents.length}</h3>
+            </div>
+
+            <div style={metricCard}>
+              <p style={metricLabel}>Network</p>
+              <h3 style={{ margin: "10px 0 0", fontSize: "28px" }}>
+                Celo Sepolia
               </h3>
             </div>
 
-            <div
-              style={{
-                border: "1px solid #202020",
-                borderRadius: "20px",
-                padding: "22px",
-                background: "#101010",
-              }}
-            >
-              <p style={{ margin: 0, opacity: 0.65, fontSize: "13px" }}>
-                Network
-              </p>
-              <h3 style={{ margin: "10px 0 0", fontSize: "28px" }}>
-                Celo Sepolia
+            <div style={metricCard}>
+              <p style={metricLabel}>Connected Wallet</p>
+              <h3
+                style={{
+                  margin: "10px 0 0",
+                  fontSize: "15px",
+                  wordBreak: "break-all",
+                  lineHeight: 1.5,
+                }}
+              >
+                {account ? account.address : "Not connected"}
               </h3>
             </div>
           </div>
@@ -255,6 +287,7 @@ export default function Home() {
           }}
         >
           <div
+            id="create"
             style={{
               border: "1px solid #202020",
               borderRadius: "24px",
@@ -262,7 +295,9 @@ export default function Home() {
               background: "#101010",
             }}
           >
-            <h3 style={{ marginTop: 0, fontSize: "24px" }}>Create Work Profile</h3>
+            <h3 style={{ marginTop: 0, fontSize: "24px" }}>
+              Create Work Profile
+            </h3>
 
             <div style={{ display: "grid", gap: "12px", marginTop: "18px" }}>
               <input
@@ -309,7 +344,11 @@ export default function Home() {
               />
 
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                <button onClick={createAgent} disabled={creating} style={primaryBtn}>
+                <button
+                  onClick={createAgent}
+                  disabled={creating}
+                  style={primaryBtn}
+                >
                   {creating ? "Creating..." : "Create Profile"}
                 </button>
 
@@ -351,10 +390,13 @@ export default function Home() {
                 alignItems: "center",
                 gap: "12px",
                 marginBottom: "18px",
+                flexWrap: "wrap",
               }}
             >
               <div>
-                <h3 style={{ margin: 0, fontSize: "24px" }}>Talent Registry</h3>
+                <h3 style={{ margin: 0, fontSize: "24px" }}>
+                  Talent Registry
+                </h3>
                 <p style={{ margin: "6px 0 0", opacity: 0.7 }}>
                   Discover registered onchain freelancer profiles
                 </p>
@@ -390,67 +432,89 @@ export default function Home() {
               <div style={{ display: "grid", gap: "14px" }}>
                 {agents.map((agent, index) => {
                   const isMine =
-                    account?.address?.toLowerCase() === agent.owner?.toLowerCase();
+                    account?.address?.toLowerCase() ===
+                    agent.owner?.toLowerCase();
 
                   return (
-                    <div
+                    <Link
                       key={index}
-                      style={{
-                        border: "1px solid #232323",
-                        borderRadius: "18px",
-                        padding: "18px",
-                        background: "#0b0b0b",
-                      }}
+                      href={`/agent/${index}`}
+                      style={{ textDecoration: "none", color: "inherit" }}
                     >
                       <div
                         style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          alignItems: "center",
-                          marginBottom: "8px",
+                          border: "1px solid #232323",
+                          borderRadius: "18px",
+                          padding: "18px",
+                          background: "#0b0b0b",
+                          cursor: "pointer",
                         }}
                       >
-                        <h4 style={{ margin: 0, fontSize: "19px" }}>{agent.name}</h4>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: "12px",
+                            alignItems: "center",
+                            marginBottom: "8px",
+                          }}
+                        >
+                          <h4 style={{ margin: 0, fontSize: "19px" }}>
+                            {agent.name}
+                          </h4>
 
-                        {isMine && (
-                          <span
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: "999px",
-                              background: "rgba(34,197,94,0.14)",
-                              color: "#86efac",
-                              fontSize: "12px",
-                              fontWeight: 800,
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            My Profile
-                          </span>
-                        )}
+                          {isMine && (
+                            <span
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: "999px",
+                                background: "rgba(34,197,94,0.14)",
+                                color: "#86efac",
+                                fontSize: "12px",
+                                fontWeight: 800,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              My Profile
+                            </span>
+                          )}
+                        </div>
+
+                        <p
+                          style={{
+                            margin: "0 0 10px",
+                            opacity: 0.82,
+                            lineHeight: 1.6,
+                          }}
+                        >
+                          {agent.description}
+                        </p>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                            marginBottom: "10px",
+                          }}
+                        >
+                          <Badge text={agent.skill} />
+                          <Badge text={`$${agent.hourlyRate.toString()}/hr`} />
+                          <Badge text={agent.location} />
+                          <Badge text={agent.availability} />
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            opacity: 0.6,
+                            wordBreak: "break-all",
+                          }}
+                        >
+                          Owner: {agent.owner}
+                        </div>
                       </div>
-
-                      <p style={{ margin: "0 0 10px", opacity: 0.82, lineHeight: 1.6 }}>
-                        {agent.description}
-                      </p>
-
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
-                        <Badge text={agent.skill} />
-                        <Badge text={`$${agent.hourlyRate.toString()}/hr`} />
-                        <Badge text={agent.location} />
-                        <Badge text={agent.availability} />
-                      </div>
-
-                      <div
-                        style={{
-                          fontSize: "12px",
-                          opacity: 0.6,
-                          wordBreak: "break-all",
-                        }}
-                      >
-                        Owner: {agent.owner}
-                      </div>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
@@ -518,4 +582,41 @@ const secondaryBtn: React.CSSProperties = {
   color: "white",
   fontWeight: 700,
   cursor: "pointer",
+};
+
+const primaryLink: React.CSSProperties = {
+  padding: "14px 18px",
+  borderRadius: "12px",
+  background: "#22c55e",
+  color: "black",
+  fontWeight: 800,
+  textDecoration: "none",
+};
+
+const secondaryLink: React.CSSProperties = {
+  padding: "14px 18px",
+  borderRadius: "12px",
+  border: "1px solid #2c2c2c",
+  color: "white",
+  textDecoration: "none",
+  fontWeight: 700,
+  background: "#101010",
+};
+
+const metricCard: React.CSSProperties = {
+  border: "1px solid #202020",
+  borderRadius: "20px",
+  padding: "22px",
+  background: "#101010",
+};
+
+const metricLabel: React.CSSProperties = {
+  margin: 0,
+  opacity: 0.65,
+  fontSize: "13px",
+};
+
+const metricValue: React.CSSProperties = {
+  margin: "10px 0 0",
+  fontSize: "42px",
 };
