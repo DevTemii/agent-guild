@@ -1,6 +1,5 @@
 "use client";
 
-import EscrowSimulator from "@/components/EscrowSimulator";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
@@ -19,6 +18,8 @@ import {
   AGENT_REGISTRY_ABI,
   AGENT_REGISTRY_ADDRESS,
 } from "@/lib/contract";
+import { getReputation } from "@/lib/reputation";
+import EscrowSimulator from "@/components/EscrowSimulator";
 
 type Agent = {
   owner: string;
@@ -343,7 +344,30 @@ export default function Home() {
           </div>
         </section>
 
+        <div
+          style={{
+            display: "flex",
+            gap: "10px",
+            marginBottom: "24px",
+            flexWrap: "wrap",
+          }}
+        >
+          <a href="#create" style={secondaryLink}>
+            Create Profile
+          </a>
+          <a href="#ai" style={secondaryLink}>
+            AI Contract
+          </a>
+          <a href="#escrow" style={secondaryLink}>
+            Escrow
+          </a>
+          <a href="#registry" style={secondaryLink}>
+            Registry
+          </a>
+        </div>
+
         <section
+          id="ai"
           style={{
             border: "1px solid #202020",
             borderRadius: "24px",
@@ -487,7 +511,9 @@ export default function Home() {
           </div>
         </section>
 
-        <EscrowSimulator />
+        <section id="escrow">
+          <EscrowSimulator />
+        </section>
 
         <section
           style={{
@@ -587,6 +613,7 @@ export default function Home() {
           </div>
 
           <div
+            id="registry"
             style={{
               border: "1px solid #202020",
               borderRadius: "24px",
@@ -643,6 +670,8 @@ export default function Home() {
                   const isMine =
                     account?.address?.toLowerCase() ===
                     agent.owner?.toLowerCase();
+
+                  const reputation = getReputation(index, agent.hourlyRate);
 
                   return (
                     <Link
@@ -711,6 +740,46 @@ export default function Home() {
                           <Badge text={`$${agent.hourlyRate.toString()}/hr`} />
                           <Badge text={agent.location} />
                           <Badge text={agent.availability} />
+                        </div>
+
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr",
+                            gap: "10px",
+                            marginBottom: "12px",
+                            marginTop: "8px",
+                          }}
+                        >
+                          <div style={miniMetricCard}>
+                            <div style={miniMetricLabel}>Guild Score</div>
+                            <div style={miniMetricValue}>
+                              {reputation.guildScore}/100
+                            </div>
+                          </div>
+
+                          <div style={miniMetricCard}>
+                            <div style={miniMetricLabel}>Completed</div>
+                            <div style={miniMetricValue}>
+                              {reputation.completedContracts}
+                            </div>
+                          </div>
+
+                          <div style={miniMetricCard}>
+                            <div style={miniMetricLabel}>Total Earned</div>
+                            <div style={miniMetricValue}>
+                              ${reputation.totalEarned}
+                            </div>
+                          </div>
+
+                          <div style={miniMetricCard}>
+                            <div style={miniMetricLabel}>Credit</div>
+                            <div style={miniMetricValue}>
+                              {reputation.creditUnlocked
+                                ? `$${reputation.creditAmount}`
+                                : "Locked"}
+                            </div>
+                          </div>
                         </div>
 
                         <div
@@ -828,4 +897,22 @@ const metricLabel: React.CSSProperties = {
 const metricValue: React.CSSProperties = {
   margin: "10px 0 0",
   fontSize: "42px",
+};
+
+const miniMetricCard: React.CSSProperties = {
+  border: "1px solid #202020",
+  borderRadius: "12px",
+  padding: "10px",
+  background: "#101010",
+};
+
+const miniMetricLabel: React.CSSProperties = {
+  fontSize: "11px",
+  opacity: 0.6,
+  marginBottom: "4px",
+};
+
+const miniMetricValue: React.CSSProperties = {
+  fontSize: "14px",
+  fontWeight: 800,
 };

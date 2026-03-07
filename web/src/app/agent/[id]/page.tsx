@@ -9,6 +9,7 @@ import {
   AGENT_REGISTRY_ABI,
   AGENT_REGISTRY_ADDRESS,
 } from "@/lib/contract";
+import { getReputation } from "@/lib/reputation";
 
 type Agent = {
   owner: string;
@@ -81,6 +82,8 @@ export default function AgentProfilePage({
     );
   }
 
+  const reputation = getReputation(id, agent.hourlyRate);
+
   return (
     <main style={pageStyle}>
       <div style={{ maxWidth: "900px", margin: "0 auto" }}>
@@ -148,6 +151,36 @@ export default function AgentProfilePage({
             </a>
           </div>
         </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr 1fr",
+            gap: "16px",
+            marginTop: "20px",
+          }}
+        >
+          <MetricCard
+            label="Guild Score"
+            value={`${reputation.guildScore}/100`}
+          />
+          <MetricCard
+            label="Completed Contracts"
+            value={`${reputation.completedContracts}`}
+          />
+          <MetricCard
+            label="Total Earned"
+            value={`$${reputation.totalEarned}`}
+          />
+          <MetricCard
+            label="Credit Status"
+            value={
+              reputation.creditUnlocked
+                ? `$${reputation.creditAmount} Unlocked`
+                : "Locked"
+            }
+          />
+        </div>
       </div>
     </main>
   );
@@ -160,6 +193,24 @@ function Info({ label, value }: { label: string; value: string }) {
         {label}
       </div>
       <div style={{ wordBreak: "break-word" }}>{value}</div>
+    </div>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        border: "1px solid #202020",
+        borderRadius: "18px",
+        padding: "18px",
+        background: "#101010",
+      }}
+    >
+      <div style={{ fontSize: "12px", opacity: 0.6, marginBottom: "8px" }}>
+        {label}
+      </div>
+      <div style={{ fontSize: "22px", fontWeight: 800 }}>{value}</div>
     </div>
   );
 }
