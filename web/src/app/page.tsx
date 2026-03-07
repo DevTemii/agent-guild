@@ -1,0 +1,521 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { ConnectButton, useActiveAccount, useReadContract } from "thirdweb/react";
+import { getContract, prepareContractCall, sendTransaction, defineChain } from "thirdweb";
+import { client } from "@/lib/client";
+import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
+
+type Agent = {
+  owner: string;
+  name: string;
+  description: string;
+  skill: string;
+  hourlyRate: bigint;
+  location: string;
+  availability: string;
+};
+
+const celoSepolia = defineChain({
+  id: 11142220,
+  name: "Celo Sepolia",
+  rpc: "https://forno.celo-sepolia.celo-testnet.org",
+  nativeCurrency: {
+    name: "CELO",
+    symbol: "CELO",
+    decimals: 18,
+  },
+});
+
+export default function Home() {
+  const account = useActiveAccount();
+
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [skill, setSkill] = useState("");
+  const [hourlyRate, setHourlyRate] = useState("");
+  const [location, setLocation] = useState("");
+  const [availability, setAvailability] = useState("");
+
+  const [creating, setCreating] = useState(false);
+  const [status, setStatus] = useState("");
+  const [search, setSearch] = useState("");
+
+  const contract = useMemo(() => {
+    return getContract({
+      client,
+      chain: celoSepolia,
+      address: AGENT_REGISTRY_ADDRESS,
+      abi: AGENT_REGISTRY_ABI as any,
+    });
+  }, []);
+
+  const { data, isLoading, refetch } = useReadContract({
+    contract,
+    method:
+      "function getAgents() view returns ((address owner,string name,string description,string skill,uint256 hourlyRate,string location,string availability)[])",
+    params: [],
+  });
+
+  const agents = ((data as Agent[] | undefined) || []).filter((agent) => {
+    const q = search.toLowerCase();
+    return (
+      agent.name.toLowerCase().includes(q) ||
+      agent.skill.toLowerCase().includes(q) ||
+      agent.location.toLowerCase().includes(q)
+    );
+  });
+
+  async function createAgent() {
+    if (!account) {
+      setStatus("Connect your wallet first.");
+      return;
+    }
+
+    if (!name || !description || !skill || !hourlyRate || !location || !availability) {
+      setStatus("Fill all fields.");
+      return;
+    }
+
+    try {
+      setCreating(true);
+      setStatus("Waiting for wallet confirmation...");
+
+      const transaction = prepareContractCall({
+        contract,
+        method:
+          "function registerAgent(string _name, string _description, string _skill, uint256 _hourlyRate, string _location, string _availability)",
+        params: [
+          name,
+          description,
+          skill,
+          BigInt(hourlyRate),
+          location,
+          availability,
+        ],
+      });
+
+      await sendTransaction({
+        transaction,
+        account,
+      });
+
+      setStatus("Agent profile created successfully.");
+      setName("");
+      setDescription("");
+      setSkill("");
+      setHourlyRate("");
+      setLocation("");
+      setAvailability("");
+
+      await refetch();
+    } catch (error) {
+      console.error(error);
+      setStatus("Transaction failed.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <main
+      style={{
+        minHeight: "100vh",
+        background:
+          "radial-gradient(circle at top left, rgba(34,197,94,0.12), transparent 28%), #080808",
+        color: "white",
+        fontFamily: "Inter, sans-serif",
+      }}
+    >
+      <section
+        style={{
+          maxWidth: "1180px",
+          margin: "0 auto",
+          padding: "32px 20px 60px",
+        }}
+      >
+        <nav
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "40px",
+          }}
+        >
+          <div>
+            <h1 style={{ margin: 0, fontSize: "28px", fontWeight: 800 }}>
+              Agent Guild
+            </h1>
+            <p style={{ margin: "6px 0 0", opacity: 0.7, fontSize: "14px" }}>
+              Onchain workforce profiles for emerging markets
+            </p>
+          </div>
+
+          <ConnectButton client={client} chain={celoSepolia} />
+        </nav>
+
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1.2fr 0.8fr",
+            gap: "20px",
+            marginBottom: "24px",
+          }}
+        >
+          <div
+            style={{
+              border: "1px solid #202020",
+              borderRadius: "24px",
+              padding: "32px",
+              background: "linear-gradient(180deg, #101010, #0b0b0b)",
+            }}
+          >
+            <div
+              style={{
+                display: "inline-block",
+                padding: "8px 12px",
+                borderRadius: "999px",
+                background: "rgba(34,197,94,0.12)",
+                color: "#86efac",
+                fontSize: "13px",
+                fontWeight: 700,
+                marginBottom: "18px",
+              }}
+            >
+              Workforce Layer MVP
+            </div>
+
+            <h2
+              style={{
+                fontSize: "48px",
+                lineHeight: 1.05,
+                margin: "0 0 16px",
+                fontWeight: 900,
+                maxWidth: "760px",
+              }}
+            >
+              Create verifiable freelancer agents on Celo.
+            </h2>
+
+            <p
+              style={{
+                opacity: 0.78,
+                fontSize: "17px",
+                lineHeight: 1.7,
+                maxWidth: "760px",
+                marginBottom: "24px",
+              }}
+            >
+              Agent Guild helps designers, developers, and remote workers build
+              portable onchain profiles with skills, rates, location, and availability.
+            </p>
+          </div>
+
+          <div style={{ display: "grid", gap: "16px" }}>
+            <div
+              style={{
+                border: "1px solid #202020",
+                borderRadius: "20px",
+                padding: "22px",
+                background: "#101010",
+              }}
+            >
+              <p style={{ margin: 0, opacity: 0.65, fontSize: "13px" }}>
+                Total Profiles
+              </p>
+              <h3 style={{ margin: "10px 0 0", fontSize: "42px" }}>
+                {agents.length}
+              </h3>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid #202020",
+                borderRadius: "20px",
+                padding: "22px",
+                background: "#101010",
+              }}
+            >
+              <p style={{ margin: 0, opacity: 0.65, fontSize: "13px" }}>
+                Network
+              </p>
+              <h3 style={{ margin: "10px 0 0", fontSize: "28px" }}>
+                Celo Sepolia
+              </h3>
+            </div>
+          </div>
+        </section>
+
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "0.95fr 1.05fr",
+            gap: "20px",
+            alignItems: "start",
+          }}
+        >
+          <div
+            style={{
+              border: "1px solid #202020",
+              borderRadius: "24px",
+              padding: "24px",
+              background: "#101010",
+            }}
+          >
+            <h3 style={{ marginTop: 0, fontSize: "24px" }}>Create Work Profile</h3>
+
+            <div style={{ display: "grid", gap: "12px", marginTop: "18px" }}>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Name"
+                style={inputStyle}
+              />
+
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Short bio / description"
+                rows={3}
+                style={textareaStyle}
+              />
+
+              <input
+                value={skill}
+                onChange={(e) => setSkill(e.target.value)}
+                placeholder="Primary skill e.g Product Design"
+                style={inputStyle}
+              />
+
+              <input
+                value={hourlyRate}
+                onChange={(e) => setHourlyRate(e.target.value)}
+                placeholder="Hourly rate in USD e.g 25"
+                style={inputStyle}
+              />
+
+              <input
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="Location e.g Lagos, Nigeria"
+                style={inputStyle}
+              />
+
+              <input
+                value={availability}
+                onChange={(e) => setAvailability(e.target.value)}
+                placeholder="Availability e.g Full-time / Part-time"
+                style={inputStyle}
+              />
+
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <button onClick={createAgent} disabled={creating} style={primaryBtn}>
+                  {creating ? "Creating..." : "Create Profile"}
+                </button>
+
+                <button onClick={() => refetch()} style={secondaryBtn}>
+                  Refresh
+                </button>
+              </div>
+
+              {status && (
+                <div
+                  style={{
+                    marginTop: "8px",
+                    padding: "12px 14px",
+                    borderRadius: "12px",
+                    background: "#0b0b0b",
+                    border: "1px solid #1f1f1f",
+                    fontSize: "14px",
+                    opacity: 0.9,
+                  }}
+                >
+                  {status}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid #202020",
+              borderRadius: "24px",
+              padding: "24px",
+              background: "#101010",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "12px",
+                marginBottom: "18px",
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: "24px" }}>Talent Registry</h3>
+                <p style={{ margin: "6px 0 0", opacity: 0.7 }}>
+                  Discover registered onchain freelancer profiles
+                </p>
+              </div>
+
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search skill or location"
+                style={{
+                  ...inputStyle,
+                  width: "220px",
+                  margin: 0,
+                }}
+              />
+            </div>
+
+            {isLoading ? (
+              <p>Loading profiles...</p>
+            ) : agents.length === 0 ? (
+              <div
+                style={{
+                  border: "1px dashed #2d2d2d",
+                  borderRadius: "18px",
+                  padding: "28px",
+                  textAlign: "center",
+                  opacity: 0.72,
+                }}
+              >
+                No profiles yet.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: "14px" }}>
+                {agents.map((agent, index) => {
+                  const isMine =
+                    account?.address?.toLowerCase() === agent.owner?.toLowerCase();
+
+                  return (
+                    <div
+                      key={index}
+                      style={{
+                        border: "1px solid #232323",
+                        borderRadius: "18px",
+                        padding: "18px",
+                        background: "#0b0b0b",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          alignItems: "center",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        <h4 style={{ margin: 0, fontSize: "19px" }}>{agent.name}</h4>
+
+                        {isMine && (
+                          <span
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: "999px",
+                              background: "rgba(34,197,94,0.14)",
+                              color: "#86efac",
+                              fontSize: "12px",
+                              fontWeight: 800,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            My Profile
+                          </span>
+                        )}
+                      </div>
+
+                      <p style={{ margin: "0 0 10px", opacity: 0.82, lineHeight: 1.6 }}>
+                        {agent.description}
+                      </p>
+
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
+                        <Badge text={agent.skill} />
+                        <Badge text={`$${agent.hourlyRate.toString()}/hr`} />
+                        <Badge text={agent.location} />
+                        <Badge text={agent.availability} />
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          opacity: 0.6,
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        Owner: {agent.owner}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+      </section>
+    </main>
+  );
+}
+
+function Badge({ text }: { text: string }) {
+  return (
+    <span
+      style={{
+        padding: "6px 10px",
+        borderRadius: "999px",
+        background: "#151515",
+        border: "1px solid #262626",
+        fontSize: "12px",
+        opacity: 0.9,
+      }}
+    >
+      {text}
+    </span>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "14px",
+  borderRadius: "14px",
+  border: "1px solid #2a2a2a",
+  background: "#0b0b0b",
+  color: "white",
+  outline: "none",
+};
+
+const textareaStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "14px",
+  borderRadius: "14px",
+  border: "1px solid #2a2a2a",
+  background: "#0b0b0b",
+  color: "white",
+  outline: "none",
+  resize: "vertical",
+};
+
+const primaryBtn: React.CSSProperties = {
+  padding: "14px 18px",
+  borderRadius: "12px",
+  border: "none",
+  background: "#22c55e",
+  color: "black",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const secondaryBtn: React.CSSProperties = {
+  padding: "14px 18px",
+  borderRadius: "12px",
+  border: "1px solid #2c2c2c",
+  background: "#0f0f0f",
+  color: "white",
+  fontWeight: 700,
+  cursor: "pointer",
+};

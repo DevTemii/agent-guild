@@ -1,0 +1,8 @@
+node_modules
+.env
+.next
+artifacts
+cache
+coverage
+dist
+out

@@ -1,0 +1,1 @@
+export const AGENT_REGISTRY_ADDRESS = "0x6401f4ecce2be9550f7991a080e847f9df06b0f0";
