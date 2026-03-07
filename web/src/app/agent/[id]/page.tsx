@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { use, useMemo } from "react";
 import { useReadContract } from "thirdweb/react";
 import { getContract, defineChain } from "thirdweb";
 import { client } from "@/lib/client";
-import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
+import {
+  AGENT_REGISTRY_ABI,
+  AGENT_REGISTRY_ADDRESS,
+} from "@/lib/contract";
 
 type Agent = {
   owner: string;
@@ -31,8 +34,11 @@ const celoSepolia = defineChain({
 export default function AgentProfilePage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const resolvedParams = use(params);
+  const id = Number(resolvedParams.id);
+
   const contract = useMemo(() => {
     return getContract({
       client,
@@ -50,12 +56,14 @@ export default function AgentProfilePage({
   });
 
   const agents = (data as Agent[] | undefined) || [];
-  const agent = agents[Number(params.id)];
+  const agent = agents[id];
 
   if (isLoading) {
     return (
       <main style={pageStyle}>
-        <p>Loading profile...</p>
+        <div style={{ maxWidth: "900px", margin: "0 auto" }}>
+          <p>Loading profile...</p>
+        </div>
       </main>
     );
   }
@@ -63,10 +71,12 @@ export default function AgentProfilePage({
   if (!agent) {
     return (
       <main style={pageStyle}>
-        <Link href="/" style={backLink}>
-          ← Back
-        </Link>
-        <h1>Agent not found</h1>
+        <div style={{ maxWidth: "900px", margin: "0 auto" }}>
+          <Link href="/" style={backLink}>
+            ← Back to registry
+          </Link>
+          <h1>Agent not found</h1>
+        </div>
       </main>
     );
   }
@@ -108,7 +118,10 @@ export default function AgentProfilePage({
           <div style={card}>
             <h3 style={cardTitle}>Profile Details</h3>
             <Info label="Primary Skill" value={agent.skill} />
-            <Info label="Hourly Rate" value={`$${agent.hourlyRate.toString()}/hr`} />
+            <Info
+              label="Hourly Rate"
+              value={`$${agent.hourlyRate.toString()}/hr`}
+            />
             <Info label="Location" value={agent.location} />
             <Info label="Availability" value={agent.availability} />
           </div>
