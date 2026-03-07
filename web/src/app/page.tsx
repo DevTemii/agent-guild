@@ -1,5 +1,6 @@
 "use client";
 
+import EscrowSimulator from "@/components/EscrowSimulator";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
@@ -485,6 +486,8 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        <EscrowSimulator />
 
         <section
           style={{
