@@ -137,7 +137,7 @@ export default function EscrowSimulator() {
                 <div
                     style={{
                         display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
+                        gridTemplateColumns: "1fr",
                         gap: "20px",
                         alignItems: "start",
                     }}
@@ -242,7 +242,7 @@ export default function EscrowSimulator() {
                     <div
                         style={{
                             display: "grid",
-                            gridTemplateColumns: "1fr 1fr 1fr",
+                            gridTemplateColumns: "1fr",
                             gap: "14px",
                         }}
                     >

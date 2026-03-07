@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ConnectButton,
   useActiveAccount,
@@ -86,6 +86,14 @@ function generateMockContract(
 
 export default function Home() {
   const account = useActiveAccount();
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -217,21 +225,27 @@ export default function Home() {
         style={{
           maxWidth: "1180px",
           margin: "0 auto",
-          padding: "32px 20px 60px",
+          padding: isMobile ? "20px 14px 40px" : "32px 20px 60px",
         }}
       >
         <nav
           style={{
             display: "flex",
             justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "40px",
+            alignItems: isMobile ? "flex-start" : "center",
+            flexDirection: isMobile ? "column" : "row",
+            marginBottom: "28px",
             gap: "16px",
-            flexWrap: "wrap",
           }}
         >
           <div>
-            <h1 style={{ margin: 0, fontSize: "28px", fontWeight: 800 }}>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: isMobile ? "26px" : "28px",
+                fontWeight: 800,
+              }}
+            >
               Agent Guild
             </h1>
             <p style={{ margin: "6px 0 0", opacity: 0.7, fontSize: "14px" }}>
@@ -239,13 +253,15 @@ export default function Home() {
             </p>
           </div>
 
-          <ConnectButton client={client} chain={celoSepolia} />
+          <div style={{ width: isMobile ? "100%" : "auto", maxWidth: "100%" }}>
+            <ConnectButton client={client} chain={celoSepolia} />
+          </div>
         </nav>
 
         <section
           style={{
             display: "grid",
-            gridTemplateColumns: "1.2fr 0.8fr",
+            gridTemplateColumns: "1fr",
             gap: "20px",
             marginBottom: "24px",
           }}
@@ -254,7 +270,7 @@ export default function Home() {
             style={{
               border: "1px solid #202020",
               borderRadius: "24px",
-              padding: "32px",
+              padding: isMobile ? "22px" : "32px",
               background: "linear-gradient(180deg, #101010, #0b0b0b)",
             }}
           >
@@ -275,7 +291,7 @@ export default function Home() {
 
             <h2
               style={{
-                fontSize: "48px",
+                fontSize: isMobile ? "40px" : "48px",
                 lineHeight: 1.05,
                 margin: "0 0 16px",
                 fontWeight: 900,
@@ -288,7 +304,7 @@ export default function Home() {
             <p
               style={{
                 opacity: 0.78,
-                fontSize: "17px",
+                fontSize: isMobile ? "16px" : "17px",
                 lineHeight: 1.7,
                 maxWidth: "760px",
                 marginBottom: "24px",
@@ -323,7 +339,7 @@ export default function Home() {
 
             <div style={metricCard}>
               <p style={metricLabel}>Network</p>
-              <h3 style={{ margin: "10px 0 0", fontSize: "28px" }}>
+              <h3 style={{ margin: "10px 0 0", fontSize: isMobile ? "22px" : "28px" }}>
                 Celo Sepolia
               </h3>
             </div>
@@ -333,7 +349,7 @@ export default function Home() {
               <h3
                 style={{
                   margin: "10px 0 0",
-                  fontSize: "15px",
+                  fontSize: "14px",
                   wordBreak: "break-all",
                   lineHeight: 1.5,
                 }}
@@ -386,7 +402,7 @@ export default function Home() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr",
+              gridTemplateColumns: "1fr",
               gap: "20px",
               alignItems: "start",
             }}
@@ -433,26 +449,14 @@ export default function Home() {
               ) : (
                 <div style={{ display: "grid", gap: "14px" }}>
                   <div>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        opacity: 0.6,
-                        marginBottom: "6px",
-                      }}
-                    >
+                    <div style={{ fontSize: "12px", opacity: 0.6, marginBottom: "6px" }}>
                       Client
                     </div>
                     <div>{generatedContract.clientName}</div>
                   </div>
 
                   <div>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        opacity: 0.6,
-                        marginBottom: "6px",
-                      }}
-                    >
+                    <div style={{ fontSize: "12px", opacity: 0.6, marginBottom: "6px" }}>
                       Summary
                     </div>
                     <div style={{ lineHeight: 1.6, opacity: 0.9 }}>
@@ -461,13 +465,7 @@ export default function Home() {
                   </div>
 
                   <div>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        opacity: 0.6,
-                        marginBottom: "8px",
-                      }}
-                    >
+                    <div style={{ fontSize: "12px", opacity: 0.6, marginBottom: "8px" }}>
                       Milestones
                     </div>
 
@@ -492,13 +490,7 @@ export default function Home() {
                   </div>
 
                   <div>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        opacity: 0.6,
-                        marginBottom: "6px",
-                      }}
-                    >
+                    <div style={{ fontSize: "12px", opacity: 0.6, marginBottom: "6px" }}>
                       Total Budget
                     </div>
                     <div style={{ fontWeight: 800 }}>
@@ -518,7 +510,7 @@ export default function Home() {
         <section
           style={{
             display: "grid",
-            gridTemplateColumns: "0.95fr 1.05fr",
+            gridTemplateColumns: "1fr",
             gap: "20px",
             alignItems: "start",
           }}
@@ -625,10 +617,10 @@ export default function Home() {
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                alignItems: "center",
+                alignItems: isMobile ? "stretch" : "center",
+                flexDirection: isMobile ? "column" : "row",
                 gap: "12px",
                 marginBottom: "18px",
-                flexWrap: "wrap",
               }}
             >
               <div>
@@ -644,7 +636,7 @@ export default function Home() {
                 placeholder="Search skill or location"
                 style={{
                   ...inputStyle,
-                  width: "220px",
+                  width: isMobile ? "100%" : "220px",
                   margin: 0,
                 }}
               />
@@ -692,8 +684,9 @@ export default function Home() {
                           style={{
                             display: "flex",
                             justifyContent: "space-between",
+                            flexDirection: isMobile ? "column" : "row",
                             gap: "12px",
-                            alignItems: "center",
+                            alignItems: isMobile ? "flex-start" : "center",
                             marginBottom: "8px",
                           }}
                         >
@@ -745,7 +738,7 @@ export default function Home() {
                         <div
                           style={{
                             display: "grid",
-                            gridTemplateColumns: "1fr 1fr",
+                            gridTemplateColumns: "1fr",
                             gap: "10px",
                             marginBottom: "12px",
                             marginTop: "8px",
@@ -829,6 +822,7 @@ const inputStyle: React.CSSProperties = {
   background: "#0b0b0b",
   color: "white",
   outline: "none",
+  boxSizing: "border-box",
 };
 
 const textareaStyle: React.CSSProperties = {
@@ -840,6 +834,7 @@ const textareaStyle: React.CSSProperties = {
   color: "white",
   outline: "none",
   resize: "vertical",
+  boxSizing: "border-box",
 };
 
 const primaryBtn: React.CSSProperties = {
