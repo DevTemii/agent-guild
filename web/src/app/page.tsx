@@ -29,6 +29,17 @@ type Agent = {
   availability: string;
 };
 
+type GeneratedContract = {
+  clientName: string;
+  projectDescription: string;
+  budget: number;
+  summary: string;
+  milestones: {
+    title: string;
+    amount: number;
+  }[];
+};
+
 const celoSepolia = defineChain({
   id: 11142220,
   name: "Celo Sepolia",
@@ -40,6 +51,37 @@ const celoSepolia = defineChain({
   },
 });
 
+function generateMockContract(
+  clientName: string,
+  projectDescription: string,
+  budget: number
+): GeneratedContract {
+  const milestone1 = Math.floor(budget * 0.3);
+  const milestone2 = Math.floor(budget * 0.3);
+  const milestone3 = budget - milestone1 - milestone2;
+
+  return {
+    clientName,
+    projectDescription,
+    budget,
+    summary: `Freelancer will complete the project for ${clientName}. The work includes: ${projectDescription}. Payment will be split across 3 milestones based on delivery progress.`,
+    milestones: [
+      {
+        title: "Project kickoff and research",
+        amount: milestone1,
+      },
+      {
+        title: "Core execution and draft delivery",
+        amount: milestone2,
+      },
+      {
+        title: "Final delivery and revisions",
+        amount: milestone3,
+      },
+    ],
+  };
+}
+
 export default function Home() {
   const account = useActiveAccount();
 
@@ -49,6 +91,12 @@ export default function Home() {
   const [hourlyRate, setHourlyRate] = useState("");
   const [location, setLocation] = useState("");
   const [availability, setAvailability] = useState("");
+
+  const [clientName, setClientName] = useState("");
+  const [projectBrief, setProjectBrief] = useState("");
+  const [budget, setBudget] = useState("");
+  const [generatedContract, setGeneratedContract] =
+    useState<GeneratedContract | null>(null);
 
   const [creating, setCreating] = useState(false);
   const [status, setStatus] = useState("");
@@ -79,6 +127,22 @@ export default function Home() {
     );
   });
 
+  function handleGenerateContract() {
+    if (!clientName || !projectBrief || !budget) {
+      setStatus("Fill client name, project brief, and budget to generate contract.");
+      return;
+    }
+
+    const result = generateMockContract(
+      clientName,
+      projectBrief,
+      Number(budget)
+    );
+
+    setGeneratedContract(result);
+    setStatus("AI contract generated successfully.");
+  }
+
   async function createAgent() {
     if (!account) {
       setStatus("Connect your wallet first.");
@@ -93,7 +157,7 @@ export default function Home() {
       !location ||
       !availability
     ) {
-      setStatus("Fill all fields.");
+      setStatus("Fill all profile fields.");
       return;
     }
 
@@ -280,6 +344,150 @@ export default function Home() {
 
         <section
           style={{
+            border: "1px solid #202020",
+            borderRadius: "24px",
+            padding: "24px",
+            background: "#101010",
+            marginBottom: "24px",
+          }}
+        >
+          <div style={{ marginBottom: "18px" }}>
+            <h3 style={{ margin: 0, fontSize: "24px" }}>AI Contract Generator</h3>
+            <p style={{ margin: "8px 0 0", opacity: 0.72, lineHeight: 1.6 }}>
+              Generate a structured freelance contract with milestone-based payment splits.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "20px",
+              alignItems: "start",
+            }}
+          >
+            <div style={{ display: "grid", gap: "12px" }}>
+              <input
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+                placeholder="Client name"
+                style={inputStyle}
+              />
+
+              <textarea
+                value={projectBrief}
+                onChange={(e) => setProjectBrief(e.target.value)}
+                placeholder="Project description"
+                rows={4}
+                style={textareaStyle}
+              />
+
+              <input
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+                placeholder="Budget in USD e.g 300"
+                style={inputStyle}
+              />
+
+              <button onClick={handleGenerateContract} style={primaryBtn}>
+                Generate Contract
+              </button>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid #222",
+                borderRadius: "18px",
+                padding: "18px",
+                background: "#0b0b0b",
+                minHeight: "220px",
+              }}
+            >
+              {!generatedContract ? (
+                <p style={{ opacity: 0.65 }}>No contract generated yet.</p>
+              ) : (
+                <div style={{ display: "grid", gap: "14px" }}>
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        opacity: 0.6,
+                        marginBottom: "6px",
+                      }}
+                    >
+                      Client
+                    </div>
+                    <div>{generatedContract.clientName}</div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        opacity: 0.6,
+                        marginBottom: "6px",
+                      }}
+                    >
+                      Summary
+                    </div>
+                    <div style={{ lineHeight: 1.6, opacity: 0.9 }}>
+                      {generatedContract.summary}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        opacity: 0.6,
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Milestones
+                    </div>
+
+                    <div style={{ display: "grid", gap: "10px" }}>
+                      {generatedContract.milestones.map((milestone, index) => (
+                        <div
+                          key={index}
+                          style={{
+                            border: "1px solid #1e1e1e",
+                            borderRadius: "12px",
+                            padding: "12px",
+                            background: "#111",
+                          }}
+                        >
+                          <div style={{ fontWeight: 700 }}>{milestone.title}</div>
+                          <div style={{ opacity: 0.75, marginTop: "4px" }}>
+                            ${milestone.amount}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        opacity: 0.6,
+                        marginBottom: "6px",
+                      }}
+                    >
+                      Total Budget
+                    </div>
+                    <div style={{ fontWeight: 800 }}>
+                      ${generatedContract.budget}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section
+          style={{
             display: "grid",
             gridTemplateColumns: "0.95fr 1.05fr",
             gap: "20px",
@@ -394,9 +602,7 @@ export default function Home() {
               }}
             >
               <div>
-                <h3 style={{ margin: 0, fontSize: "24px" }}>
-                  Talent Registry
-                </h3>
+                <h3 style={{ margin: 0, fontSize: "24px" }}>Talent Registry</h3>
                 <p style={{ margin: "6px 0 0", opacity: 0.7 }}>
                   Discover registered onchain freelancer profiles
                 </p>
