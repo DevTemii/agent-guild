@@ -1,15 +1,5 @@
-export function getReputation(index: number, hourlyRate: bigint) {
-    const completedContracts = Math.min(index + 1, 5);
-    const guildScore = Math.min(completedContracts * 10, 100);
-    const totalEarned = Number(hourlyRate) * completedContracts * 8;
-    const creditUnlocked = completedContracts >= 3;
-    const creditAmount = creditUnlocked ? 200 : 0;
+import { getReputationForProfile } from "./reputationStore";
 
-    return {
-        completedContracts,
-        guildScore,
-        totalEarned,
-        creditUnlocked,
-        creditAmount,
-    };
+export function getReputation(profileName: string) {
+    return getReputationForProfile(profileName.trim().toLowerCase());
 }

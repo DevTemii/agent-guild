@@ -1,6 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import {
+    getReputationForProfile,
+    setReputationForProfile,
+} from "@/lib/reputationStore";
 
 type Milestone = {
     title: string;
@@ -14,7 +18,6 @@ type EscrowProject = {
     totalBudget: number;
     deposited: boolean;
     milestones: Milestone[];
-    completedContracts: number;
 };
 
 export default function EscrowSimulator() {
@@ -24,15 +27,21 @@ export default function EscrowSimulator() {
     const [project, setProject] = useState<EscrowProject | null>(null);
     const [status, setStatus] = useState("");
 
-    const guildScore = useMemo(() => {
-        if (!project) return 0;
-        return project.completedContracts * 10;
-    }, [project]);
+    const profileKey = freelancerName.trim().toLowerCase();
 
-    const creditUnlocked = useMemo(() => {
-        if (!project) return false;
-        return project.completedContracts >= 3;
-    }, [project]);
+    const currentReputation = useMemo(() => {
+        if (!profileKey) {
+            return {
+                completedContracts: 2,
+                guildScore: 20,
+                totalEarned: 400,
+                creditUnlocked: false,
+                creditAmount: 0,
+            };
+        }
+
+        return getReputationForProfile(profileKey);
+    }, [profileKey, project]);
 
     function createEscrowProject() {
         if (!clientName || !freelancerName || !budget) {
@@ -50,7 +59,6 @@ export default function EscrowSimulator() {
             freelancerName,
             totalBudget,
             deposited: false,
-            completedContracts: 2,
             milestones: [
                 { title: "Project kickoff and research", amount: m1, status: "pending" },
                 { title: "Core execution and draft delivery", amount: m2, status: "pending" },
@@ -91,6 +99,7 @@ export default function EscrowSimulator() {
         if (!project) return;
 
         const updated = [...project.milestones];
+
         if (updated[index].status === "completed") {
             updated[index].status = "released";
 
@@ -99,12 +108,31 @@ export default function EscrowSimulator() {
             setProject({
                 ...project,
                 milestones: updated,
-                completedContracts: allReleased
-                    ? project.completedContracts + 1
-                    : project.completedContracts,
             });
 
-            setStatus(`Milestone ${index + 1} approved and funds released.`);
+            if (allReleased) {
+                const previous = getReputationForProfile(profileKey);
+
+                const completedContracts = previous.completedContracts + 1;
+                const guildScore = Math.min(previous.guildScore + 10, 100);
+                const totalEarned = previous.totalEarned + project.totalBudget;
+                const creditUnlocked = completedContracts >= 3;
+                const creditAmount = creditUnlocked ? 200 : 0;
+
+                setReputationForProfile(profileKey, {
+                    completedContracts,
+                    guildScore,
+                    totalEarned,
+                    creditUnlocked,
+                    creditAmount,
+                });
+
+                setStatus(
+                    `Final milestone released. Reputation updated for ${project.freelancerName}.`
+                );
+            } else {
+                setStatus(`Milestone ${index + 1} approved and funds released.`);
+            }
         }
     }
 
@@ -137,7 +165,7 @@ export default function EscrowSimulator() {
                 <div
                     style={{
                         display: "grid",
-                        gridTemplateColumns: "1fr",
+                        gridTemplateColumns: "1fr 1fr",
                         gap: "20px",
                         alignItems: "start",
                     }}
@@ -153,7 +181,7 @@ export default function EscrowSimulator() {
                         <input
                             value={freelancerName}
                             onChange={(e) => setFreelancerName(e.target.value)}
-                            placeholder="Freelancer name"
+                            placeholder="Freelancer name (must match profile name for demo)"
                             style={inputStyle}
                         />
 
@@ -171,14 +199,21 @@ export default function EscrowSimulator() {
 
                     <div style={previewCard}>
                         <p style={{ opacity: 0.65 }}>
-                            No escrow project yet. Create one to simulate the full contract flow.
+                            No escrow project yet. Create one to simulate the payment flow.
                         </p>
                     </div>
                 </div>
             ) : (
                 <div style={{ display: "grid", gap: "18px" }}>
                     <div style={previewCard}>
-                        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "12px" }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                gap: "10px",
+                                flexWrap: "wrap",
+                                marginBottom: "12px",
+                            }}
+                        >
                             <Badge text={`Client: ${project.clientName}`} />
                             <Badge text={`Freelancer: ${project.freelancerName}`} />
                             <Badge text={`Budget: $${project.totalBudget}`} />
@@ -242,24 +277,26 @@ export default function EscrowSimulator() {
                     <div
                         style={{
                             display: "grid",
-                            gridTemplateColumns: "1fr",
+                            gridTemplateColumns: "1fr 1fr 1fr",
                             gap: "14px",
                         }}
                     >
                         <div style={metricCard}>
                             <p style={metricLabel}>Completed Contracts</p>
-                            <h3 style={metricValue}>{project.completedContracts}</h3>
+                            <h3 style={metricValue}>{currentReputation.completedContracts}</h3>
                         </div>
 
                         <div style={metricCard}>
                             <p style={metricLabel}>Guild Score</p>
-                            <h3 style={metricValue}>{guildScore}/100</h3>
+                            <h3 style={metricValue}>{currentReputation.guildScore}/100</h3>
                         </div>
 
                         <div style={metricCard}>
                             <p style={metricLabel}>Credit Status</p>
                             <h3 style={{ ...metricValue, fontSize: "24px" }}>
-                                {creditUnlocked ? "$200 Unlocked" : "Locked"}
+                                {currentReputation.creditUnlocked
+                                    ? `$${currentReputation.creditAmount} Unlocked`
+                                    : "Locked"}
                             </h3>
                         </div>
                     </div>
@@ -272,11 +309,7 @@ export default function EscrowSimulator() {
                 </div>
             )}
 
-            {status && (
-                <div style={statusBox}>
-                    {status}
-                </div>
-            )}
+            {status && <div style={statusBox}>{status}</div>}
         </section>
     );
 }

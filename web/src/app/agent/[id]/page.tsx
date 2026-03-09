@@ -82,7 +82,7 @@ export default function AgentProfilePage({
     );
   }
 
-  const reputation = getReputation(id, agent.hourlyRate);
+  const reputation = getReputation(agent.name);
 
   return (
     <main style={pageStyle}>
