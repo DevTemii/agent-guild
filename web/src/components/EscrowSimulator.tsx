@@ -365,10 +365,11 @@ const primaryBtn: React.CSSProperties = {
     padding: "14px 18px",
     borderRadius: "12px",
     border: "none",
-    background: "#22c55e",
+    background: "#38bdf8",
     color: "black",
-    fontWeight: 800,
+    fontWeight: 600,
     cursor: "pointer",
+    transition: "background 0.2s ease"
 };
 
 const secondaryBtn: React.CSSProperties = {
