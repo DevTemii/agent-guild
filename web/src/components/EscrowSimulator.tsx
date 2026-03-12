@@ -386,7 +386,7 @@ const primaryBtnSmall: React.CSSProperties = {
     padding: "10px 14px",
     borderRadius: "10px",
     border: "none",
-    background: "#22c55e",
+    background: "#38bdf8",
     color: "black",
     fontWeight: 800,
     cursor: "pointer",
