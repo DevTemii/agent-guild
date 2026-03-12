@@ -21,6 +21,9 @@ import {
 import { getReputation } from "@/lib/reputation";
 import { clearAllReputation } from "@/lib/reputationStore";
 import EscrowSimulator from "@/components/EscrowSimulator";
+import { defineChain } from "thirdweb";
+
+const chain = defineChain(44787); // Celo Alfajores testnet
 
 type Agent = {
   owner: string;
@@ -241,18 +244,18 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#0b0b0b] text-[#f8fafc]">
       <div className="mx-auto max-w-[1100px] px-4 sm:px-6">
-        <header className="flex flex-col gap-5 border-b border-[#1a1a1a] py-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-[14px] font-semibold tracking-[-0.02em] text-[#f8fafc]">
-              AGENT GUILD
-            </div>
-            <p className="mt-1 text-sm text-[#9ca3af]">
-              The Onchain Workforce Protocol
-            </p>
-          </div>
+        <header className="border-b border-[#1a1a1a]">
+          <div className="mx-auto flex max-w-[1100px] items-center justify-between px-6 py-4">
 
-          <div className="w-full sm:w-auto">
-            <ConnectButton client={client} chain={celoSepolia} />
+            <div className="text-[14px] font-semibold tracking-wide">
+              Agent Guild
+            </div>
+
+            <ConnectButton
+              client={client}
+              chain={chain}
+            />
+
           </div>
         </header>
 
