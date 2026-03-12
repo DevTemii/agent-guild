@@ -27,7 +27,7 @@ export default function EscrowSimulator() {
     const [project, setProject] = useState<EscrowProject | null>(null);
     const [status, setStatus] = useState("");
 
-    const profileKey = freelancerName.trim().toLowerCase();
+    const profileKey = freelancerName;
 
     const currentReputation = useMemo(() => {
         if (!profileKey) {
@@ -315,20 +315,40 @@ export default function EscrowSimulator() {
 }
 
 function Badge({ text }: { text: string }) {
+    const status = text.toLowerCase()
+
+    let bg = "#151515"
+    let color = "#aaa"
+
+    if (status.includes("funded")) {
+        bg = "#1e3a8a"
+        color = "#93c5fd"
+    }
+
+    if (status.includes("completed")) {
+        bg = "#78350f"
+        color = "#fcd34d"
+    }
+
+    if (status.includes("released")) {
+        bg = "#14532d"
+        color = "#86efac"
+    }
+
     return (
         <span
             style={{
                 padding: "6px 10px",
                 borderRadius: "999px",
-                background: "#151515",
-                border: "1px solid #262626",
+                background: bg,
+                color: color,
                 fontSize: "12px",
-                opacity: 0.9,
+                fontWeight: 700
             }}
         >
             {text}
         </span>
-    );
+    )
 }
 
 const inputStyle: React.CSSProperties = {
