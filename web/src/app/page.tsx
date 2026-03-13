@@ -74,7 +74,8 @@ export default function Home() {
 
   const [creating, setCreating] = useState(false);
   const [generatingContract, setGeneratingContract] = useState(false);
-  const [status, setStatus] = useState("");
+  const [profileStatus, setProfileStatus] = useState("");
+  const [contractStatus, setContractStatus] = useState("");
   const [search, setSearch] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -134,7 +135,7 @@ export default function Home() {
 
   async function handleGenerateContract() {
     if (!clientName || !projectBrief || !budget) {
-      setStatus(
+      setContractStatus(
         "Fill client name, project brief, and budget to generate contract."
       );
       return;
@@ -142,7 +143,7 @@ export default function Home() {
 
     try {
       setGeneratingContract(true);
-      setStatus("Generating AI contract...");
+      setContractStatus("Generating AI contract...");
 
       const res = await fetch("/api/generate-contract", {
         method: "POST",
@@ -163,10 +164,10 @@ export default function Home() {
       }
 
       setGeneratedContract(result);
-      setStatus("AI contract generated successfully.");
+      setContractStatus("AI contract generated successfully.");
     } catch (error) {
       console.error(error);
-      setStatus("AI contract generation failed.");
+      setContractStatus("AI contract generation failed.");
     } finally {
       setGeneratingContract(false);
     }
@@ -174,12 +175,12 @@ export default function Home() {
 
   async function createAgent() {
     if (!account) {
-      setStatus("Connect your wallet first.");
+      setProfileStatus("Connect your wallet first.");
       return;
     }
 
     if (!name || !skill || !hourlyRate) {
-      setStatus("Fill name, skill, and hourly rate.");
+      setProfileStatus("Fill name, skill, and hourly rate.");
       return;
     }
 
@@ -188,13 +189,13 @@ export default function Home() {
     );
 
     if (nameExists) {
-      setStatus("Username already exists. Choose another name.");
+      setProfileStatus("Username already exists. Choose another name.");
       return;
     }
 
     try {
       setCreating(true);
-      setStatus("Waiting for wallet confirmation...");
+      setProfileStatus("Waiting for wallet confirmation...");
 
       const transaction = prepareContractCall({
         contract,
@@ -215,7 +216,7 @@ export default function Home() {
         account,
       });
 
-      setStatus("Agent profile created successfully.");
+      setProfileStatus("Agent profile created successfully.");
       setName("");
       setDescription("");
       setSkill("");
@@ -227,7 +228,7 @@ export default function Home() {
       setRefreshKey((v) => v + 1);
     } catch (error) {
       console.error(error);
-      setStatus(
+      setProfileStatus(
         "Profile creation failed. Wallet may already have a profile or username may already be taken."
       );
     } finally {
@@ -449,9 +450,9 @@ export default function Home() {
                   </button>
                 </div>
 
-                {status && (
+                {profileStatus && (
                   <div className="rounded-[12px] border border-[#1f1f1f] bg-[#0b0b0b] px-4 py-3 text-sm text-[#d1d5db]">
-                    {status}
+                    {profileStatus}
                   </div>
                 )}
               </div>
@@ -526,6 +527,12 @@ export default function Home() {
                 </button>
               </div>
             </div>
+
+            {contractStatus && (
+              <div className="rounded-[12px] border border-[#1f1f1f] bg-[#0b0b0b] px-4 py-3 text-sm text-[#d1d5db]">
+                {contractStatus}
+              </div>
+            )}
 
             <div className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
               {!generatedContract ? (
