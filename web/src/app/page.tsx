@@ -160,14 +160,14 @@ export default function Home() {
       const result = await res.json();
 
       if (!res.ok) {
-        throw new Error(result?.error || "Failed to generate contract.");
+        throw new Error(result?.error || result?.message || "Failed to generate contract.");
       }
 
       setGeneratedContract(result);
       setContractStatus("AI contract generated successfully.");
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setContractStatus("AI contract generation failed.");
+      setContractStatus(error?.message || "AI contract generation failed.");
     } finally {
       setGeneratingContract(false);
     }
