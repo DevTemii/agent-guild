@@ -8,8 +8,8 @@ export type ReputationData = {
 
 const STORAGE_KEY = "agent-guild-reputation";
 
-function normalizeKey(profileKey: string) {
-    return profileKey.trim().toLowerCase().replace(/\s+/g, " ");
+function normalizeKey(key: string) {
+    return key.trim().toLowerCase();
 }
 
 export function getAllReputation(): Record<string, ReputationData> {
@@ -25,29 +25,29 @@ export function getAllReputation(): Record<string, ReputationData> {
     }
 }
 
-export function getReputationForProfile(profileKey: string): ReputationData {
+export function getReputationForWallet(walletAddress: string): ReputationData {
     const all = getAllReputation();
-    const key = normalizeKey(profileKey);
+    const key = normalizeKey(walletAddress);
 
     return (
         all[key] || {
-            completedContracts: 2,
-            guildScore: 20,
-            totalEarned: 400,
+            completedContracts: 0,
+            guildScore: 0,
+            totalEarned: 0,
             creditUnlocked: false,
             creditAmount: 0,
         }
     );
 }
 
-export function setReputationForProfile(
-    profileKey: string,
+export function setReputationForWallet(
+    walletAddress: string,
     data: ReputationData
 ) {
     if (typeof window === "undefined") return;
 
     const all = getAllReputation();
-    const key = normalizeKey(profileKey);
+    const key = normalizeKey(walletAddress);
 
     all[key] = data;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(all));

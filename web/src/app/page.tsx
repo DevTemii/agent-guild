@@ -628,7 +628,7 @@ export default function Home() {
                   account?.address?.toLowerCase() ===
                   agent.owner?.toLowerCase();
 
-                const reputation = getReputation(agent.name);
+                const reputation = getReputation(agent.owner);
 
                 return (
                   <Link

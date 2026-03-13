@@ -9,7 +9,7 @@ import {
   AGENT_REGISTRY_ABI,
   AGENT_REGISTRY_ADDRESS,
 } from "@/lib/contract";
-import { getReputation } from "@/lib/reputation";
+import { getReputationForWallet } from "@/lib/reputationStore";
 
 type Agent = {
   owner: string;
@@ -87,7 +87,7 @@ export default function AgentProfilePage({
     );
   }
 
-  const reputation = getReputation(agent.name);
+  const reputation = getReputationForWallet(agent.owner);
 
   return (
     <main className="min-h-screen bg-[#0b0b0b] text-[#f8fafc]">

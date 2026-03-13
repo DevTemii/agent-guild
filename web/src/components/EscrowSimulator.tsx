@@ -18,8 +18,8 @@ import {
     FREELANCE_ESCROW_ADDRESS,
 } from "@/lib/contract";
 import {
-    getReputationForProfile,
-    setReputationForProfile,
+    getReputationForWallet,
+    setReputationForWallet,
 } from "@/lib/reputationStore";
 
 const celoSepolia = defineChain({
@@ -234,14 +234,14 @@ export default function EscrowSimulator() {
             setEscrowState("released");
             setStatus("Payment released onchain.");
 
-            const previous = getReputationForProfile(freelancerName);
+            const previous = getReputationForWallet(freelancerAddress);
             const completedContracts = previous.completedContracts + 1;
             const guildScore = Math.min(completedContracts * 10, 100);
             const totalEarned = previous.totalEarned + Number(budget);
             const creditUnlocked = completedContracts >= 3;
             const creditAmount = creditUnlocked ? 200 : 0;
 
-            setReputationForProfile(freelancerName, {
+            setReputationForWallet(freelancerAddress, {
                 completedContracts,
                 guildScore,
                 totalEarned,

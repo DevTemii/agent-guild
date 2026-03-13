@@ -46,6 +46,8 @@ export const FREELANCE_ESCROW_ABI = [
     },
 ];
 
+
+
 export const AGENT_REGISTRY_ABI = [
     {
         inputs: [
@@ -84,3 +86,4 @@ export const AGENT_REGISTRY_ABI = [
         type: "function",
     },
 ] as const;
+

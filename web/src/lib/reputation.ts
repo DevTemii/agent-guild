@@ -1,5 +1,5 @@
-import { getReputationForProfile } from "./reputationStore";
+import { getReputationForWallet } from "./reputationStore";
 
-export function getReputation(profileName: string) {
-    return getReputationForProfile(profileName.trim().toLowerCase());
+export function getReputation(walletAddress: string) {
+    return getReputationForWallet(walletAddress);
 }
