@@ -19,7 +19,7 @@ import {
   AGENT_REGISTRY_ADDRESS,
 } from "@/lib/contract";
 import { getReputation } from "@/lib/reputation";
-import { clearAllReputation } from "@/lib/reputationStore";
+import { clearAllReputation, getReputationForWallet } from "@/lib/reputationStore";
 import EscrowSimulator from "@/components/EscrowSimulator";
 
 const chain = defineChain(44787); // Celo Alfajores testnet
@@ -121,12 +121,12 @@ export default function Home() {
   });
 
   const totalContracts = allAgents.reduce((sum, agent) => {
-    const rep = getReputation(agent.name);
+    const rep = getReputation(agent.owner);
     return sum + rep.completedContracts;
   }, 0);
 
   const totalVolume = allAgents.reduce((sum, agent) => {
-    const rep = getReputation(agent.name);
+    const rep = getReputationForWallet(agent.owner);
     return sum + rep.totalEarned;
   }, 0);
 
@@ -628,7 +628,7 @@ export default function Home() {
                   account?.address?.toLowerCase() ===
                   agent.owner?.toLowerCase();
 
-                const reputation = getReputation(agent.owner);
+                const reputation = getReputationForWallet(agent.owner);
 
                 return (
                   <Link

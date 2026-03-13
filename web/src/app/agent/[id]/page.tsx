@@ -154,7 +154,7 @@ export default function AgentProfilePage({
             </div>
 
             <div className="mt-5 space-y-4">
-              <InfoRow label="Owner Wallet" value={agent.owner} />
+              <InfoRow label="Owner Wallet" value={shortAddress(agent.owner)} />
               <div>
                 <div className="mb-2 text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
                   Explorer
@@ -266,6 +266,10 @@ export default function AgentProfilePage({
       </div>
     </main>
   );
+}
+
+function shortAddress(address: string) {
+  return address.slice(0, 6) + "..." + address.slice(-4);
 }
 
 function Tag({ text }: { text: string }) {
