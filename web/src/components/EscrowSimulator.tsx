@@ -1,439 +1,399 @@
+
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+    useActiveAccount,
+    useReadContract,
+} from "thirdweb/react";
+import {
+    defineChain,
+    getContract,
+    prepareContractCall,
+    sendTransaction,
+} from "thirdweb";
+import { client } from "@/lib/client";
+import {
+    FREELANCE_ESCROW_ABI,
+    FREELANCE_ESCROW_ADDRESS,
+} from "@/lib/contract";
 import {
     getReputationForProfile,
     setReputationForProfile,
 } from "@/lib/reputationStore";
 
-type Milestone = {
-    title: string;
-    amount: number;
-    status: "pending" | "funded" | "completed" | "released";
-};
+const celoSepolia = defineChain({
+    id: 11142220,
+    name: "Celo Sepolia",
+    rpc: "https://forno.celo-sepolia.celo-testnet.org",
+    nativeCurrency: {
+        name: "CELO",
+        symbol: "CELO",
+        decimals: 18,
+    },
+});
 
-type EscrowProject = {
-    clientName: string;
-    freelancerName: string;
-    totalBudget: number;
-    deposited: boolean;
-    milestones: Milestone[];
-};
+type EscrowStatus = "idle" | "created" | "funded" | "submitted" | "released";
+
+function toWeiFromCelo(value: string) {
+    const num = Number(value);
+    if (!num || num <= 0) return 0n;
+    return BigInt(Math.floor(num * 1e18));
+}
 
 export default function EscrowSimulator() {
+    const account = useActiveAccount();
+
     const [clientName, setClientName] = useState("");
     const [freelancerName, setFreelancerName] = useState("");
+    const [freelancerAddress, setFreelancerAddress] = useState("");
     const [budget, setBudget] = useState("");
-    const [project, setProject] = useState<EscrowProject | null>(null);
+    const [projectId, setProjectId] = useState<number | null>(null);
     const [status, setStatus] = useState("");
+    const [escrowState, setEscrowState] = useState<EscrowStatus>("idle");
+    const [busy, setBusy] = useState(false);
 
-    const profileKey = freelancerName;
+    const escrowContract = useMemo(() => {
+        return getContract({
+            client,
+            chain: celoSepolia,
+            address: FREELANCE_ESCROW_ADDRESS,
+            abi: FREELANCE_ESCROW_ABI as any,
+        });
+    }, []);
 
-    const currentReputation = useMemo(() => {
-        if (!profileKey) {
-            return {
-                completedContracts: 2,
-                guildScore: 20,
-                totalEarned: 400,
-                creditUnlocked: false,
-                creditAmount: 0,
-            };
-        }
+    const { data: projectCountData, refetch: refetchProjectCount } = useReadContract({
+        contract: escrowContract,
+        method: "function projectCount() view returns (uint256)",
+        params: [],
+    });
 
-        return getReputationForProfile(profileKey);
-    }, [profileKey, project]);
+    const { data: projectData, refetch: refetchProjectData } = useReadContract({
+        contract: escrowContract,
+        method:
+            "function getProject(uint256 _projectId) view returns (address client, address freelancer, uint256 amount, uint8 status)",
+        params: projectId !== null ? [BigInt(projectId)] : [0n],
+        queryOptions: {
+            enabled: projectId !== null,
+        },
+    });
 
-    function createEscrowProject() {
-        if (!clientName || !freelancerName || !budget) {
-            setStatus("Fill client name, freelancer name, and budget.");
+    useEffect(() => {
+        if (!projectData) return;
+
+        const statusCode = Number((projectData as any)[3]);
+
+        if (statusCode === 0) setEscrowState("created");
+        if (statusCode === 1) setEscrowState("funded");
+        if (statusCode === 2) setEscrowState("submitted");
+        if (statusCode === 3) setEscrowState("released");
+    }, [projectData]);
+
+    async function createEscrowProject() {
+        if (!account) {
+            setStatus("Connect your wallet first.");
             return;
         }
 
-        const totalBudget = Number(budget);
-        const m1 = Math.floor(totalBudget * 0.3);
-        const m2 = Math.floor(totalBudget * 0.3);
-        const m3 = totalBudget - m1 - m2;
-
-        setProject({
-            clientName,
-            freelancerName,
-            totalBudget,
-            deposited: false,
-            milestones: [
-                { title: "Project kickoff and research", amount: m1, status: "pending" },
-                { title: "Core execution and draft delivery", amount: m2, status: "pending" },
-                { title: "Final delivery and revisions", amount: m3, status: "pending" },
-            ],
-        });
-
-        setStatus("Escrow project created.");
-    }
-
-    function depositFunds() {
-        if (!project) return;
-
-        setProject({
-            ...project,
-            deposited: true,
-            milestones: project.milestones.map((m) => ({
-                ...m,
-                status: "funded",
-            })),
-        });
-
-        setStatus("Client deposited funds into escrow.");
-    }
-
-    function markComplete(index: number) {
-        if (!project) return;
-
-        const updated = [...project.milestones];
-        if (updated[index].status === "funded") {
-            updated[index].status = "completed";
-            setProject({ ...project, milestones: updated });
-            setStatus(`Milestone ${index + 1} marked complete by freelancer.`);
+        if (!clientName || !freelancerName || !freelancerAddress || !budget) {
+            setStatus("Fill client name, freelancer name, freelancer wallet, and budget.");
+            return;
         }
-    }
 
-    function approveAndRelease(index: number) {
-        if (!project) return;
+        try {
+            setBusy(true);
+            setStatus("Creating real escrow project onchain...");
 
-        const updated = [...project.milestones];
-
-        if (updated[index].status === "completed") {
-            updated[index].status = "released";
-
-            const allReleased = updated.every((m) => m.status === "released");
-
-            setProject({
-                ...project,
-                milestones: updated,
+            const tx = prepareContractCall({
+                contract: escrowContract,
+                method: "function createProject(address _freelancer) returns (uint256)",
+                params: [freelancerAddress as `0x${string}`],
             });
 
-            if (allReleased) {
-                const previous = getReputationForProfile(profileKey);
+            await sendTransaction({
+                transaction: tx,
+                account,
+            });
 
-                const completedContracts = previous.completedContracts + 1;
-                const guildScore = Math.min(previous.guildScore + 10, 100);
-                const totalEarned = previous.totalEarned + project.totalBudget;
-                const creditUnlocked = completedContracts >= 3;
-                const creditAmount = creditUnlocked ? 200 : 0;
+            const latest = await refetchProjectCount();
+            const latestCount = Number(latest?.data ?? projectCountData ?? 0n);
 
-                setReputationForProfile(profileKey, {
-                    completedContracts,
-                    guildScore,
-                    totalEarned,
-                    creditUnlocked,
-                    creditAmount,
-                });
-
-                setStatus(
-                    `Final milestone released. Reputation updated for ${project.freelancerName}.`
-                );
-            } else {
-                setStatus(`Milestone ${index + 1} approved and funds released.`);
-            }
+            setProjectId(latestCount);
+            setEscrowState("created");
+            setStatus(`Escrow project created onchain. Project ID: ${latestCount}`);
+        } catch (error) {
+            console.error(error);
+            setStatus("Failed to create escrow project.");
+        } finally {
+            setBusy(false);
         }
     }
 
-    function resetSimulation() {
-        setProject(null);
-        setClientName("");
-        setFreelancerName("");
-        setBudget("");
-        setStatus("");
+    async function depositFunds() {
+        if (!account) {
+            setStatus("Connect your wallet first.");
+            return;
+        }
+
+        if (projectId === null) {
+            setStatus("Create escrow project first.");
+            return;
+        }
+
+        try {
+            setBusy(true);
+            setStatus("Depositing CELO into escrow...");
+
+            const tx = prepareContractCall({
+                contract: escrowContract,
+                method: "function deposit(uint256 _projectId)",
+                params: [BigInt(projectId)],
+                value: toWeiFromCelo(budget),
+            });
+
+            await sendTransaction({
+                transaction: tx,
+                account,
+            });
+
+            await refetchProjectData();
+            setEscrowState("funded");
+            setStatus("Escrow funded successfully.");
+        } catch (error) {
+            console.error(error);
+            setStatus("Deposit failed.");
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function submitWork() {
+        if (!account) {
+            setStatus("Connect your wallet first.");
+            return;
+        }
+
+        if (projectId === null) {
+            setStatus("Create escrow project first.");
+            return;
+        }
+
+        try {
+            setBusy(true);
+            setStatus("Submitting work to escrow contract...");
+
+            const tx = prepareContractCall({
+                contract: escrowContract,
+                method: "function submitWork(uint256 _projectId)",
+                params: [BigInt(projectId)],
+            });
+
+            await sendTransaction({
+                transaction: tx,
+                account,
+            });
+
+            await refetchProjectData();
+            setEscrowState("submitted");
+            setStatus("Work submitted successfully.");
+        } catch (error) {
+            console.error(error);
+            setStatus("Submit work failed.");
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function approveAndRelease() {
+        if (!account) {
+            setStatus("Connect your wallet first.");
+            return;
+        }
+
+        if (projectId === null) {
+            setStatus("Create escrow project first.");
+            return;
+        }
+
+        try {
+            setBusy(true);
+            setStatus("Approving milestone and releasing payment...");
+
+            const tx = prepareContractCall({
+                contract: escrowContract,
+                method: "function approveAndRelease(uint256 _projectId)",
+                params: [BigInt(projectId)],
+            });
+
+            await sendTransaction({
+                transaction: tx,
+                account,
+            });
+
+            await refetchProjectData();
+            setEscrowState("released");
+            setStatus("Payment released onchain.");
+
+            const previous = getReputationForProfile(freelancerName);
+            const completedContracts = previous.completedContracts + 1;
+            const guildScore = Math.min(completedContracts * 10, 100);
+            const totalEarned = previous.totalEarned + Number(budget);
+            const creditUnlocked = completedContracts >= 3;
+            const creditAmount = creditUnlocked ? 200 : 0;
+
+            setReputationForProfile(freelancerName, {
+                completedContracts,
+                guildScore,
+                totalEarned,
+                creditUnlocked,
+                creditAmount,
+            });
+        } catch (error) {
+            console.error(error);
+            setStatus("Approve and release failed.");
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function stateLabel() {
+        if (escrowState === "idle") return "No project";
+        if (escrowState === "created") return "Created";
+        if (escrowState === "funded") return "Funded";
+        if (escrowState === "submitted") return "Work Submitted";
+        if (escrowState === "released") return "Released";
+        return "Unknown";
     }
 
     return (
-        <section
-            style={{
-                border: "1px solid #202020",
-                borderRadius: "24px",
-                padding: "24px",
-                background: "#101010",
-                marginBottom: "24px",
-            }}
-        >
-            <div style={{ marginBottom: "18px" }}>
-                <h3 style={{ margin: 0, fontSize: "24px" }}>Escrow Simulation</h3>
-                <p style={{ margin: "8px 0 0", opacity: 0.72, lineHeight: 1.6 }}>
-                    Simulate milestone-based payments for freelancer contracts.
+        <section className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
+            <div className="mb-6">
+                <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
+                    Real escrow
+                </div>
+                <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
+                    Onchain escrow flow
+                </h2>
+                <p className="mt-3 text-[15px] leading-7 text-[#9ca3af]">
+                    Create a real escrow project, deposit CELO, submit work, and release funds on Celo Sepolia.
                 </p>
             </div>
 
-            {!project ? (
-                <div
-                    style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: "20px",
-                        alignItems: "start",
-                    }}
-                >
-                    <div style={{ display: "grid", gap: "12px" }}>
-                        <input
-                            value={clientName}
-                            onChange={(e) => setClientName(e.target.value)}
-                            placeholder="Client name"
-                            style={inputStyle}
-                        />
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+                <div className="grid gap-3">
+                    <input
+                        value={clientName}
+                        onChange={(e) => setClientName(e.target.value)}
+                        placeholder="Client name"
+                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                    />
 
-                        <input
-                            value={freelancerName}
-                            onChange={(e) => setFreelancerName(e.target.value)}
-                            placeholder="Freelancer name (must match profile name for demo)"
-                            style={inputStyle}
-                        />
+                    <input
+                        value={freelancerName}
+                        onChange={(e) => setFreelancerName(e.target.value)}
+                        placeholder="Freelancer profile name"
+                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                    />
 
-                        <input
-                            value={budget}
-                            onChange={(e) => setBudget(e.target.value)}
-                            placeholder="Budget in USD e.g 300"
-                            style={inputStyle}
-                        />
+                    <input
+                        value={freelancerAddress}
+                        onChange={(e) => setFreelancerAddress(e.target.value)}
+                        placeholder="Freelancer wallet address"
+                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                    />
 
-                        <button onClick={createEscrowProject} style={primaryBtn}>
-                            Create Escrow Project
-                        </button>
-                    </div>
+                    <input
+                        value={budget}
+                        onChange={(e) => setBudget(e.target.value)}
+                        placeholder="Budget in CELO e.g 0.01"
+                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                    />
 
-                    <div style={previewCard}>
-                        <p style={{ opacity: 0.65 }}>
-                            No escrow project yet. Create one to simulate the payment flow.
-                        </p>
-                    </div>
-                </div>
-            ) : (
-                <div style={{ display: "grid", gap: "18px" }}>
-                    <div style={previewCard}>
-                        <div
-                            style={{
-                                display: "flex",
-                                gap: "10px",
-                                flexWrap: "wrap",
-                                marginBottom: "12px",
-                            }}
+                    <div className="flex flex-col gap-3 pt-2">
+                        <button
+                            onClick={createEscrowProject}
+                            disabled={busy}
+                            className="rounded-[10px] bg-[#38bdf8] px-5 py-3 text-sm font-semibold text-black transition hover:bg-[#0ea5e9] disabled:opacity-60"
                         >
-                            <Badge text={`Client: ${project.clientName}`} />
-                            <Badge text={`Freelancer: ${project.freelancerName}`} />
-                            <Badge text={`Budget: $${project.totalBudget}`} />
-                            <Badge text={project.deposited ? "Escrow Funded" : "Awaiting Deposit"} />
-                        </div>
+                            {busy ? "Processing..." : "Create Onchain Escrow"}
+                        </button>
 
-                        <div style={{ display: "grid", gap: "12px" }}>
-                            {project.milestones.map((milestone, index) => (
-                                <div
-                                    key={index}
-                                    style={{
-                                        border: "1px solid #1f1f1f",
-                                        borderRadius: "14px",
-                                        padding: "14px",
-                                        background: "#111",
-                                    }}
-                                >
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            justifyContent: "space-between",
-                                            gap: "12px",
-                                            alignItems: "center",
-                                            marginBottom: "8px",
-                                        }}
-                                    >
-                                        <div>
-                                            <div style={{ fontWeight: 700 }}>{milestone.title}</div>
-                                            <div style={{ opacity: 0.7, fontSize: "14px", marginTop: "4px" }}>
-                                                ${milestone.amount}
-                                            </div>
-                                        </div>
+                        <button
+                            onClick={depositFunds}
+                            disabled={busy || projectId === null}
+                            className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
+                        >
+                            Deposit Funds
+                        </button>
 
-                                        <Badge text={milestone.status.toUpperCase()} />
-                                    </div>
+                        <button
+                            onClick={submitWork}
+                            disabled={busy || projectId === null}
+                            className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
+                        >
+                            Submit Work
+                        </button>
 
-                                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                                        {index === 0 && !project.deposited && (
-                                            <button onClick={depositFunds} style={primaryBtnSmall}>
-                                                Deposit Funds
-                                            </button>
-                                        )}
-
-                                        {project.deposited && milestone.status === "funded" && (
-                                            <button onClick={() => markComplete(index)} style={secondaryBtnSmall}>
-                                                Mark Complete
-                                            </button>
-                                        )}
-
-                                        {milestone.status === "completed" && (
-                                            <button onClick={() => approveAndRelease(index)} style={primaryBtnSmall}>
-                                                Approve & Release
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div
-                        style={{
-                            display: "grid",
-                            gridTemplateColumns: "1fr 1fr 1fr",
-                            gap: "14px",
-                        }}
-                    >
-                        <div style={metricCard}>
-                            <p style={metricLabel}>Completed Contracts</p>
-                            <h3 style={metricValue}>{currentReputation.completedContracts}</h3>
-                        </div>
-
-                        <div style={metricCard}>
-                            <p style={metricLabel}>Guild Score</p>
-                            <h3 style={metricValue}>{currentReputation.guildScore}/100</h3>
-                        </div>
-
-                        <div style={metricCard}>
-                            <p style={metricLabel}>Credit Status</p>
-                            <h3 style={{ ...metricValue, fontSize: "24px" }}>
-                                {currentReputation.creditUnlocked
-                                    ? `$${currentReputation.creditAmount} Unlocked`
-                                    : "Locked"}
-                            </h3>
-                        </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                        <button onClick={resetSimulation} style={secondaryBtn}>
-                            Reset Simulation
+                        <button
+                            onClick={approveAndRelease}
+                            disabled={busy || projectId === null}
+                            className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
+                        >
+                            Approve & Release
                         </button>
                     </div>
-                </div>
-            )}
 
-            {status && <div style={statusBox}>{status}</div>}
+                    {status && (
+                        <div className="rounded-[12px] border border-[#1f1f1f] bg-[#0b0b0b] px-4 py-3 text-sm text-[#d1d5db]">
+                            {status}
+                        </div>
+                    )}
+                </div>
+
+                <div className="rounded-[16px] border border-[#1f1f1f] bg-[#0b0b0b] p-5">
+                    <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                        Escrow state
+                    </div>
+
+                    <div className="mt-4 grid gap-4">
+                        <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
+                            <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                Project ID
+                            </div>
+                            <div className="mt-2 text-[15px] font-semibold">
+                                {projectId ?? "Not created yet"}
+                            </div>
+                        </div>
+
+                        <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
+                            <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                Status
+                            </div>
+                            <div className="mt-2 text-[15px] font-semibold">
+                                {stateLabel()}
+                            </div>
+                        </div>
+
+                        <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
+                            <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                Contract
+                            </div>
+                            <div className="mt-2 break-all text-[14px] text-[#d1d5db]">
+                                {FREELANCE_ESCROW_ADDRESS}
+                            </div>
+                        </div>
+
+                        <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
+                            <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                Network
+                            </div>
+                            <div className="mt-2 text-[14px] text-[#d1d5db]">
+                                Celo Sepolia
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </section>
     );
 }
-
-function Badge({ text }: { text: string }) {
-    const status = text.toLowerCase()
-
-    let bg = "#151515"
-    let color = "#aaa"
-
-    if (status.includes("funded")) {
-        bg = "#1e3a8a"
-        color = "#93c5fd"
-    }
-
-    if (status.includes("completed")) {
-        bg = "#78350f"
-        color = "#fcd34d"
-    }
-
-    if (status.includes("released")) {
-        bg = "#14532d"
-        color = "#86efac"
-    }
-
-    return (
-        <span
-            style={{
-                padding: "6px 10px",
-                borderRadius: "999px",
-                background: bg,
-                color: color,
-                fontSize: "12px",
-                fontWeight: 700
-            }}
-        >
-            {text}
-        </span>
-    )
-}
-
-const inputStyle: React.CSSProperties = {
-    width: "100%",
-    padding: "14px",
-    borderRadius: "14px",
-    border: "1px solid #2a2a2a",
-    background: "#0b0b0b",
-    color: "white",
-    outline: "none",
-};
-
-const primaryBtn: React.CSSProperties = {
-    padding: "14px 18px",
-    borderRadius: "12px",
-    border: "none",
-    background: "#38bdf8",
-    color: "black",
-    fontWeight: 600,
-    cursor: "pointer",
-    transition: "background 0.2s ease"
-};
-
-const secondaryBtn: React.CSSProperties = {
-    padding: "14px 18px",
-    borderRadius: "12px",
-    border: "1px solid #2c2c2c",
-    background: "#0f0f0f",
-    color: "white",
-    fontWeight: 700,
-    cursor: "pointer",
-};
-
-const primaryBtnSmall: React.CSSProperties = {
-    padding: "10px 14px",
-    borderRadius: "10px",
-    border: "none",
-    background: "#38bdf8",
-    color: "black",
-    fontWeight: 800,
-    cursor: "pointer",
-};
-
-const secondaryBtnSmall: React.CSSProperties = {
-    padding: "10px 14px",
-    borderRadius: "10px",
-    border: "1px solid #2c2c2c",
-    background: "#0f0f0f",
-    color: "white",
-    fontWeight: 700,
-    cursor: "pointer",
-};
-
-const previewCard: React.CSSProperties = {
-    border: "1px solid #222",
-    borderRadius: "18px",
-    padding: "18px",
-    background: "#0b0b0b",
-    minHeight: "180px",
-};
-
-const metricCard: React.CSSProperties = {
-    border: "1px solid #202020",
-    borderRadius: "20px",
-    padding: "18px",
-    background: "#101010",
-};
-
-const metricLabel: React.CSSProperties = {
-    margin: 0,
-    opacity: 0.65,
-    fontSize: "13px",
-};
-
-const metricValue: React.CSSProperties = {
-    margin: "10px 0 0",
-    fontSize: "32px",
-};
-
-const statusBox: React.CSSProperties = {
-    marginTop: "18px",
-    padding: "12px 14px",
-    borderRadius: "12px",
-    background: "#0b0b0b",
-    border: "1px solid #1f1f1f",
-    fontSize: "14px",
-    opacity: 0.9,
-};
