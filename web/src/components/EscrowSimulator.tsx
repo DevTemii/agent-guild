@@ -1,11 +1,7 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-    useActiveAccount,
-    useReadContract,
-} from "thirdweb/react";
+import { useActiveAccount, useReadContract } from "thirdweb/react";
 import {
     defineChain,
     getContract,
@@ -40,12 +36,13 @@ type EscrowStatus = "idle" | "created" | "funded" | "submitted" | "released";
 
 function toWeiFromCelo(value: string) {
     const num = Number(value);
-    if (!num || num <= 0) return 0n;
+    if (!num || num <= 0) return BigInt(0);
     return BigInt(Math.floor(num * 1e18));
 }
 
 export default function EscrowSimulator() {
     const account = useActiveAccount();
+    const connectedAddress = account?.address?.toLowerCase();
 
     const [clientName, setClientName] = useState("");
     const [freelancerName, setFreelancerName] = useState("");
@@ -65,6 +62,22 @@ export default function EscrowSimulator() {
         });
     }, []);
 
+    useEffect(() => {
+        const saved = localStorage.getItem(ESCROW_STORAGE_KEY);
+        if (!saved) return;
+
+        try {
+            const data = JSON.parse(saved);
+            setProjectId(data.projectId ?? null);
+            setClientName(data.clientName ?? "");
+            setFreelancerName(data.freelancerName ?? "");
+            setFreelancerAddress(data.freelancerAddress ?? "");
+            setBudget(data.budget ?? "");
+        } catch (err) {
+            console.error("Failed to restore escrow state", err);
+        }
+    }, []);
+
     const { data: projectCountData, refetch: refetchProjectCount } = useReadContract({
         contract: escrowContract,
         method: "function projectCount() view returns (uint256)",
@@ -75,11 +88,20 @@ export default function EscrowSimulator() {
         contract: escrowContract,
         method:
             "function getProject(uint256 _projectId) view returns (address client, address freelancer, uint256 amount, uint8 status)",
-        params: projectId !== null ? [BigInt(projectId)] : [0n],
+        params: projectId !== null ? [BigInt(projectId)] : [BigInt(0)],
         queryOptions: {
             enabled: projectId !== null,
         },
     });
+
+    const onchainClient =
+        projectData ? String((projectData as any)[0]).toLowerCase() : "";
+    const onchainFreelancer =
+        projectData ? String((projectData as any)[1]).toLowerCase() : "";
+
+    const isClient = !!connectedAddress && connectedAddress === onchainClient;
+    const isFreelancer =
+        !!connectedAddress && connectedAddress === onchainFreelancer;
 
     useEffect(() => {
         if (!projectData) return;
@@ -119,9 +141,11 @@ export default function EscrowSimulator() {
             });
 
             const latest = await refetchProjectCount();
-            const latestCount = Number(latest?.data ?? projectCountData ?? 0n);
+            const latestCount = Number(latest?.data ?? projectCountData ?? BigInt(0));
 
             setProjectId(latestCount);
+            setEscrowState("created");
+
             localStorage.removeItem(CONTRACT_STORAGE_KEY);
             localStorage.setItem(
                 ESCROW_STORAGE_KEY,
@@ -134,7 +158,6 @@ export default function EscrowSimulator() {
                 })
             );
 
-            setEscrowState("created");
             setStatus(`Escrow project created onchain. Project ID: ${latestCount}`);
         } catch (error) {
             console.error(error);
@@ -142,25 +165,7 @@ export default function EscrowSimulator() {
         } finally {
             setBusy(false);
         }
-
     }
-
-    useEffect(() => {
-        const saved = localStorage.getItem(ESCROW_STORAGE_KEY);
-        if (!saved) return;
-
-        try {
-            const data = JSON.parse(saved);
-
-            setProjectId(data.projectId ?? null);
-            setClientName(data.clientName ?? "");
-            setFreelancerName(data.freelancerName ?? "");
-            setFreelancerAddress(data.freelancerAddress ?? "");
-            setBudget(data.budget ?? "");
-        } catch (err) {
-            console.error("Failed to restore escrow state", err);
-        }
-    }, []);
 
     async function depositFunds() {
         if (!account) {
@@ -238,7 +243,6 @@ export default function EscrowSimulator() {
     }
 
     async function approveAndRelease() {
-        localStorage.removeItem(ESCROW_STORAGE_KEY);
         if (!account) {
             setStatus("Connect your wallet first.");
             return;
@@ -282,6 +286,8 @@ export default function EscrowSimulator() {
                 creditUnlocked,
                 creditAmount,
             });
+
+            localStorage.removeItem(ESCROW_STORAGE_KEY);
         } catch (error) {
             console.error(error);
             setStatus("Approve and release failed.");
@@ -297,6 +303,25 @@ export default function EscrowSimulator() {
         if (escrowState === "submitted") return "Work Submitted";
         if (escrowState === "released") return "Released";
         return "Unknown";
+    }
+
+    function helperText() {
+        if (escrowState === "idle") {
+            return "Create a new escrow project to begin the workflow.";
+        }
+        if (escrowState === "created") {
+            return "Escrow created. Client should fund the project.";
+        }
+        if (escrowState === "funded") {
+            return "Escrow funded. Freelancer can now submit work.";
+        }
+        if (escrowState === "submitted") {
+            return "Work submitted. Client can now review and release payment.";
+        }
+        if (escrowState === "released") {
+            return "Payment released successfully.";
+        }
+        return "";
     }
 
     return (
@@ -344,42 +369,50 @@ export default function EscrowSimulator() {
                     />
 
                     <div className="flex flex-col gap-3 pt-2">
-                        <button
-                            onClick={createEscrowProject}
-                            disabled={busy}
-                            className="rounded-[10px] bg-[#38bdf8] px-5 py-3 text-sm font-semibold text-black transition hover:bg-[#0ea5e9] disabled:opacity-60"
-                        >
-                            {busy ? "Processing..." : "Create Onchain Escrow"}
-                        </button>
+                        {projectId === null && (
+                            <button
+                                onClick={createEscrowProject}
+                                disabled={busy}
+                                className="rounded-[10px] bg-[#38bdf8] px-5 py-3 text-sm font-semibold text-black transition hover:bg-[#0ea5e9] disabled:opacity-60"
+                            >
+                                {busy ? "Processing..." : "Create Onchain Escrow"}
+                            </button>
+                        )}
 
-                        <button
-                            onClick={depositFunds}
-                            disabled={busy || projectId === null}
-                            className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
-                        >
-                            Deposit Funds
-                        </button>
+                        {projectId !== null && escrowState === "created" && isClient && (
+                            <button
+                                onClick={depositFunds}
+                                disabled={busy}
+                                className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
+                            >
+                                Deposit Funds
+                            </button>
+                        )}
 
-                        <button
-                            onClick={submitWork}
-                            disabled={busy || projectId === null}
-                            className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
-                        >
-                            Submit Work
-                        </button>
+                        {projectId !== null && escrowState === "funded" && isFreelancer && (
+                            <button
+                                onClick={submitWork}
+                                disabled={busy}
+                                className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
+                            >
+                                Submit Work
+                            </button>
+                        )}
 
-                        <button
-                            onClick={approveAndRelease}
-                            disabled={busy || projectId === null}
-                            className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
-                        >
-                            Approve & Release
-                        </button>
+                        {projectId !== null && escrowState === "submitted" && isClient && (
+                            <button
+                                onClick={approveAndRelease}
+                                disabled={busy}
+                                className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
+                            >
+                                Approve & Release
+                            </button>
+                        )}
                     </div>
 
-                    {status && (
+                    {(status || helperText()) && (
                         <div className="rounded-[12px] border border-[#1f1f1f] bg-[#0b0b0b] px-4 py-3 text-sm text-[#d1d5db]">
-                            {status}
+                            {status || helperText()}
                         </div>
                     )}
                 </div>
@@ -403,8 +436,18 @@ export default function EscrowSimulator() {
                             <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
                                 Status
                             </div>
-                            <div className="mt-2 text-[15px] font-semibold">
-                                {stateLabel()}
+                            <div className="mt-2 text-[15px] font-semibold">{stateLabel()}</div>
+                        </div>
+
+                        <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
+                            <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                Current role
+                            </div>
+                            <div className="mt-2 text-[14px] text-[#d1d5db]">
+                                {!connectedAddress && "Connect wallet"}
+                                {connectedAddress && isClient && "Client"}
+                                {connectedAddress && isFreelancer && "Freelancer"}
+                                {connectedAddress && !isClient && !isFreelancer && "Viewer"}
                             </div>
                         </div>
 
