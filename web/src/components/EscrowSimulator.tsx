@@ -22,6 +22,9 @@ import {
     setReputationForWallet,
 } from "@/lib/reputationStore";
 
+const ESCROW_STORAGE_KEY = "agent-guild-active-escrow";
+const CONTRACT_STORAGE_KEY = "agent-guild-contract";
+
 const celoSepolia = defineChain({
     id: 11142220,
     name: "Celo Sepolia",
@@ -119,6 +122,18 @@ export default function EscrowSimulator() {
             const latestCount = Number(latest?.data ?? projectCountData ?? 0n);
 
             setProjectId(latestCount);
+            localStorage.removeItem(CONTRACT_STORAGE_KEY);
+            localStorage.setItem(
+                ESCROW_STORAGE_KEY,
+                JSON.stringify({
+                    projectId: latestCount,
+                    clientName,
+                    freelancerName,
+                    freelancerAddress,
+                    budget,
+                })
+            );
+
             setEscrowState("created");
             setStatus(`Escrow project created onchain. Project ID: ${latestCount}`);
         } catch (error) {
@@ -127,7 +142,25 @@ export default function EscrowSimulator() {
         } finally {
             setBusy(false);
         }
+
     }
+
+    useEffect(() => {
+        const saved = localStorage.getItem(ESCROW_STORAGE_KEY);
+        if (!saved) return;
+
+        try {
+            const data = JSON.parse(saved);
+
+            setProjectId(data.projectId ?? null);
+            setClientName(data.clientName ?? "");
+            setFreelancerName(data.freelancerName ?? "");
+            setFreelancerAddress(data.freelancerAddress ?? "");
+            setBudget(data.budget ?? "");
+        } catch (err) {
+            console.error("Failed to restore escrow state", err);
+        }
+    }, []);
 
     async function depositFunds() {
         if (!account) {
@@ -205,6 +238,7 @@ export default function EscrowSimulator() {
     }
 
     async function approveAndRelease() {
+        localStorage.removeItem(ESCROW_STORAGE_KEY);
         if (!account) {
             setStatus("Connect your wallet first.");
             return;

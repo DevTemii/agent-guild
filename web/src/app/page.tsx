@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccount } from "wagmi";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -21,6 +22,7 @@ import {
 import { getReputation } from "@/lib/reputation";
 import { clearAllReputation, getReputationForWallet } from "@/lib/reputationStore";
 import EscrowSimulator from "@/components/EscrowSimulator";
+
 
 const chain = defineChain(44787); // Celo Alfajores testnet
 
@@ -66,12 +68,24 @@ export default function Home() {
   const [location, setLocation] = useState("");
   const [availability, setAvailability] = useState("");
 
+  const CONTRACT_STORAGE_KEY = "agent-guild-generated-contract";
   const [clientName, setClientName] = useState("");
   const [projectBrief, setProjectBrief] = useState("");
   const [budget, setBudget] = useState("");
   const [generatedContract, setGeneratedContract] =
+
     useState<GeneratedContract | null>(null);
 
+  useEffect(() => {
+    const saved = localStorage.getItem(CONTRACT_STORAGE_KEY);
+    if (!saved) return;
+
+    try {
+      setGeneratedContract(JSON.parse(saved));
+    } catch (err) {
+      console.error("Failed to restore contract", err);
+    }
+  }, []);
   const [creating, setCreating] = useState(false);
   const [generatingContract, setGeneratingContract] = useState(false);
   const [profileStatus, setProfileStatus] = useState("");
@@ -164,6 +178,10 @@ export default function Home() {
       }
 
       setGeneratedContract(result);
+      localStorage.setItem(
+        CONTRACT_STORAGE_KEY,
+        JSON.stringify(result)
+      );
       setContractStatus("AI contract generated successfully.");
     } catch (error: any) {
       console.error(error);
@@ -173,6 +191,7 @@ export default function Home() {
     }
   }
 
+  const { address } = useAccount();
   async function createAgent() {
     if (!account) {
       setProfileStatus("Connect your wallet first.");
@@ -181,6 +200,15 @@ export default function Home() {
 
     if (!name || !skill || !hourlyRate) {
       setProfileStatus("Fill name, skill, and hourly rate.");
+      return;
+    }
+
+    const walletExists = allAgents.some(
+      (agent) => agent.owner.toLowerCase() === address?.toLowerCase()
+    );
+
+    if (walletExists) {
+      setProfileStatus("This wallet already has a freelancer profile.");
       return;
     }
 
