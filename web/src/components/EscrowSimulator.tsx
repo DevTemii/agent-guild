@@ -48,6 +48,7 @@ export default function EscrowSimulator() {
     const [freelancerName, setFreelancerName] = useState("");
     const [freelancerAddress, setFreelancerAddress] = useState("");
     const [budget, setBudget] = useState("");
+    const [submissionLink, setSubmissionLink] = useState("");
     const [projectId, setProjectId] = useState<number | null>(null);
     const [status, setStatus] = useState("");
     const [escrowState, setEscrowState] = useState<EscrowStatus>("idle");
@@ -205,6 +206,10 @@ export default function EscrowSimulator() {
         }
     }
 
+    if (!submissionLink) {
+        setStatus("Freelancer must submit a work link.");
+        return;
+    }
     async function submitWork() {
         if (!account) {
             setStatus("Connect your wallet first.");
@@ -230,6 +235,11 @@ export default function EscrowSimulator() {
                 transaction: tx,
                 account,
             });
+
+            localStorage.setItem(
+                `agent-guild-submission-${projectId}`,
+                submissionLink
+            );
 
             await refetchProjectData();
             setEscrowState("submitted");
@@ -413,6 +423,13 @@ export default function EscrowSimulator() {
                         className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
                     />
 
+                    <input
+                        value={submissionLink}
+                        onChange={(e) => setSubmissionLink(e.target.value)}
+                        placeholder="Work submission link (GitHub, Figma, Drive)"
+                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                    />
+
                     <div className="flex flex-col gap-3 pt-2">
                         {projectId === null && (
                             <button
@@ -483,6 +500,19 @@ export default function EscrowSimulator() {
                             </div>
                             <div className="mt-2 text-[15px] font-semibold">{stateLabel()}</div>
                         </div>
+
+                        {projectId !== null && (
+                            <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
+                                <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                    Submitted Work
+                                </div>
+
+                                <div className="mt-2 text-[14px] text-[#38bdf8] break-all">
+                                    {localStorage.getItem(`agent-guild-submission-${projectId}`) ||
+                                        "No work submitted yet"}
+                                </div>
+                            </div>
+                        )}
 
                         <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
                             <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
