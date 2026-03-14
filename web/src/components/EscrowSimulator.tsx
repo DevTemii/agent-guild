@@ -323,12 +323,57 @@ export default function EscrowSimulator() {
         }
         return "";
     }
+    function getNotifications() {
+        const items: string[] = [];
 
+        if (escrowState === "created") {
+            items.push("Escrow created. Client should fund the project.");
+        }
+
+        if (escrowState === "funded") {
+            items.push("Escrow funded. Freelancer can now submit work.");
+        }
+
+        if (escrowState === "submitted") {
+            items.push("Work submitted. Client can now review and release payment.");
+        }
+
+        if (escrowState === "released") {
+            items.push("Payment released successfully.");
+        }
+
+        return items;
+    }
+
+    const notifications = getNotifications();
     return (
+
         <section className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
             <div className="mb-6">
                 <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
                     Real escrow
+                </div>
+                <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
+                    <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                        Notifications
+                    </div>
+
+                    <div className="mt-3 space-y-3">
+                        {notifications.length === 0 ? (
+                            <div className="text-[14px] text-[#9ca3af]">
+                                No active notifications yet.
+                            </div>
+                        ) : (
+                            notifications.map((note, index) => (
+                                <div
+                                    key={index}
+                                    className="rounded-[10px] border border-[#1f1f1f] bg-[#0b0b0b] px-3 py-3 text-[14px] text-[#d1d5db]"
+                                >
+                                    {note}
+                                </div>
+                            ))
+                        )}
+                    </div>
                 </div>
                 <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
                     Onchain escrow flow
