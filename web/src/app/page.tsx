@@ -1,6 +1,6 @@
 "use client";
 
-import { useAccount } from "wagmi";
+
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -191,7 +191,8 @@ export default function Home() {
     }
   }
 
-  const { address } = useAccount();
+
+  const address = account?.address;
   async function createAgent() {
     if (!account) {
       setProfileStatus("Connect your wallet first.");
