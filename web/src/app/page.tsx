@@ -622,9 +622,11 @@ export default function Home() {
           </div>
         </section>
 
+
         <section id="escrow" className="border-t border-[#1a1a1a] py-16 sm:py-24">
           <EscrowSimulator />
         </section>
+
 
         <section id="registry" className="border-t border-[#1a1a1a] py-16 sm:py-24">
           <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">

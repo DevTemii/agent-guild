@@ -19,7 +19,8 @@ import {
 } from "@/lib/reputationStore";
 
 const ESCROW_STORAGE_KEY = "agent-guild-active-escrow";
-const CONTRACT_STORAGE_KEY = "agent-guild-contract";
+const CONTRACT_STORAGE_KEY = "agent-guild-generated-contract";
+const NOTIFICATION_STORAGE_KEY = "agent-guild-notifications";
 
 const celoSepolia = defineChain({
     id: 11142220,
@@ -48,11 +49,14 @@ export default function EscrowSimulator() {
     const [freelancerName, setFreelancerName] = useState("");
     const [freelancerAddress, setFreelancerAddress] = useState("");
     const [budget, setBudget] = useState("");
-    const [submissionLink, setSubmissionLink] = useState("");
     const [projectId, setProjectId] = useState<number | null>(null);
     const [status, setStatus] = useState("");
     const [escrowState, setEscrowState] = useState<EscrowStatus>("idle");
     const [busy, setBusy] = useState(false);
+
+    const [submissionLink, setSubmissionLink] = useState("");
+    const [submittedWorkLink, setSubmittedWorkLink] = useState("");
+    const [notifications, setNotifications] = useState<string[]>([]);
 
     const escrowContract = useMemo(() => {
         return getContract({
@@ -64,20 +68,46 @@ export default function EscrowSimulator() {
     }, []);
 
     useEffect(() => {
-        const saved = localStorage.getItem(ESCROW_STORAGE_KEY);
-        if (!saved) return;
+        const savedEscrow = localStorage.getItem(ESCROW_STORAGE_KEY);
+        if (savedEscrow) {
+            try {
+                const data = JSON.parse(savedEscrow);
+                setProjectId(data.projectId ?? null);
+                setClientName(data.clientName ?? "");
+                setFreelancerName(data.freelancerName ?? "");
+                setFreelancerAddress(data.freelancerAddress ?? "");
+                setBudget(data.budget ?? "");
+            } catch (err) {
+                console.error("Failed to restore escrow state", err);
+            }
+        }
 
-        try {
-            const data = JSON.parse(saved);
-            setProjectId(data.projectId ?? null);
-            setClientName(data.clientName ?? "");
-            setFreelancerName(data.freelancerName ?? "");
-            setFreelancerAddress(data.freelancerAddress ?? "");
-            setBudget(data.budget ?? "");
-        } catch (err) {
-            console.error("Failed to restore escrow state", err);
+        const savedNotifications = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
+        if (savedNotifications) {
+            try {
+                setNotifications(JSON.parse(savedNotifications));
+            } catch (err) {
+                console.error("Failed to restore notifications", err);
+            }
         }
     }, []);
+
+    useEffect(() => {
+        if (projectId === null) {
+            setSubmittedWorkLink("");
+            return;
+        }
+
+        const savedSubmission = localStorage.getItem(
+            `agent-guild-submission-${projectId}`
+        );
+
+        if (savedSubmission) {
+            setSubmittedWorkLink(savedSubmission);
+        } else {
+            setSubmittedWorkLink("");
+        }
+    }, [projectId]);
 
     const { data: projectCountData, refetch: refetchProjectCount } = useReadContract({
         contract: escrowContract,
@@ -115,6 +145,14 @@ export default function EscrowSimulator() {
         if (statusCode === 3) setEscrowState("released");
     }, [projectData]);
 
+    function pushNotification(message: string) {
+        setNotifications((prev) => {
+            const next = [message, ...prev].slice(0, 8);
+            localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(next));
+            return next;
+        });
+    }
+
     async function createEscrowProject() {
         if (!account) {
             setStatus("Connect your wallet first.");
@@ -146,6 +184,8 @@ export default function EscrowSimulator() {
 
             setProjectId(latestCount);
             setEscrowState("created");
+            setSubmissionLink("");
+            setSubmittedWorkLink("");
 
             localStorage.removeItem(CONTRACT_STORAGE_KEY);
             localStorage.setItem(
@@ -159,7 +199,9 @@ export default function EscrowSimulator() {
                 })
             );
 
+            const message = `Escrow created for ${freelancerName}. Client should fund Project #${latestCount}.`;
             setStatus(`Escrow project created onchain. Project ID: ${latestCount}`);
+            pushNotification(message);
         } catch (error) {
             console.error(error);
             setStatus("Failed to create escrow project.");
@@ -198,6 +240,9 @@ export default function EscrowSimulator() {
             await refetchProjectData();
             setEscrowState("funded");
             setStatus("Escrow funded successfully.");
+            pushNotification(
+                `Escrow funded. Freelancer can now submit work for Project #${projectId}.`
+            );
         } catch (error) {
             console.error(error);
             setStatus("Deposit failed.");
@@ -206,10 +251,6 @@ export default function EscrowSimulator() {
         }
     }
 
-    if (!submissionLink) {
-        setStatus("Freelancer must submit a work link.");
-        return;
-    }
     async function submitWork() {
         if (!account) {
             setStatus("Connect your wallet first.");
@@ -218,6 +259,11 @@ export default function EscrowSimulator() {
 
         if (projectId === null) {
             setStatus("Create escrow project first.");
+            return;
+        }
+
+        if (!submissionLink.trim()) {
+            setStatus("Freelancer must submit a work link.");
             return;
         }
 
@@ -238,12 +284,16 @@ export default function EscrowSimulator() {
 
             localStorage.setItem(
                 `agent-guild-submission-${projectId}`,
-                submissionLink
+                submissionLink.trim()
             );
+            setSubmittedWorkLink(submissionLink.trim());
 
             await refetchProjectData();
             setEscrowState("submitted");
             setStatus("Work submitted successfully.");
+            pushNotification(
+                `Work submitted for Project #${projectId}. Client can now review and release payment.`
+            );
         } catch (error) {
             console.error(error);
             setStatus("Submit work failed.");
@@ -297,6 +347,10 @@ export default function EscrowSimulator() {
                 creditAmount,
             });
 
+            pushNotification(
+                `Payment released for Project #${projectId}. Freelancer has been paid.`
+            );
+
             localStorage.removeItem(ESCROW_STORAGE_KEY);
         } catch (error) {
             console.error(error);
@@ -333,57 +387,12 @@ export default function EscrowSimulator() {
         }
         return "";
     }
-    function getNotifications() {
-        const items: string[] = [];
 
-        if (escrowState === "created") {
-            items.push("Escrow created. Client should fund the project.");
-        }
-
-        if (escrowState === "funded") {
-            items.push("Escrow funded. Freelancer can now submit work.");
-        }
-
-        if (escrowState === "submitted") {
-            items.push("Work submitted. Client can now review and release payment.");
-        }
-
-        if (escrowState === "released") {
-            items.push("Payment released successfully.");
-        }
-
-        return items;
-    }
-
-    const notifications = getNotifications();
     return (
-
         <section className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
             <div className="mb-6">
                 <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
                     Real escrow
-                </div>
-                <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
-                    <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
-                        Notifications
-                    </div>
-
-                    <div className="mt-3 space-y-3">
-                        {notifications.length === 0 ? (
-                            <div className="text-[14px] text-[#9ca3af]">
-                                No active notifications yet.
-                            </div>
-                        ) : (
-                            notifications.map((note, index) => (
-                                <div
-                                    key={index}
-                                    className="rounded-[10px] border border-[#1f1f1f] bg-[#0b0b0b] px-3 py-3 text-[14px] text-[#d1d5db]"
-                                >
-                                    {note}
-                                </div>
-                            ))
-                        )}
-                    </div>
                 </div>
                 <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
                     Onchain escrow flow
@@ -487,6 +496,29 @@ export default function EscrowSimulator() {
                     <div className="mt-4 grid gap-4">
                         <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
                             <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                Inbox
+                            </div>
+
+                            <div className="mt-3 space-y-3">
+                                {notifications.length === 0 ? (
+                                    <div className="text-[14px] text-[#9ca3af]">
+                                        No notifications yet.
+                                    </div>
+                                ) : (
+                                    notifications.slice(0, 4).map((note, index) => (
+                                        <div
+                                            key={index}
+                                            className="rounded-[10px] border border-[#1f1f1f] bg-[#0b0b0b] px-3 py-3 text-[14px] text-[#d1d5db]"
+                                        >
+                                            {note}
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
+                            <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
                                 Project ID
                             </div>
                             <div className="mt-2 text-[15px] font-semibold">
@@ -507,9 +539,8 @@ export default function EscrowSimulator() {
                                     Submitted Work
                                 </div>
 
-                                <div className="mt-2 text-[14px] text-[#38bdf8] break-all">
-                                    {localStorage.getItem(`agent-guild-submission-${projectId}`) ||
-                                        "No work submitted yet"}
+                                <div className="mt-2 break-all text-[14px] text-[#38bdf8]">
+                                    {submittedWorkLink || "No work submitted yet"}
                                 </div>
                             </div>
                         )}
