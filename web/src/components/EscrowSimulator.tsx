@@ -432,12 +432,6 @@ export default function EscrowSimulator() {
                         className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
                     />
 
-                    <input
-                        value={submissionLink}
-                        onChange={(e) => setSubmissionLink(e.target.value)}
-                        placeholder="Work submission link (GitHub, Figma, Drive)"
-                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                    />
 
                     <div className="flex flex-col gap-3 pt-2">
                         {projectId === null && (
@@ -451,6 +445,8 @@ export default function EscrowSimulator() {
                         )}
 
                         {projectId !== null && escrowState === "created" && isClient && (
+
+
                             <button
                                 onClick={depositFunds}
                                 disabled={busy}
@@ -461,13 +457,22 @@ export default function EscrowSimulator() {
                         )}
 
                         {projectId !== null && escrowState === "funded" && isFreelancer && (
-                            <button
-                                onClick={submitWork}
-                                disabled={busy}
-                                className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
-                            >
-                                Submit Work
-                            </button>
+                            <div className="grid gap-3">
+                                <input
+                                    value={submissionLink}
+                                    onChange={(e) => setSubmissionLink(e.target.value)}
+                                    placeholder="Work submission link (GitHub, Figma, Drive)"
+                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                                />
+
+                                <button
+                                    onClick={submitWork}
+                                    disabled={busy}
+                                    className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
+                                >
+                                    Submit Work
+                                </button>
+                            </div>
                         )}
 
                         {projectId !== null && escrowState === "submitted" && isClient && (
