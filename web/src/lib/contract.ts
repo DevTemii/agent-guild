@@ -1,7 +1,8 @@
 export const AGENT_REGISTRY_ADDRESS =
-    "0xcc4d265bedade3d6ad4d722fa5c2ad8497e0095a";
+    "0xc789fe2e9c163bd82b5146d7e662d1633efb939d";
 
-export const FREELANCE_ESCROW_ADDRESS = "0x7888272def5d8a6d3eae750f426043d80d729ad2";
+export const FREELANCE_ESCROW_ADDRESS =
+    "0x6d347e56c59ea7080b62b9f94306ac15e1a443e5";
 
 export const FREELANCE_ESCROW_ABI = [
     {

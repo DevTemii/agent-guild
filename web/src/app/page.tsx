@@ -60,6 +60,7 @@ const celoSepolia = defineChain({
 
 export default function Home() {
   const account = useActiveAccount();
+  const WORKSPACE_ROLE_STORAGE_KEY = "agent-guild-selected-role";
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -92,6 +93,7 @@ export default function Home() {
   const [contractStatus, setContractStatus] = useState("");
   const [search, setSearch] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedRole, setSelectedRole] = useState<"client" | "freelancer" | null>(null);
 
   const contract = useMemo(() => {
     return getContract({
@@ -112,19 +114,44 @@ export default function Home() {
   useEffect(() => {
     const onFocus = () => setRefreshKey((v) => v + 1);
     const onStorage = () => setRefreshKey((v) => v + 1);
+    const onGuildRefresh = () => {
+      refetch();
+      setRefreshKey((v) => v + 1);
+    };
 
     window.addEventListener("focus", onFocus);
     window.addEventListener("storage", onStorage);
+    window.addEventListener("agent-guild:refresh", onGuildRefresh);
 
     return () => {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("storage", onStorage);
+      window.removeEventListener("agent-guild:refresh", onGuildRefresh);
     };
+  }, [refetch]);
+
+  useEffect(() => {
+    const savedRole = localStorage.getItem(WORKSPACE_ROLE_STORAGE_KEY);
+    if (savedRole === "client" || savedRole === "freelancer") {
+      setSelectedRole(savedRole);
+    }
   }, []);
 
-  const allAgents = (data as Agent[] | undefined) || [];
+  function chooseWorkspaceRole(role: "client" | "freelancer") {
+    setSelectedRole(role);
+    localStorage.setItem(WORKSPACE_ROLE_STORAGE_KEY, role);
+  }
 
-  const agents = allAgents.filter((agent) => {
+  const allAgents = (data as Agent[] | undefined) || [];
+  const uniqueAgents = allAgents.filter((agent, index, arr) => {
+    const owner = agent.owner.toLowerCase();
+    return (
+      index ===
+      arr.findIndex((item) => item.owner.toLowerCase() === owner)
+    );
+  });
+
+  const agents = uniqueAgents.filter((agent) => {
     const q = search.toLowerCase().trim();
     if (!q) return true;
 
@@ -135,17 +162,17 @@ export default function Home() {
     );
   });
 
-  const totalContracts = allAgents.reduce((sum, agent) => {
+  const totalContracts = uniqueAgents.reduce((sum, agent) => {
     const rep = getReputation(agent.owner);
     return sum + rep.completedContracts;
   }, 0);
 
-  const totalVolume = allAgents.reduce((sum, agent) => {
+  const totalVolume = uniqueAgents.reduce((sum, agent) => {
     const rep = getReputationForWallet(agent.owner);
     return sum + rep.totalEarned;
   }, 0);
 
-  const verifiedFreelancers = allAgents.length;
+  const verifiedFreelancers = uniqueAgents.length;
 
   async function handleGenerateContract() {
     if (!clientName || !projectBrief || !budget) {
@@ -204,21 +231,28 @@ export default function Home() {
       return;
     }
 
-    const walletExists = allAgents.some(
+    const latest = await refetch();
+    const latestAgents = (latest.data as Agent[] | undefined) || allAgents;
+
+    const walletExists = latestAgents.some(
       (agent) => agent.owner.toLowerCase() === address?.toLowerCase()
     );
 
     if (walletExists) {
-      setProfileStatus("This wallet already has a freelancer profile.");
+      setProfileStatus(
+        "This wallet already has a profile. One wallet can only create one freelancer profile in this demo."
+      );
       return;
     }
 
-    const nameExists = allAgents.some(
+    const nameExists = latestAgents.some(
       (agent) => agent.name.toLowerCase().trim() === name.toLowerCase().trim()
     );
 
     if (nameExists) {
-      setProfileStatus("Username already exists. Choose another name.");
+      setProfileStatus(
+        "This profile name is already taken. Choose a different name for this demo."
+      );
       return;
     }
 
@@ -345,6 +379,58 @@ export default function Home() {
             <Stat label="Contracts Completed" value={`${totalContracts}`} />
             <Stat label="Total Volume" value={`$${totalVolume}`} />
             <Stat label="Verified Freelancers" value={`${verifiedFreelancers}`} />
+          </div>
+        </section>
+
+        <section className="border-b border-[#1a1a1a] py-10">
+          <div className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div className="max-w-[620px]">
+                <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
+                  Workspace entry
+                </div>
+                <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] text-[#f8fafc] sm:text-[30px]">
+                  Choose how you want to work
+                </h2>
+                <p className="mt-3 text-[15px] leading-7 text-[#9ca3af]">
+                  Your workspace changes the UX emphasis only. Wallet ownership and onchain project roles still control what actions are actually allowed.
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  onClick={() => chooseWorkspaceRole("client")}
+                  className={`rounded-[14px] border px-5 py-4 text-left transition ${
+                    selectedRole === "client"
+                      ? "border-[#38bdf8] bg-[#0f1e28]"
+                      : "border-[#2c2c2c] bg-[#0b0b0b] hover:border-[#3a3a3a]"
+                  }`}
+                >
+                  <div className="text-[15px] font-semibold text-[#f8fafc]">
+                    Continue as Client
+                  </div>
+                  <div className="mt-2 text-[13px] leading-6 text-[#9ca3af]">
+                    Generate contracts, create escrow, fund work, review submissions, and release payment.
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => chooseWorkspaceRole("freelancer")}
+                  className={`rounded-[14px] border px-5 py-4 text-left transition ${
+                    selectedRole === "freelancer"
+                      ? "border-[#38bdf8] bg-[#0f1e28]"
+                      : "border-[#2c2c2c] bg-[#0b0b0b] hover:border-[#3a3a3a]"
+                  }`}
+                >
+                  <div className="text-[15px] font-semibold text-[#f8fafc]">
+                    Continue as Freelancer
+                  </div>
+                  <div className="mt-2 text-[13px] leading-6 text-[#9ca3af]">
+                    Review assigned projects, track funded work, submit delivery links, and monitor payout status.
+                  </div>
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -513,14 +599,24 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="ai" className="border-t border-[#1a1a1a] py-16 sm:py-24">
+        <section
+          id="ai"
+          className={`border-t border-[#1a1a1a] py-16 sm:py-24 ${
+            selectedRole === "freelancer" ? "opacity-80" : ""
+          }`}
+        >
           <div className="mb-8">
             <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
-              Contract intelligence
+              {selectedRole === "client" ? "Client workspace" : "Contract intelligence"}
             </div>
             <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
               AI contract generator
             </h2>
+            {selectedRole === "client" && (
+              <p className="mt-3 max-w-[620px] text-[15px] leading-7 text-[#9ca3af]">
+                Start here to draft the deal structure before moving into escrow creation, funding, submission review, and release.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-[0.95fr_1.05fr]">
@@ -624,7 +720,23 @@ export default function Home() {
 
 
         <section id="escrow" className="border-t border-[#1a1a1a] py-16 sm:py-24">
-          <EscrowSimulator />
+          <div className="mb-8">
+            <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
+              {selectedRole === "freelancer" ? "Freelancer workspace" : "Escrow workspace"}
+            </div>
+            <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
+              {selectedRole === "freelancer"
+                ? "Assigned work, submissions, and payout status"
+                : "Escrow creation, funding, and release"}
+            </h2>
+            <p className="mt-3 max-w-[680px] text-[15px] leading-7 text-[#9ca3af]">
+              {selectedRole === "freelancer"
+                ? "Use your assigned-project workspace to pick funded jobs, submit delivery links, and track whether payment has been released."
+                : "Use the client workspace to create escrow, fund work, review submitted deliveries, and release payment when milestones are complete."}
+            </p>
+          </div>
+
+          <EscrowSimulator selectedRole={selectedRole} />
         </section>
 
 

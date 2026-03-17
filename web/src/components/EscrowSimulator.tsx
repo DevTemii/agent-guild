@@ -36,13 +36,19 @@ const celoSepolia = defineChain({
 
 type EscrowStatus = "idle" | "created" | "funded" | "submitted" | "released";
 
+type EscrowSimulatorProps = {
+    selectedRole: "client" | "freelancer" | null;
+};
+
 function toWeiFromCelo(value: string) {
     const num = Number(value);
     if (!num || num <= 0) return BigInt(0);
     return BigInt(Math.floor(num * 1e18));
 }
 
-export default function EscrowSimulator() {
+export default function EscrowSimulator({
+    selectedRole,
+}: EscrowSimulatorProps) {
     const account = useActiveAccount();
     const connectedAddress = account?.address?.toLowerCase();
 
@@ -254,6 +260,22 @@ export default function EscrowSimulator() {
         loadMyProjects();
     }, [connectedAddress, projectCountData]);
 
+    async function refreshEscrowUi(nextProjectId?: number) {
+        const latestProjectCount = await refetchProjectCount();
+        const targetProjectId =
+            nextProjectId ??
+            (projectId !== null
+                ? projectId
+                : Number(latestProjectCount?.data ?? BigInt(0)) || null);
+
+        if (targetProjectId !== null) {
+            await refetchProjectData();
+        }
+
+        await loadMyProjects();
+        window.dispatchEvent(new Event("agent-guild:refresh"));
+    }
+
     async function createEscrowProject() {
         if (!account) {
             setStatus("Connect your wallet first.");
@@ -303,6 +325,7 @@ export default function EscrowSimulator() {
             const message = `Escrow created for ${freelancerName}. Client should fund Project #${latestCount}.`;
             setStatus(`Escrow project created onchain. Project ID: ${latestCount}`);
             pushNotification(message);
+            await refreshEscrowUi(latestCount);
         } catch (error) {
             console.error(error);
             setStatus("Failed to create escrow project.");
@@ -344,6 +367,7 @@ export default function EscrowSimulator() {
             pushNotification(
                 `Escrow funded. Freelancer can now submit work for Project #${projectId}.`
             );
+            await refreshEscrowUi();
         } catch (error) {
             console.error(error);
             setStatus("Deposit failed.");
@@ -395,6 +419,7 @@ export default function EscrowSimulator() {
             pushNotification(
                 `Work submitted for Project #${projectId}. Client can now review and release payment.`
             );
+            await refreshEscrowUi();
         } catch (error) {
             console.error(error);
             setStatus("Submit work failed.");
@@ -453,6 +478,7 @@ export default function EscrowSimulator() {
             );
 
             localStorage.removeItem(ESCROW_STORAGE_KEY);
+            await refreshEscrowUi();
         } catch (error) {
             console.error(error);
             setStatus("Approve and release failed.");
@@ -503,76 +529,130 @@ export default function EscrowSimulator() {
         setStatus("");
     }
 
+    const isClientWorkspace = selectedRole === "client";
+    const isFreelancerWorkspace = selectedRole === "freelancer";
+    const primaryColumnClass = isFreelancerWorkspace
+        ? "order-2 lg:order-2"
+        : "order-2 lg:order-1";
+    const secondaryColumnClass = isFreelancerWorkspace
+        ? "order-1 lg:order-1"
+        : "order-1 lg:order-2";
+
     return (
         <section className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
             <div className="mb-6">
                 <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
-                    Real escrow
+                    {isFreelancerWorkspace ? "Freelancer workspace" : "Client workspace"}
                 </div>
                 <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
-                    Onchain escrow flow
+                    {isFreelancerWorkspace
+                        ? "Assigned work and payout tracking"
+                        : "Onchain escrow flow"}
                 </h2>
                 <p className="mt-3 text-[15px] leading-7 text-[#9ca3af]">
-                    Create a real escrow project, deposit CELO, submit work, and release funds on Celo Sepolia.
+                    {isFreelancerWorkspace
+                        ? "Pick a project from your assigned list, submit work when funded, and monitor whether payment has been released."
+                        : "Create a real escrow project, deposit CELO, review delivery, and release funds on Celo Sepolia."}
                 </p>
             </div>
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-                <div className="grid gap-3">
-                    <input
-                        value={clientName}
-                        onChange={(e) => setClientName(e.target.value)}
-                        placeholder="Client name"
-                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                    />
+                <div className={`grid gap-4 ${primaryColumnClass}`}>
+                    <div
+                        className={`rounded-[16px] border border-[#1f1f1f] bg-[#0b0b0b] p-5 ${
+                            isFreelancerWorkspace ? "opacity-80" : ""
+                        }`}
+                    >
+                        <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                            Client actions
+                        </div>
+                        <div className="mt-3 text-[14px] leading-7 text-[#9ca3af]">
+                            Create escrow, fund work, review submitted delivery, and release payment when the connected wallet is the actual client.
+                        </div>
 
-                    <input
-                        value={freelancerName}
-                        onChange={(e) => setFreelancerName(e.target.value)}
-                        placeholder="Freelancer profile name"
-                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                    />
+                        {isFreelancerWorkspace ? (
+                            <div className="mt-4 rounded-[12px] border border-[#1f1f1f] bg-[#111111] px-4 py-3 text-sm text-[#d1d5db]">
+                                Escrow creation belongs to the client. Select one of your assigned projects from My Projects to continue as a freelancer.
+                            </div>
+                        ) : (
+                            <div className="mt-4 grid gap-3">
+                                <input
+                                    value={clientName}
+                                    onChange={(e) => setClientName(e.target.value)}
+                                    placeholder="Client name"
+                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                                />
 
-                    <input
-                        value={freelancerAddress}
-                        onChange={(e) => setFreelancerAddress(e.target.value)}
-                        placeholder="Freelancer wallet address"
-                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                    />
+                                <input
+                                    value={freelancerName}
+                                    onChange={(e) => setFreelancerName(e.target.value)}
+                                    placeholder="Freelancer profile name"
+                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                                />
 
-                    <input
-                        value={budget}
-                        onChange={(e) => setBudget(e.target.value)}
-                        placeholder="Budget in CELO e.g 0.01"
-                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                    />
+                                <input
+                                    value={freelancerAddress}
+                                    onChange={(e) => setFreelancerAddress(e.target.value)}
+                                    placeholder="Freelancer wallet address"
+                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                                />
 
+                                <input
+                                    value={budget}
+                                    onChange={(e) => setBudget(e.target.value)}
+                                    placeholder="Budget in CELO e.g 0.01"
+                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                                />
 
-                    <div className="flex flex-col gap-3 pt-2">
-                        {projectId === null && (
-                            <button
-                                onClick={createEscrowProject}
-                                disabled={busy}
-                                className="rounded-[10px] bg-[#38bdf8] px-5 py-3 text-sm font-semibold text-black transition hover:bg-[#0ea5e9] disabled:opacity-60"
-                            >
-                                {busy ? "Processing..." : "Create Onchain Escrow"}
-                            </button>
+                                <div className="flex flex-col gap-3 pt-2">
+                                    {projectId === null && (
+                                        <button
+                                            onClick={createEscrowProject}
+                                            disabled={busy}
+                                            className="rounded-[10px] bg-[#38bdf8] px-5 py-3 text-sm font-semibold text-black transition hover:bg-[#0ea5e9] disabled:opacity-60"
+                                        >
+                                            {busy ? "Processing..." : "Create Onchain Escrow"}
+                                        </button>
+                                    )}
+
+                                    {projectId !== null && escrowState === "created" && isClient && (
+                                        <button
+                                            onClick={depositFunds}
+                                            disabled={busy}
+                                            className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
+                                        >
+                                            Deposit Funds
+                                        </button>
+                                    )}
+
+                                    {projectId !== null && escrowState === "submitted" && isClient && (
+                                        <button
+                                            onClick={approveAndRelease}
+                                            disabled={busy}
+                                            className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
+                                        >
+                                            Approve & Release
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
                         )}
+                    </div>
 
-                        {projectId !== null && escrowState === "created" && isClient && (
+                    <div
+                        className={`rounded-[16px] border border-[#1f1f1f] bg-[#0b0b0b] p-5 ${
+                            isClientWorkspace ? "opacity-80" : ""
+                        }`}
+                    >
+                        <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                            Freelancer actions
+                        </div>
+                        <div className="mt-3 text-[14px] leading-7 text-[#9ca3af]">
+                            Review assigned projects, submit a delivery link once work is funded, and track whether payment has been released.
+                        </div>
 
-
-                            <button
-                                onClick={depositFunds}
-                                disabled={busy}
-                                className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
-                            >
-                                Deposit Funds
-                            </button>
-                        )}
-
-                        {projectId !== null && escrowState === "funded" && isFreelancer && (
-                            <div className="grid gap-3">
+                        {projectId !== null && escrowState === "funded" && isFreelancer ? (
+                            <div className="mt-4 grid gap-3">
                                 <input
                                     value={submissionLink}
                                     onChange={(e) => setSubmissionLink(e.target.value)}
@@ -588,16 +668,16 @@ export default function EscrowSimulator() {
                                     Submit Work
                                 </button>
                             </div>
-                        )}
-
-                        {projectId !== null && escrowState === "submitted" && isClient && (
-                            <button
-                                onClick={approveAndRelease}
-                                disabled={busy}
-                                className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
-                            >
-                                Approve & Release
-                            </button>
+                        ) : (
+                            <div className="mt-4 rounded-[12px] border border-[#1f1f1f] bg-[#111111] px-4 py-3 text-sm text-[#d1d5db]">
+                                {projectId === null
+                                    ? "Select a project from My Projects to view your freelancer workspace."
+                                    : !isClient && !isFreelancer
+                                        ? "This wallet is not involved in the selected project. You can view its status, but only the client or assigned freelancer can take action."
+                                        : escrowState === "funded"
+                                            ? "This wallet is not the assigned freelancer for the selected project."
+                                            : "Select a funded project from My Projects to unlock the submission flow."}
+                            </div>
                         )}
                     </div>
 
@@ -608,9 +688,9 @@ export default function EscrowSimulator() {
                     )}
                 </div>
 
-                <div className="rounded-[16px] border border-[#1f1f1f] bg-[#0b0b0b] p-5">
+                <div className={`rounded-[16px] border border-[#1f1f1f] bg-[#0b0b0b] p-5 ${secondaryColumnClass}`}>
                     <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
-                        Escrow state
+                        {isFreelancerWorkspace ? "Assigned projects" : "Escrow state"}
                     </div>
 
                     <div className="mt-4 grid gap-4">
