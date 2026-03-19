@@ -18,10 +18,13 @@ import {
     getReputationForWallet,
     setReputationForWallet,
 } from "@/lib/reputationStore";
+import { ProductContract } from "@/lib/workflowStore";
 
 const ESCROW_STORAGE_KEY = "agent-guild-active-escrow";
 const CONTRACT_STORAGE_KEY = "agent-guild-generated-contract";
 const NOTIFICATION_STORAGE_KEY = "agent-guild-notifications";
+const DISPUTE_STORAGE_KEY_PREFIX = "agent-guild-dispute";
+const JUDGMENT_STORAGE_KEY_PREFIX = "agent-guild-dispute-judgment";
 
 const celoSepolia = defineChain({
     id: 11142220,
@@ -38,6 +41,13 @@ type EscrowStatus = "idle" | "created" | "funded" | "submitted" | "released";
 
 type EscrowSimulatorProps = {
     selectedRole: "client" | "freelancer" | null;
+    approvedContract?: ProductContract | null;
+};
+
+type DisputeJudgment = {
+    verdict: "release_funds" | "refund_client";
+    confidence: number;
+    reasoning: string;
 };
 
 function toWeiFromCelo(value: string) {
@@ -48,6 +58,7 @@ function toWeiFromCelo(value: string) {
 
 export default function EscrowSimulator({
     selectedRole,
+    approvedContract = null,
 }: EscrowSimulatorProps) {
     const account = useActiveAccount();
     const connectedAddress = account?.address?.toLowerCase();
@@ -75,6 +86,22 @@ export default function EscrowSimulator({
     const [submissionLink, setSubmissionLink] = useState("");
     const [submittedWorkLink, setSubmittedWorkLink] = useState("");
     const [notifications, setNotifications] = useState<string[]>([]);
+    const [showDisputeForm, setShowDisputeForm] = useState(false);
+    const [disputeReason, setDisputeReason] = useState("");
+    const [savedDisputeReason, setSavedDisputeReason] = useState("");
+    const [judgingDispute, setJudgingDispute] = useState(false);
+    const [disputeJudgment, setDisputeJudgment] = useState<DisputeJudgment | null>(
+        null
+    );
+
+    useEffect(() => {
+        if (!approvedContract || projectId !== null) return;
+
+        setClientName(approvedContract.clientName);
+        setFreelancerName(approvedContract.freelancerName);
+        setFreelancerAddress(approvedContract.freelancerWallet);
+        setBudget(String(approvedContract.budget));
+    }, [approvedContract, projectId]);
 
     const escrowContract = useMemo(() => {
         return getContract({
@@ -113,6 +140,10 @@ export default function EscrowSimulator({
     useEffect(() => {
         if (projectId === null) {
             setSubmittedWorkLink("");
+            setSavedDisputeReason("");
+            setDisputeReason("");
+            setShowDisputeForm(false);
+            setDisputeJudgment(null);
             return;
         }
 
@@ -124,6 +155,32 @@ export default function EscrowSimulator({
             setSubmittedWorkLink(savedSubmission);
         } else {
             setSubmittedWorkLink("");
+        }
+
+        const savedDispute = localStorage.getItem(
+            `${DISPUTE_STORAGE_KEY_PREFIX}-${projectId}`
+        );
+        if (savedDispute) {
+            setSavedDisputeReason(savedDispute);
+            setDisputeReason(savedDispute);
+        } else {
+            setSavedDisputeReason("");
+            setDisputeReason("");
+        }
+        setShowDisputeForm(false);
+
+        const savedJudgment = localStorage.getItem(
+            `${JUDGMENT_STORAGE_KEY_PREFIX}-${projectId}`
+        );
+        if (savedJudgment) {
+            try {
+                setDisputeJudgment(JSON.parse(savedJudgment));
+            } catch (err) {
+                console.error("Failed to restore dispute judgment", err);
+                setDisputeJudgment(null);
+            }
+        } else {
+            setDisputeJudgment(null);
         }
 
         const savedEscrow = localStorage.getItem(ESCROW_STORAGE_KEY);
@@ -282,6 +339,11 @@ export default function EscrowSimulator({
             return;
         }
 
+        if (selectedRole === "client" && !approvedContract) {
+            setStatus("A freelancer-approved contract is required before escrow can be created.");
+            return;
+        }
+
         if (!clientName || !freelancerName || !freelancerAddress || !budget) {
             setStatus("Fill client name, freelancer name, freelancer wallet, and budget.");
             return;
@@ -310,7 +372,6 @@ export default function EscrowSimulator({
             setSubmissionLink("");
             setSubmittedWorkLink("");
 
-            localStorage.removeItem(CONTRACT_STORAGE_KEY);
             localStorage.setItem(
                 ESCROW_STORAGE_KEY,
                 JSON.stringify({
@@ -529,6 +590,119 @@ export default function EscrowSimulator({
         setStatus("");
     }
 
+    function saveDisputeReason() {
+        if (projectId === null) {
+            setStatus("Select a project first.");
+            return;
+        }
+
+        if (!disputeReason.trim()) {
+            setStatus("Enter a dispute reason before saving.");
+            return;
+        }
+
+        const nextReason = disputeReason.trim();
+        localStorage.setItem(
+            `${DISPUTE_STORAGE_KEY_PREFIX}-${projectId}`,
+            nextReason
+        );
+        setSavedDisputeReason(nextReason);
+        setShowDisputeForm(false);
+        setStatus("Dispute reason saved locally.");
+        pushNotification(
+            `Dispute raised for Project #${projectId}. Review reason has been saved.`
+        );
+    }
+
+    async function judgeDispute() {
+        if (projectId === null) {
+            setStatus("Select a project first.");
+            return;
+        }
+
+        if (!savedDisputeReason.trim()) {
+            setStatus("Save a dispute reason before judging.");
+            return;
+        }
+
+        if (!submittedWorkLink.trim()) {
+            setStatus("A submitted work link is required for the AI judge.");
+            return;
+        }
+
+        const savedContract = localStorage.getItem(CONTRACT_STORAGE_KEY);
+        if (!savedContract) {
+            setStatus("Generate a contract first so the AI judge has contract context.");
+            return;
+        }
+
+        let contractData: {
+            summary?: string;
+            milestones?: Array<{ title: string; amount: number }>;
+        } | null = null;
+
+        try {
+            contractData = JSON.parse(savedContract);
+        } catch (err) {
+            console.error("Failed to parse saved contract", err);
+            setStatus("Saved contract data is invalid. Generate a new contract first.");
+            return;
+        }
+
+        if (
+            !contractData?.summary ||
+            !Array.isArray(contractData.milestones) ||
+            contractData.milestones.length === 0
+        ) {
+            setStatus("Saved contract data is incomplete. Generate a new contract first.");
+            return;
+        }
+
+        try {
+            setJudgingDispute(true);
+            setStatus("AI judge is reviewing the dispute...");
+
+            const res = await fetch("/api/judge-dispute", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    contractSummary: contractData.summary,
+                    milestones: contractData.milestones,
+                    submittedWorkLink,
+                    disputeReason: savedDisputeReason,
+                }),
+            });
+
+            const result = await res.json();
+
+            if (!res.ok) {
+                throw new Error(result?.error || "AI dispute judge failed.");
+            }
+
+            localStorage.setItem(
+                `${JUDGMENT_STORAGE_KEY_PREFIX}-${projectId}`,
+                JSON.stringify(result)
+            );
+            setDisputeJudgment(result);
+            setStatus("AI dispute judgment ready.");
+            pushNotification(
+                `AI dispute judgment completed for Project #${projectId}.`
+            );
+        } catch (error: any) {
+            console.error(error);
+            setStatus(error?.message || "AI dispute judge failed.");
+        } finally {
+            setJudgingDispute(false);
+        }
+    }
+
+    function verdictLabel(verdict: DisputeJudgment["verdict"]) {
+        if (verdict === "release_funds") return "Release Funds";
+        return "Refund Client";
+    }
+
     const isClientWorkspace = selectedRole === "client";
     const isFreelancerWorkspace = selectedRole === "freelancer";
     const primaryColumnClass = isFreelancerWorkspace
@@ -541,7 +715,7 @@ export default function EscrowSimulator({
     return (
         <section className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
             <div className="mb-6">
-                <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
+                <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#f2b6be]">
                     {isFreelancerWorkspace ? "Freelancer workspace" : "Client workspace"}
                 </div>
                 <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
@@ -576,40 +750,54 @@ export default function EscrowSimulator({
                             </div>
                         ) : (
                             <div className="mt-4 grid gap-3">
+                                {approvedContract ? (
+                                    <div className="rounded-[12px] border border-[#4c1d24] bg-[#160b0d] px-4 py-3 text-sm text-[#f2b6be]">
+                                        Approved contract selected for {approvedContract.freelancerName}. Escrow can now be created from this agreement.
+                                    </div>
+                                ) : (
+                                    <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] px-4 py-3 text-sm text-[#d1d5db]">
+                                        Escrow creation unlocks only after a freelancer approves a contract.
+                                    </div>
+                                )}
+
                                 <input
                                     value={clientName}
                                     onChange={(e) => setClientName(e.target.value)}
                                     placeholder="Client name"
-                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                                    readOnly={!!approvedContract}
+                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#6f1d26]"
                                 />
 
                                 <input
                                     value={freelancerName}
                                     onChange={(e) => setFreelancerName(e.target.value)}
                                     placeholder="Freelancer profile name"
-                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                                    readOnly={!!approvedContract}
+                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#6f1d26]"
                                 />
 
                                 <input
                                     value={freelancerAddress}
                                     onChange={(e) => setFreelancerAddress(e.target.value)}
                                     placeholder="Freelancer wallet address"
-                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                                    readOnly={!!approvedContract}
+                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#6f1d26]"
                                 />
 
                                 <input
                                     value={budget}
                                     onChange={(e) => setBudget(e.target.value)}
                                     placeholder="Budget in CELO e.g 0.01"
-                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                                    readOnly={!!approvedContract}
+                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#6f1d26]"
                                 />
 
                                 <div className="flex flex-col gap-3 pt-2">
-                                    {projectId === null && (
+                                    {projectId === null && approvedContract && (
                                         <button
                                             onClick={createEscrowProject}
                                             disabled={busy}
-                                            className="rounded-[10px] bg-[#38bdf8] px-5 py-3 text-sm font-semibold text-black transition hover:bg-[#0ea5e9] disabled:opacity-60"
+                                            className="rounded-[10px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30] disabled:opacity-60"
                                         >
                                             {busy ? "Processing..." : "Create Onchain Escrow"}
                                         </button>
@@ -626,13 +814,66 @@ export default function EscrowSimulator({
                                     )}
 
                                     {projectId !== null && escrowState === "submitted" && isClient && (
-                                        <button
-                                            onClick={approveAndRelease}
-                                            disabled={busy}
-                                            className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
-                                        >
-                                            Approve & Release
-                                        </button>
+                                        <div className="grid gap-3">
+                                            <div className="flex flex-col gap-3 sm:flex-row">
+                                                <button
+                                                    onClick={approveAndRelease}
+                                                    disabled={busy}
+                                                    className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
+                                                >
+                                                    Approve & Release
+                                                </button>
+
+                                                <button
+                                                    onClick={() => setShowDisputeForm((prev) => !prev)}
+                                                    disabled={busy}
+                                                    className="rounded-[10px] border border-[#7f1d1d] px-5 py-3 text-sm font-semibold text-[#fecaca] transition hover:border-[#991b1b] disabled:opacity-50"
+                                                >
+                                                    Dispute Work
+                                                </button>
+                                            </div>
+
+                                            {showDisputeForm && (
+                                                <div className="grid gap-3">
+                                                    <textarea
+                                                        value={disputeReason}
+                                                        onChange={(e) => setDisputeReason(e.target.value)}
+                                                        placeholder="Explain why this submission is being disputed"
+                                                        rows={4}
+                                                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#6f1d26]"
+                                                    />
+
+                                                    <div className="flex flex-col gap-3 sm:flex-row">
+                                                        <button
+                                                            onClick={saveDisputeReason}
+                                                            type="button"
+                                                            className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a]"
+                                                        >
+                                                            Save Dispute
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => setShowDisputeForm(false)}
+                                                            type="button"
+                                                            className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#9ca3af] transition hover:border-[#3a3a3a]"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {savedDisputeReason && (
+                                                <button
+                                                    onClick={judgeDispute}
+                                                    type="button"
+                                                    disabled={judgingDispute}
+                                                    className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
+                                                >
+                                                    {judgingDispute ? "Judging..." : "Judge Dispute"}
+                                                </button>
+                                            )}
+                                        </div>
                                     )}
                                 </div>
                             </div>
@@ -657,7 +898,7 @@ export default function EscrowSimulator({
                                     value={submissionLink}
                                     onChange={(e) => setSubmissionLink(e.target.value)}
                                     placeholder="Work submission link (GitHub, Figma, Drive)"
-                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                                    className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#6f1d26]"
                                 />
 
                                 <button
@@ -749,7 +990,7 @@ export default function EscrowSimulator({
                                                 type="button"
                                                 onClick={() => selectProject(project.projectId)}
                                                 className={`w-full rounded-[10px] border px-3 py-3 text-left transition ${isSelected
-                                                    ? "border-[#38bdf8] bg-[#0f1e28]"
+                                                    ? "border-[#6f1d26] bg-[#1a0e10]"
                                                     : "border-[#1f1f1f] bg-[#0b0b0b] hover:border-[#2c2c2c]"
                                                     }`}
                                             >
@@ -788,13 +1029,67 @@ export default function EscrowSimulator({
                             <div className="mt-2 text-[15px] font-semibold">{stateLabel()}</div>
                         </div>
 
+                        <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
+                            <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                Review State
+                            </div>
+                            <div className="mt-2 text-[15px] font-semibold">
+                                {savedDisputeReason ? "Disputed" : "No dispute raised"}
+                            </div>
+                            {savedDisputeReason && (
+                                <div className="mt-3 text-[14px] leading-7 text-[#d1d5db]">
+                                    {savedDisputeReason}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
+                            <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                AI Judge
+                            </div>
+                            {!disputeJudgment ? (
+                                <div className="mt-2 text-[14px] text-[#9ca3af]">
+                                    No AI judgment yet.
+                                </div>
+                            ) : (
+                                <div className="mt-2 grid gap-3">
+                                    <div>
+                                        <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                            Verdict
+                                        </div>
+                                        <div className="mt-1 text-[15px] font-semibold text-[#f8fafc]">
+                                            {verdictLabel(disputeJudgment.verdict)}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                            Confidence
+                                        </div>
+                                        <div className="mt-1 text-[15px] font-semibold text-[#f8fafc]">
+                                            {disputeJudgment.confidence}%
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                            Reasoning
+                                        </div>
+                                        <div className="mt-1 text-[14px] leading-7 text-[#d1d5db]">
+                                            {disputeJudgment.reasoning}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
                         {projectId !== null && (
                             <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
                                 <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
                                     Submitted Work
                                 </div>
 
-                                <div className="mt-2 break-all text-[14px] text-[#38bdf8]">
+                                <div className="mt-2 break-all text-[14px] text-[#f2b6be]">
                                     {submittedWorkLink || "No work submitted yet"}
                                 </div>
                             </div>

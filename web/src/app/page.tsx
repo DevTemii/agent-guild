@@ -1,30 +1,13 @@
 "use client";
 
-
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import {
-  ConnectButton,
-  useActiveAccount,
-  useReadContract,
-} from "thirdweb/react";
-import {
-  defineChain,
-  getContract,
-  prepareContractCall,
-  sendTransaction,
-} from "thirdweb";
+import { useMemo, useState } from "react";
+import { ConnectButton, useActiveAccount, useReadContract } from "thirdweb/react";
+import { defineChain, getContract } from "thirdweb";
 import { client } from "@/lib/client";
-import {
-  AGENT_REGISTRY_ABI,
-  AGENT_REGISTRY_ADDRESS,
-} from "@/lib/contract";
+import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
 import { getReputation } from "@/lib/reputation";
-import { clearAllReputation, getReputationForWallet } from "@/lib/reputationStore";
-import EscrowSimulator from "@/components/EscrowSimulator";
-
-
-const chain = defineChain(44787); // Celo Alfajores testnet
+import { getReputationForWallet } from "@/lib/reputationStore";
 
 type Agent = {
   owner: string;
@@ -34,17 +17,6 @@ type Agent = {
   hourlyRate: bigint;
   location: string;
   availability: string;
-};
-
-type GeneratedContract = {
-  clientName: string;
-  projectDescription: string;
-  budget: number;
-  summary: string;
-  milestones: {
-    title: string;
-    amount: number;
-  }[];
 };
 
 const celoSepolia = defineChain({
@@ -60,95 +32,27 @@ const celoSepolia = defineChain({
 
 export default function Home() {
   const account = useActiveAccount();
-  const WORKSPACE_ROLE_STORAGE_KEY = "agent-guild-selected-role";
-
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [skill, setSkill] = useState("");
-  const [hourlyRate, setHourlyRate] = useState("");
-  const [location, setLocation] = useState("");
-  const [availability, setAvailability] = useState("");
-
-  const CONTRACT_STORAGE_KEY = "agent-guild-generated-contract";
-  const [clientName, setClientName] = useState("");
-  const [projectBrief, setProjectBrief] = useState("");
-  const [budget, setBudget] = useState("");
-  const [generatedContract, setGeneratedContract] =
-
-    useState<GeneratedContract | null>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(CONTRACT_STORAGE_KEY);
-    if (!saved) return;
-
-    try {
-      setGeneratedContract(JSON.parse(saved));
-    } catch (err) {
-      console.error("Failed to restore contract", err);
-    }
-  }, []);
-  const [creating, setCreating] = useState(false);
-  const [generatingContract, setGeneratingContract] = useState(false);
-  const [profileStatus, setProfileStatus] = useState("");
-  const [contractStatus, setContractStatus] = useState("");
   const [search, setSearch] = useState("");
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [selectedRole, setSelectedRole] = useState<"client" | "freelancer" | null>(null);
 
   const contract = useMemo(() => {
     return getContract({
       client,
       chain: celoSepolia,
       address: AGENT_REGISTRY_ADDRESS,
-      abi: AGENT_REGISTRY_ABI as any,
+      abi: AGENT_REGISTRY_ABI,
     });
   }, []);
 
-  const { data, isLoading, refetch } = useReadContract({
+  const { data, isLoading } = useReadContract({
     contract,
-    method:
-      "function getAgents() view returns ((address owner,string name,string description,string skill,uint256 hourlyRate,string location,string availability)[])",
+    method: "getAgents",
     params: [],
   });
-
-  useEffect(() => {
-    const onFocus = () => setRefreshKey((v) => v + 1);
-    const onStorage = () => setRefreshKey((v) => v + 1);
-    const onGuildRefresh = () => {
-      refetch();
-      setRefreshKey((v) => v + 1);
-    };
-
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("agent-guild:refresh", onGuildRefresh);
-
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("agent-guild:refresh", onGuildRefresh);
-    };
-  }, [refetch]);
-
-  useEffect(() => {
-    const savedRole = localStorage.getItem(WORKSPACE_ROLE_STORAGE_KEY);
-    if (savedRole === "client" || savedRole === "freelancer") {
-      setSelectedRole(savedRole);
-    }
-  }, []);
-
-  function chooseWorkspaceRole(role: "client" | "freelancer") {
-    setSelectedRole(role);
-    localStorage.setItem(WORKSPACE_ROLE_STORAGE_KEY, role);
-  }
 
   const allAgents = (data as Agent[] | undefined) || [];
   const uniqueAgents = allAgents.filter((agent, index, arr) => {
     const owner = agent.owner.toLowerCase();
-    return (
-      index ===
-      arr.findIndex((item) => item.owner.toLowerCase() === owner)
-    );
+    return index === arr.findIndex((item) => item.owner.toLowerCase() === owner);
   });
 
   const agents = uniqueAgents.filter((agent) => {
@@ -172,641 +76,274 @@ export default function Home() {
     return sum + rep.totalEarned;
   }, 0);
 
-  const verifiedFreelancers = uniqueAgents.length;
-
-  async function handleGenerateContract() {
-    if (!clientName || !projectBrief || !budget) {
-      setContractStatus(
-        "Fill client name, project brief, and budget to generate contract."
-      );
-      return;
-    }
-
-    try {
-      setGeneratingContract(true);
-      setContractStatus("Generating AI contract...");
-
-      const res = await fetch("/api/generate-contract", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          clientName,
-          projectDescription: projectBrief,
-          budget: Number(budget),
-        }),
-      });
-
-      const result = await res.json();
-
-      if (!res.ok) {
-        throw new Error(result?.error || result?.message || "Failed to generate contract.");
-      }
-
-      setGeneratedContract(result);
-      localStorage.setItem(
-        CONTRACT_STORAGE_KEY,
-        JSON.stringify(result)
-      );
-      setContractStatus("AI contract generated successfully.");
-    } catch (error: any) {
-      console.error(error);
-      setContractStatus(error?.message || "AI contract generation failed.");
-    } finally {
-      setGeneratingContract(false);
-    }
-  }
-
-
-  const address = account?.address;
-  async function createAgent() {
-    if (!account) {
-      setProfileStatus("Connect your wallet first.");
-      return;
-    }
-
-    if (!name || !skill || !hourlyRate) {
-      setProfileStatus("Fill name, skill, and hourly rate.");
-      return;
-    }
-
-    const latest = await refetch();
-    const latestAgents = (latest.data as Agent[] | undefined) || allAgents;
-
-    const walletExists = latestAgents.some(
-      (agent) => agent.owner.toLowerCase() === address?.toLowerCase()
-    );
-
-    if (walletExists) {
-      setProfileStatus(
-        "This wallet already has a profile. One wallet can only create one freelancer profile in this demo."
-      );
-      return;
-    }
-
-    const nameExists = latestAgents.some(
-      (agent) => agent.name.toLowerCase().trim() === name.toLowerCase().trim()
-    );
-
-    if (nameExists) {
-      setProfileStatus(
-        "This profile name is already taken. Choose a different name for this demo."
-      );
-      return;
-    }
-
-    try {
-      setCreating(true);
-      setProfileStatus("Waiting for wallet confirmation...");
-
-      const transaction = prepareContractCall({
-        contract,
-        method:
-          "function registerAgent(string _name, string _description, string _skill, uint256 _hourlyRate, string _location, string _availability)",
-        params: [
-          name,
-          description || "Freelancer profile",
-          skill,
-          BigInt(hourlyRate),
-          location || "Not specified",
-          availability || "Open",
-        ],
-      });
-
-      await sendTransaction({
-        transaction,
-        account,
-      });
-
-      setProfileStatus("Agent profile created successfully.");
-      setName("");
-      setDescription("");
-      setSkill("");
-      setHourlyRate("");
-      setLocation("");
-      setAvailability("");
-
-      await refetch();
-      setRefreshKey((v) => v + 1);
-    } catch (error) {
-      console.error(error);
-      setProfileStatus(
-        "Profile creation failed. Wallet may already have a profile or username may already be taken."
-      );
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  function handleResetDemo() {
-    clearAllReputation();
-    window.location.reload();
-  }
-
   return (
-    <main className="min-h-screen bg-[#0b0b0b] text-[#f8fafc]">
-      <div className="mx-auto max-w-[1100px] px-4 sm:px-6">
-        <header className="border-b border-[#1a1a1a]">
-          <div className="mx-auto flex max-w-[1100px] items-center justify-between px-4 py-4 sm:px-6">
-            <div className="text-[14px] font-semibold tracking-[0.02em]">
-              Agent Guild
+    <main className="min-h-screen bg-[#070707] text-[#f7f4ef]">
+      <div className="mx-auto max-w-[1180px] px-4 sm:px-6">
+        <header className="sticky top-0 z-20 border-b border-[#181818]/90 bg-[#070707]/90 backdrop-blur">
+          <div className="flex items-center justify-between py-4">
+            <Link href="/" className="text-[14px] font-semibold tracking-[0.18em] text-[#f7f4ef]">
+              AGENT GUILD
+            </Link>
+
+            <div className="hidden items-center gap-6 text-[13px] text-[#a1a1aa] md:flex">
+              <a href="#how-it-works" className="transition hover:text-[#f7f4ef]">
+                How it works
+              </a>
+              <a href="#roles" className="transition hover:text-[#f7f4ef]">
+                Workspaces
+              </a>
+              <a href="#registry" className="transition hover:text-[#f7f4ef]">
+                Talent
+              </a>
             </div>
 
-            <ConnectButton client={client} chain={celoSepolia} />
+            <div className="flex items-center gap-3">
+              <Link
+                href="/client"
+                className="hidden rounded-[10px] border border-[#242424] px-4 py-2 text-sm font-medium text-[#f7f4ef] transition hover:border-[#373737] sm:inline-flex"
+              >
+                Client Workspace
+              </Link>
+              <ConnectButton client={client} chain={celoSepolia} />
+            </div>
           </div>
         </header>
 
-        <section className="py-16 sm:py-24">
-          <div className="mx-auto max-w-[820px] text-center">
-            <div className="inline-flex rounded-full border border-[#1f1f1f] bg-[#111111] px-3 py-1 text-[12px] font-medium text-[#9ca3af]">
-              Infrastructure for freelancer identity, escrow, and reputation
-            </div>
-
-            <h1 className="mt-6 text-[40px] font-bold leading-[1.02] tracking-[-0.02em] text-[#f8fafc] sm:text-[52px] lg:text-[64px]">
-              The Onchain Workforce Protocol
-            </h1>
-
-            <p className="mx-auto mt-6 max-w-[680px] text-[15px] leading-7 text-[#9ca3af] sm:text-[16px]">
-              Freelancers create verifiable identities, generate contracts with
-              AI, simulate escrow payments, build onchain reputation, and unlock
-              credit over time.
-            </p>
-
-            <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row">
-              <a
-                href="#create"
-                className="rounded-[10px] bg-[#38bdf8] px-5 py-3 text-sm font-semibold text-black transition hover:bg-[#0ea5e9]"
-              >
-                Create Profile
-              </a>
-
-              <a
-                href="#registry"
-                className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a]"
-              >
-                Explore Registry
-              </a>
-
-              <button
-                onClick={handleResetDemo}
-                className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a]"
-              >
-                Reset Demo
-              </button>
-            </div>
-
-            <div className="mt-6 flex flex-wrap justify-center gap-2">
-              <span className="rounded-full border border-[#1f1f1f] bg-[#111111] px-3 py-1 text-[12px] text-[#9ca3af]">
-                AgentScan Ready
-              </span>
-              <span className="rounded-full border border-[#1f1f1f] bg-[#111111] px-3 py-1 text-[12px] text-[#9ca3af]">
-                Thirdweb Powered
-              </span>
-              <span className="rounded-full border border-[#1f1f1f] bg-[#111111] px-3 py-1 text-[12px] text-[#9ca3af]">
-                ERC-8004 Compatible
-              </span>
-              <span className="rounded-full border border-[#1f1f1f] bg-[#111111] px-3 py-1 text-[12px] text-[#9ca3af]">
-                Self Verification Ready
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <section className="border-y border-[#1a1a1a] py-10">
-          <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
-            <Stat label="Agents Created" value={`${allAgents.length}`} />
-            <Stat label="Contracts Completed" value={`${totalContracts}`} />
-            <Stat label="Total Volume" value={`$${totalVolume}`} />
-            <Stat label="Verified Freelancers" value={`${verifiedFreelancers}`} />
-          </div>
-        </section>
-
-        <section className="border-b border-[#1a1a1a] py-10">
-          <div className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-              <div className="max-w-[620px]">
-                <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
-                  Workspace entry
-                </div>
-                <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] text-[#f8fafc] sm:text-[30px]">
-                  Choose how you want to work
-                </h2>
-                <p className="mt-3 text-[15px] leading-7 text-[#9ca3af]">
-                  Your workspace changes the UX emphasis only. Wallet ownership and onchain project roles still control what actions are actually allowed.
-                </p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button
-                  onClick={() => chooseWorkspaceRole("client")}
-                  className={`rounded-[14px] border px-5 py-4 text-left transition ${
-                    selectedRole === "client"
-                      ? "border-[#38bdf8] bg-[#0f1e28]"
-                      : "border-[#2c2c2c] bg-[#0b0b0b] hover:border-[#3a3a3a]"
-                  }`}
-                >
-                  <div className="text-[15px] font-semibold text-[#f8fafc]">
-                    Continue as Client
-                  </div>
-                  <div className="mt-2 text-[13px] leading-6 text-[#9ca3af]">
-                    Generate contracts, create escrow, fund work, review submissions, and release payment.
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => chooseWorkspaceRole("freelancer")}
-                  className={`rounded-[14px] border px-5 py-4 text-left transition ${
-                    selectedRole === "freelancer"
-                      ? "border-[#38bdf8] bg-[#0f1e28]"
-                      : "border-[#2c2c2c] bg-[#0b0b0b] hover:border-[#3a3a3a]"
-                  }`}
-                >
-                  <div className="text-[15px] font-semibold text-[#f8fafc]">
-                    Continue as Freelancer
-                  </div>
-                  <div className="mt-2 text-[13px] leading-6 text-[#9ca3af]">
-                    Review assigned projects, track funded work, submit delivery links, and monitor payout status.
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="py-16 sm:py-24">
-          <div className="mb-8">
-            <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
-              How it works
-            </div>
-            <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] text-[#f8fafc] sm:text-[30px]">
-              From identity to economic actor
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <StepCard
-              number="01"
-              title="Create identity"
-              body="Create a verifiable freelancer profile linked to your wallet."
-            />
-            <StepCard
-              number="02"
-              title="Generate contract"
-              body="Turn a client brief into a structured milestone-based agreement."
-            />
-            <StepCard
-              number="03"
-              title="Lock escrow"
-              body="Simulate payment protection through milestone release flow."
-            />
-            <StepCard
-              number="04"
-              title="Build reputation"
-              body="Completed work updates score, earnings, and credit eligibility."
-            />
-          </div>
-        </section>
-
-        <section className="border-t border-[#1a1a1a] py-16 sm:py-24">
-          <div className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6 text-center sm:p-10">
-            <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
-              Trust equation
-            </div>
-
-            <h2 className="mt-4 text-[26px] font-semibold tracking-[-0.02em] sm:text-[34px]">
-              Trust(agent) = Work × Reputation
-            </h2>
-
-            <p className="mx-auto mt-4 max-w-[720px] text-[15px] leading-7 text-[#9ca3af]">
-              Every completed contract increases visible economic credibility.
-              Reputation becomes the layer that can unlock long-term financial
-              access.
-            </p>
-          </div>
-        </section>
-
-        <section id="create" className="py-16 sm:py-24">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-            <div className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
-              <div className="mb-6">
-                <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
-                  Onboarding
-                </div>
-                <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
-                  Create freelancer profile
-                </h2>
-                <p className="mt-3 text-[15px] leading-7 text-[#9ca3af]">
-                  Fast onboarding. Only name, skill, and hourly rate are required.
-                </p>
-              </div>
-
-              <div className="grid gap-3">
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Name *"
-                  className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                />
-
-                <input
-                  value={skill}
-                  onChange={(e) => setSkill(e.target.value)}
-                  placeholder="Primary skill *"
-                  className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                />
-
-                <input
-                  value={hourlyRate}
-                  onChange={(e) => setHourlyRate(e.target.value)}
-                  placeholder="Hourly rate in USD *"
-                  className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                />
-
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Short bio (optional)"
-                  rows={4}
-                  className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                />
-
-                <input
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Location (optional)"
-                  className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                />
-
-                <input
-                  value={availability}
-                  onChange={(e) => setAvailability(e.target.value)}
-                  placeholder="Availability (optional)"
-                  className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                />
-
-                <div className="flex flex-col gap-3 pt-2 sm:flex-row">
-                  <button
-                    onClick={createAgent}
-                    disabled={creating}
-                    className="rounded-[10px] bg-[#38bdf8] px-5 py-3 text-sm font-semibold text-black transition hover:bg-[#0ea5e9] disabled:opacity-60"
-                  >
-                    {creating ? "Creating..." : "Create Profile"}
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      refetch();
-                      setRefreshKey((v) => v + 1);
-                    }}
-                    className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a]"
-                  >
-                    Refresh
-                  </button>
-                </div>
-
-                {profileStatus && (
-                  <div className="rounded-[12px] border border-[#1f1f1f] bg-[#0b0b0b] px-4 py-3 text-sm text-[#d1d5db]">
-                    {profileStatus}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
-              <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
-                Identity layer
-              </div>
-              <h3 className="mt-3 text-[22px] font-semibold tracking-[-0.02em]">
-                What this profile unlocks
-              </h3>
-
-              <div className="mt-6 grid gap-4">
-                <InfoBlock
-                  title="Onchain identity"
-                  body="A wallet-linked freelancer profile that can be discovered publicly."
-                />
-                <InfoBlock
-                  title="Contract flow"
-                  body="Use your profile as the identity layer for AI-generated agreements and escrow."
-                />
-                <InfoBlock
-                  title="Reputation growth"
-                  body="Completed work updates score, earnings, and future credit eligibility."
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section
-          id="ai"
-          className={`border-t border-[#1a1a1a] py-16 sm:py-24 ${
-            selectedRole === "freelancer" ? "opacity-80" : ""
-          }`}
-        >
-          <div className="mb-8">
-            <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
-              {selectedRole === "client" ? "Client workspace" : "Contract intelligence"}
-            </div>
-            <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
-              AI contract generator
-            </h2>
-            {selectedRole === "client" && (
-              <p className="mt-3 max-w-[620px] text-[15px] leading-7 text-[#9ca3af]">
-                Start here to draft the deal structure before moving into escrow creation, funding, submission review, and release.
-              </p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-            <div className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
-              <div className="grid gap-3">
-                <input
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  placeholder="Client name"
-                  className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                />
-
-                <textarea
-                  value={projectBrief}
-                  onChange={(e) => setProjectBrief(e.target.value)}
-                  placeholder="Project description"
-                  rows={5}
-                  className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                />
-
-                <input
-                  value={budget}
-                  onChange={(e) => setBudget(e.target.value)}
-                  placeholder="Budget in USD"
-                  className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
-                />
-
-                <button
-                  onClick={handleGenerateContract}
-                  className="mt-1 rounded-[10px] bg-[#38bdf8] px-5 py-3 text-sm font-semibold text-black transition hover:bg-[#0ea5e9]"
-                >
-                  {generatingContract ? "Generating..." : "Generate Contract"}
-                </button>
-              </div>
-            </div>
-
-            {contractStatus && (
-              <div className="rounded-[12px] border border-[#1f1f1f] bg-[#0b0b0b] px-4 py-3 text-sm text-[#d1d5db]">
-                {contractStatus}
-              </div>
-            )}
-
-            <div className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
-              {!generatedContract ? (
-                <p className="text-sm text-[#9ca3af]">
-                  No contract generated yet.
-                </p>
-              ) : (
-                <div className="grid gap-6">
-                  <div>
-                    <div className="text-[12px] uppercase tracking-[0.12em] text-[#9ca3af]">
-                      Client
-                    </div>
-                    <div className="mt-2 text-sm">{generatedContract.clientName}</div>
-                  </div>
-
-                  <div>
-                    <div className="text-[12px] uppercase tracking-[0.12em] text-[#9ca3af]">
-                      Summary
-                    </div>
-                    <p className="mt-2 text-sm leading-7 text-[#d1d5db]">
-                      {generatedContract.summary}
-                    </p>
-                  </div>
-
-                  <div>
-                    <div className="text-[12px] uppercase tracking-[0.12em] text-[#9ca3af]">
-                      Milestones
-                    </div>
-
-                    <div className="mt-3 grid gap-3">
-                      {generatedContract.milestones.map((milestone, index) => (
-                        <div
-                          key={index}
-                          className="rounded-[12px] border border-[#1f1f1f] bg-[#0b0b0b] p-4"
-                        >
-                          <div className="text-sm font-semibold text-[#f8fafc]">
-                            {milestone.title}
-                          </div>
-                          <div className="mt-1 text-sm text-[#9ca3af]">
-                            ${milestone.amount}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-[12px] uppercase tracking-[0.12em] text-[#9ca3af]">
-                      Total Budget
-                    </div>
-                    <div className="mt-2 text-sm font-semibold text-[#f8fafc]">
-                      ${generatedContract.budget}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-
-
-        <section id="escrow" className="border-t border-[#1a1a1a] py-16 sm:py-24">
-          <div className="mb-8">
-            <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
-              {selectedRole === "freelancer" ? "Freelancer workspace" : "Escrow workspace"}
-            </div>
-            <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
-              {selectedRole === "freelancer"
-                ? "Assigned work, submissions, and payout status"
-                : "Escrow creation, funding, and release"}
-            </h2>
-            <p className="mt-3 max-w-[680px] text-[15px] leading-7 text-[#9ca3af]">
-              {selectedRole === "freelancer"
-                ? "Use your assigned-project workspace to pick funded jobs, submit delivery links, and track whether payment has been released."
-                : "Use the client workspace to create escrow, fund work, review submitted deliveries, and release payment when milestones are complete."}
-            </p>
-          </div>
-
-          <EscrowSimulator selectedRole={selectedRole} />
-        </section>
-
-
-        <section id="registry" className="border-t border-[#1a1a1a] py-16 sm:py-24">
-          <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+        <section className="relative overflow-hidden py-16 sm:py-24">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.22),transparent_40%),radial-gradient(circle_at_80%_20%,rgba(120,26,36,0.18),transparent_30%)]" />
+          <div className="relative grid items-center gap-10 lg:grid-cols-[1.05fr_0.95fr]">
             <div>
-              <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#38bdf8]">
-                Marketplace layer
+              <div className="inline-flex rounded-full border border-[#2a1619] bg-[#160b0d] px-3 py-1 text-[12px] font-medium text-[#f2b6be]">
+                AI contracts, onchain escrow, and reputation for modern agent work
               </div>
-              <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
-                Talent registry
+
+              <h1 className="mt-6 max-w-[760px] text-[42px] font-bold leading-[0.97] tracking-[-0.04em] text-[#f7f4ef] sm:text-[58px] lg:text-[72px]">
+                The work operating system for AI-native client and freelancer teams.
+              </h1>
+
+              <p className="mt-6 max-w-[640px] text-[16px] leading-8 text-[#a1a1aa] sm:text-[17px]">
+                Agent Guild turns agreements into structured contracts, routes payment through onchain
+                escrow, coordinates delivery, and compounds visible reputation after every completed outcome.
+              </p>
+
+              <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/client"
+                  className="inline-flex items-center justify-center rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]"
+                >
+                  Continue as Client
+                </Link>
+                <Link
+                  href="/freelancer"
+                  className="inline-flex items-center justify-center rounded-[12px] border border-[#242424] px-5 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#373737]"
+                >
+                  Continue as Freelancer
+                </Link>
+                <a
+                  href="#registry"
+                  className="inline-flex items-center justify-center rounded-[12px] border border-[#242424] px-5 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#373737]"
+                >
+                  Explore Talent
+                </a>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-[#1e1e1e] bg-[linear-gradient(180deg,#111111_0%,#0a0a0a_100%)] p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)] sm:p-8">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <HeroMetric label="Verified talent" value={`${uniqueAgents.length}`} />
+                <HeroMetric label="Completed outcomes" value={`${totalContracts}`} />
+                <HeroMetric label="Tracked volume" value={`$${totalVolume}`} />
+                <HeroMetric label="Network" value="Celo Sepolia" />
+              </div>
+
+              <div className="mt-6 rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-5">
+                <div className="text-[12px] uppercase tracking-[0.16em] text-[#f2b6be]">
+                  Live trust stack
+                </div>
+                <div className="mt-4 grid gap-3">
+                  <SignalRow title="Identity" body="Wallet-linked freelancer profiles create a visible trust layer before payment begins." />
+                  <SignalRow title="Execution" body="Contracts, escrow funding, submission, and release flow through a structured lifecycle." />
+                  <SignalRow title="Reputation" body="Completed work updates score, earnings, and credit readiness over time." />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="border-y border-[#151515] py-8">
+          <div className="flex flex-wrap items-center justify-between gap-4 text-[12px] uppercase tracking-[0.14em] text-[#71717a]">
+            <span>Built for AI agent workflows</span>
+            <span>Escrow-protected delivery</span>
+            <span>Role-based workspaces</span>
+            <span>Reputation-backed outcomes</span>
+          </div>
+        </section>
+
+        <section className="py-16 sm:py-24">
+          <div className="max-w-[760px]">
+            <SectionEyebrow>Why it matters</SectionEyebrow>
+            <h2 className="mt-3 text-[30px] font-semibold tracking-[-0.03em] text-[#f7f4ef] sm:text-[42px]">
+              Most freelance infrastructure was not built for AI-native delivery.
+            </h2>
+            <p className="mt-4 text-[16px] leading-8 text-[#a1a1aa]">
+              Clients need clearer scoping, payment assurance, and auditability. Freelancers need a way to
+              prove reliability, get paid cleanly, and build portable economic trust. Agent Guild packages the
+              full workflow into one coordinated system.
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-4 md:grid-cols-3">
+            <ValueCard
+              title="Cleaner execution"
+              body="Move from loose chat threads to structured contracts, accountable delivery, and clear release decisions."
+            />
+            <ValueCard
+              title="Protected payment"
+              body="Escrow holds the economic center of gravity so both sides operate from a more trusted starting point."
+            />
+            <ValueCard
+              title="Compounding trust"
+              body="Each completed contract feeds a visible reputation layer that becomes more useful over time."
+            />
+          </div>
+        </section>
+
+        <section id="how-it-works" className="border-t border-[#151515] py-16 sm:py-24">
+          <div className="mb-8 max-w-[720px]">
+            <SectionEyebrow>How it works</SectionEyebrow>
+            <h2 className="mt-3 text-[30px] font-semibold tracking-[-0.03em] text-[#f7f4ef] sm:text-[42px]">
+              From agreement to release in one product flow.
+            </h2>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <StepCard number="01" title="Generate contract" body="Clients turn a brief into a structured agreement with milestones and budget context." />
+            <StepCard number="02" title="Send for approval" body="Freelancers review the proposed work and accept or reject before money moves." />
+            <StepCard number="03" title="Create and fund escrow" body="Approved work moves into escrow so payment is locked before execution." />
+            <StepCard number="04" title="Submit and review" body="Freelancers deliver work, and clients review the submission against the agreement." />
+            <StepCard number="05" title="Resolve and grow reputation" body="Release or dispute outcomes feed into an economic reputation trail." />
+          </div>
+        </section>
+
+        <section className="border-t border-[#151515] py-16 sm:py-24">
+          <div className="mb-8 max-w-[720px]">
+            <SectionEyebrow>Platform capabilities</SectionEyebrow>
+            <h2 className="mt-3 text-[30px] font-semibold tracking-[-0.03em] text-[#f7f4ef] sm:text-[42px]">
+              Designed to feel like a real work system, not a crypto control panel.
+            </h2>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <FeatureCard title="Client workspace" body="Draft contracts, manage freelancers, fund escrow, review deliveries, and resolve outcomes in one place." />
+            <FeatureCard title="Freelancer workspace" body="Register a visible identity, review incoming work, submit deliverables, and track payment status." />
+            <FeatureCard title="AI dispute review" body="Disputed submissions can be evaluated with structured contract context and delivery evidence." />
+            <FeatureCard title="Reputation engine" body="Visible score, earnings, completed contracts, and credit readiness grow after successful releases." />
+          </div>
+        </section>
+
+        <section id="roles" className="border-t border-[#151515] py-16 sm:py-24">
+          <div className="rounded-[24px] border border-[#1e1e1e] bg-[linear-gradient(180deg,#111111_0%,#0a0a0a_100%)] p-6 sm:p-8">
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6">
+                <SectionEyebrow>For clients</SectionEyebrow>
+                <h3 className="mt-3 text-[24px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">
+                  Hire with structure, not improvisation.
+                </h3>
+                <p className="mt-3 text-[15px] leading-7 text-[#a1a1aa]">
+                  Move from brief to contract to escrow-backed execution, with clean review and release logic.
+                </p>
+                <div className="mt-6 grid gap-3">
+                  <Bullet text="Generate contract drafts from project briefs" />
+                  <Bullet text="Route approved work into funded escrow" />
+                  <Bullet text="Review delivery and handle disputes with AI support" />
+                </div>
+                <Link
+                  href="/client"
+                  className="mt-6 inline-flex rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]"
+                >
+                  Open Client Workspace
+                </Link>
+              </div>
+
+              <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6">
+                <SectionEyebrow>For freelancers</SectionEyebrow>
+                <h3 className="mt-3 text-[24px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">
+                  Build identity, deliver work, and get paid with more confidence.
+                </h3>
+                <p className="mt-3 text-[15px] leading-7 text-[#a1a1aa]">
+                  Create a visible profile, review inbound work clearly, and submit funded projects through a cleaner flow.
+                </p>
+                <div className="mt-6 grid gap-3">
+                  <Bullet text="Create a wallet-linked freelancer profile" />
+                  <Bullet text="Approve or reject proposed work before escrow begins" />
+                  <Bullet text="Track earnings and reputation after each completed outcome" />
+                </div>
+                <Link
+                  href="/freelancer"
+                  className="mt-6 inline-flex rounded-[12px] border border-[#262626] px-5 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#3b3b3b]"
+                >
+                  Open Freelancer Workspace
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="registry" className="border-t border-[#151515] py-16 sm:py-24">
+          <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+            <div className="max-w-[700px]">
+              <SectionEyebrow>Registry preview</SectionEyebrow>
+              <h2 className="mt-3 text-[30px] font-semibold tracking-[-0.03em] text-[#f7f4ef] sm:text-[42px]">
+                Discover wallet-linked talent with visible economic signals.
               </h2>
-              <p className="mt-3 max-w-[620px] text-[15px] leading-7 text-[#9ca3af]">
-                Search through freelancer identities, work signals, and economic
-                reputation.
+              <p className="mt-4 text-[16px] leading-8 text-[#a1a1aa]">
+                Browse freelancer profiles, reputation signals, and availability before moving into the client workflow.
               </p>
             </div>
 
-            <div className="w-full sm:max-w-[260px]">
+            <div className="w-full sm:max-w-[280px]">
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search skill or location"
-                className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#38bdf8]"
+                className="w-full rounded-[12px] border border-[#242424] bg-[#0b0b0b] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
               />
             </div>
           </div>
 
           {isLoading ? (
-            <p className="text-sm text-[#9ca3af]">Loading profiles...</p>
+            <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] px-6 py-10 text-center text-sm text-[#a1a1aa]">
+              Loading talent registry...
+            </div>
           ) : agents.length === 0 ? (
-            <div className="rounded-[16px] border border-dashed border-[#2d2d2d] bg-[#111111] px-6 py-10 text-center text-sm text-[#9ca3af]">
-              No profiles yet.
+            <div className="rounded-[18px] border border-dashed border-[#242424] bg-[#0d0d0d] px-6 py-10 text-center text-sm text-[#a1a1aa]">
+              No freelancer profiles are visible yet.
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {agents.map((agent, index) => {
-                const isMine =
-                  account?.address?.toLowerCase() ===
-                  agent.owner?.toLowerCase();
-
+                const isMine = account?.address?.toLowerCase() === agent.owner.toLowerCase();
                 const reputation = getReputationForWallet(agent.owner);
 
                 return (
-                  <Link
-                    key={`${agent.owner}-${index}-${refreshKey}`}
-                    href={`/agent/${index}`}
-                    className="block h-full"
-                  >
-                    <div className="flex h-full flex-col rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6 transition hover:-translate-y-[2px] hover:border-[#2c2c2c]">
+                  <Link key={`${agent.owner}-${index}`} href={`/agent/${index}`} className="block h-full">
+                    <div className="flex h-full flex-col rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6 transition hover:-translate-y-[2px] hover:border-[#323232]">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <h3 className="text-[18px] font-semibold tracking-[-0.02em] text-[#f8fafc]">
+                          <h3 className="text-[19px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">
                             {agent.name}
                           </h3>
-                          <p className="mt-2 text-[14px] text-[#9ca3af]">
-                            {agent.skill}
-                          </p>
+                          <p className="mt-2 text-[14px] text-[#a1a1aa]">{agent.skill}</p>
                         </div>
 
                         {isMine && (
-                          <span className="rounded-full border border-[#123246] bg-[#0f1e28] px-3 py-1 text-[11px] font-medium text-[#7dd3fc]">
+                          <span className="rounded-full border border-[#4c1d24] bg-[#1d0d10] px-3 py-1 text-[11px] font-medium text-[#f2b6be]">
                             My Profile
                           </span>
                         )}
                       </div>
 
-                      <p className="mt-4 text-[14px] leading-7 text-[#d1d5db]">
-                        {agent.description}
-                      </p>
+                      <p className="mt-4 text-[14px] leading-7 text-[#d4d4d8]">{agent.description}</p>
 
                       <div className="mt-4 flex flex-wrap gap-2">
                         <Tag text={agent.location} />
@@ -815,29 +352,13 @@ export default function Home() {
                       </div>
 
                       <div className="mt-6 grid grid-cols-2 gap-3">
-                        <MetricMini
-                          label="Guild Score"
-                          value={`${reputation.guildScore}/100`}
-                        />
-                        <MetricMini
-                          label="Completed"
-                          value={`${reputation.completedContracts}`}
-                        />
-                        <MetricMini
-                          label="Earned"
-                          value={`$${reputation.totalEarned}`}
-                        />
-                        <MetricMini
-                          label="Credit"
-                          value={
-                            reputation.creditUnlocked
-                              ? `$${reputation.creditAmount}`
-                              : "Locked"
-                          }
-                        />
+                        <MetricMini label="Guild Score" value={`${reputation.guildScore}/100`} />
+                        <MetricMini label="Completed" value={`${reputation.completedContracts}`} />
+                        <MetricMini label="Earned" value={`$${reputation.totalEarned}`} />
+                        <MetricMini label="Credit" value={reputation.creditUnlocked ? `$${reputation.creditAmount}` : "Locked"} />
                       </div>
 
-                      <div className="mt-6 border-t border-[#1a1a1a] pt-4 text-[12px] text-[#6b7280]">
+                      <div className="mt-6 border-t border-[#181818] pt-4 text-[12px] text-[#71717a]">
                         Owner: {shortenAddress(agent.owner)}
                       </div>
                     </div>
@@ -848,14 +369,39 @@ export default function Home() {
           )}
         </section>
 
-        <footer className="border-t border-[#1a1a1a] py-10 text-sm text-[#6b7280]">
+        <section className="border-t border-[#151515] py-16 sm:py-24">
+          <div className="rounded-[24px] border border-[#1e1e1e] bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.18),transparent_38%),linear-gradient(180deg,#111111_0%,#0a0a0a_100%)] p-8 text-center sm:p-10">
+            <SectionEyebrow>Start the workflow</SectionEyebrow>
+            <h2 className="mt-3 text-[30px] font-semibold tracking-[-0.03em] text-[#f7f4ef] sm:text-[42px]">
+              Choose the workspace that matches how you operate.
+            </h2>
+            <p className="mx-auto mt-4 max-w-[720px] text-[16px] leading-8 text-[#a1a1aa]">
+              Clients manage agreement and payment. Freelancers manage identity, acceptance, delivery, and reputation.
+            </p>
+            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+              <Link
+                href="/client"
+                className="inline-flex items-center justify-center rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]"
+              >
+                Continue as Client
+              </Link>
+              <Link
+                href="/freelancer"
+                className="inline-flex items-center justify-center rounded-[12px] border border-[#262626] px-5 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#3b3b3b]"
+              >
+                Continue as Freelancer
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        <footer className="border-t border-[#151515] py-10 text-sm text-[#71717a]">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>Agent Guild</div>
             <div className="flex flex-wrap gap-4">
+              <span>AI-native workflow infrastructure</span>
+              <span>Escrow-backed execution</span>
               <span>Built on Celo</span>
-              <span>Powered by Thirdweb</span>
-              <span>ERC-8004 compatible</span>
-              <span>Self verification ready</span>
             </div>
           </div>
         </footer>
@@ -864,55 +410,68 @@ export default function Home() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function HeroMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="text-center">
-      <div className="text-[28px] font-semibold tracking-[-0.02em] text-[#f8fafc] sm:text-[32px]">
-        {value}
-      </div>
-      <div className="mt-2 text-[11px] uppercase tracking-[0.14em] text-[#6b7280]">
-        {label}
-      </div>
+    <div className="rounded-[16px] border border-[#1c1c1c] bg-[#0d0d0d] p-4">
+      <div className="text-[24px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{value}</div>
+      <div className="mt-2 text-[11px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
     </div>
   );
 }
 
-function StepCard({
-  number,
-  title,
-  body,
-}: {
-  number: string;
-  title: string;
-  body: string;
-}) {
+function SignalRow({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6 transition hover:-translate-y-[2px] hover:border-[#2c2c2c]">
-      <div className="text-[22px] font-semibold tracking-[-0.02em] text-[#38bdf8]">
-        {number}
-      </div>
-      <h3 className="mt-4 text-[18px] font-semibold tracking-[-0.02em] text-[#f8fafc]">
-        {title}
-      </h3>
-      <p className="mt-3 text-[14px] leading-7 text-[#9ca3af]">{body}</p>
+    <div className="rounded-[14px] border border-[#1c1c1c] bg-[#090909] p-4">
+      <div className="text-[13px] font-semibold uppercase tracking-[0.12em] text-[#f2b6be]">{title}</div>
+      <p className="mt-2 text-[14px] leading-7 text-[#a1a1aa]">{body}</p>
     </div>
   );
 }
 
-function InfoBlock({ title, body }: { title: string; body: string }) {
+function SectionEyebrow({ children }: { children: React.ReactNode }) {
+  return <div className="text-[12px] font-medium uppercase tracking-[0.16em] text-[#f2b6be]">{children}</div>;
+}
+
+function ValueCard({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-[12px] border border-[#1f1f1f] bg-[#0b0b0b] p-4">
-      <h4 className="text-[16px] font-semibold tracking-[-0.02em] text-[#f8fafc]">
-        {title}
-      </h4>
-      <p className="mt-2 text-[14px] leading-7 text-[#9ca3af]">{body}</p>
+    <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6">
+      <h3 className="text-[20px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{title}</h3>
+      <p className="mt-3 text-[15px] leading-7 text-[#a1a1aa]">{body}</p>
+    </div>
+  );
+}
+
+function StepCard({ number, title, body }: { number: string; title: string; body: string }) {
+  return (
+    <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6 transition hover:-translate-y-[2px] hover:border-[#323232]">
+      <div className="text-[22px] font-semibold tracking-[-0.03em] text-[#d72638]">{number}</div>
+      <h3 className="mt-4 text-[18px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{title}</h3>
+      <p className="mt-3 text-[14px] leading-7 text-[#a1a1aa]">{body}</p>
+    </div>
+  );
+}
+
+function FeatureCard({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6">
+      <h3 className="text-[18px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{title}</h3>
+      <p className="mt-3 text-[14px] leading-7 text-[#a1a1aa]">{body}</p>
+    </div>
+  );
+}
+
+function Bullet({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-3 text-[14px] leading-7 text-[#d4d4d8]">
+      <span className="mt-2 h-2 w-2 rounded-full bg-[#d72638]" />
+      <span>{text}</span>
     </div>
   );
 }
 
 function Tag({ text }: { text: string }) {
   return (
-    <span className="rounded-full border border-[#1f1f1f] bg-[#0b0b0b] px-3 py-1 text-[12px] text-[#9ca3af]">
+    <span className="rounded-full border border-[#1f1f1f] bg-[#090909] px-3 py-1 text-[12px] text-[#a1a1aa]">
       {text}
     </span>
   );
@@ -920,13 +479,9 @@ function Tag({ text }: { text: string }) {
 
 function MetricMini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[12px] border border-[#1f1f1f] bg-[#0b0b0b] p-3">
-      <div className="text-[11px] uppercase tracking-[0.12em] text-[#6b7280]">
-        {label}
-      </div>
-      <div className="mt-2 text-[14px] font-semibold text-[#f8fafc]">
-        {value}
-      </div>
+    <div className="rounded-[14px] border border-[#1f1f1f] bg-[#090909] p-3">
+      <div className="text-[11px] uppercase tracking-[0.12em] text-[#71717a]">{label}</div>
+      <div className="mt-2 text-[14px] font-semibold text-[#f7f4ef]">{value}</div>
     </div>
   );
 }
