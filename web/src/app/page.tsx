@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { ReactNode, useMemo, useState } from "react";
+import { MotionConfig, motion, useReducedMotion } from "framer-motion";
 import { ConnectButton, useActiveAccount, useReadContract } from "thirdweb/react";
 import { defineChain, getContract } from "thirdweb";
 import { client } from "@/lib/client";
@@ -30,18 +31,24 @@ const celoSepolia = defineChain({
   },
 });
 
+const easeOut = [0.22, 1, 0.36, 1] as const;
+const baseTransition = { duration: 0.26, ease: easeOut } as const;
+const heroTransition = { duration: 0.28, ease: easeOut } as const;
+
 export default function Home() {
   const account = useActiveAccount();
   const [search, setSearch] = useState("");
 
-  const contract = useMemo(() => {
-    return getContract({
-      client,
-      chain: celoSepolia,
-      address: AGENT_REGISTRY_ADDRESS,
-      abi: AGENT_REGISTRY_ABI,
-    });
-  }, []);
+  const contract = useMemo(
+    () =>
+      getContract({
+        client,
+        chain: celoSepolia,
+        address: AGENT_REGISTRY_ADDRESS,
+        abi: AGENT_REGISTRY_ABI,
+      }),
+    []
+  );
 
   const { data, isLoading } = useReadContract({
     contract,
@@ -58,13 +65,13 @@ export default function Home() {
   const agents = uniqueAgents.filter((agent) => {
     const q = search.toLowerCase().trim();
     if (!q) return true;
-
     return (
       agent.name.toLowerCase().includes(q) ||
       agent.skill.toLowerCase().includes(q) ||
       agent.location.toLowerCase().includes(q)
     );
   });
+  const previewAgents = agents.slice(0, 6);
 
   const totalContracts = uniqueAgents.reduce((sum, agent) => {
     const rep = getReputation(agent.owner);
@@ -76,412 +83,518 @@ export default function Home() {
     return sum + rep.totalEarned;
   }, 0);
 
+  const trustMetrics = [
+    { label: "Verified talent", value: `${uniqueAgents.length}` },
+    { label: "Completed outcomes", value: `${totalContracts}` },
+    { label: "Visible volume", value: `$${totalVolume}` },
+  ];
+
+  const systemStages = ["Contracts", "Escrow", "Delivery", "Dispute resolution"];
+
   return (
-    <main className="min-h-screen bg-[#070707] text-[#f7f4ef]">
-      <div className="mx-auto max-w-[1180px] px-4 sm:px-6">
-        <header className="sticky top-0 z-20 border-b border-[#181818]/90 bg-[#070707]/90 backdrop-blur">
-          <div className="flex items-center justify-between py-4">
-            <Link href="/" className="text-[14px] font-semibold tracking-[0.18em] text-[#f7f4ef]">
-              AGENT GUILD
-            </Link>
+    <MotionConfig transition={baseTransition}>
+      <main className="relative min-h-screen overflow-hidden bg-[#050506] text-[#f7f4ef]">
+        <AmbientBackdrop />
 
-            <div className="hidden items-center gap-6 text-[13px] text-[#a1a1aa] md:flex">
-              <a href="#how-it-works" className="transition hover:text-[#f7f4ef]">
-                How it works
-              </a>
-              <a href="#roles" className="transition hover:text-[#f7f4ef]">
-                Workspaces
-              </a>
-              <a href="#registry" className="transition hover:text-[#f7f4ef]">
-                Talent
-              </a>
+        <div className="relative mx-auto max-w-[1180px] px-4 sm:px-6">
+          <header className="sticky top-0 z-30 border-b border-white/6 bg-[#050506]/88 backdrop-blur-lg">
+            <div className="flex items-center justify-between py-4">
+              <Reveal delay={0.02}>
+                <Link href="/" className="text-[14px] font-semibold tracking-[0.22em] text-[#f7f4ef]">
+                  AGENT GUILD
+                </Link>
+              </Reveal>
+
+              <Reveal delay={0.08} className="hidden items-center gap-6 text-[13px] text-[#8a8a93] md:flex">
+                <a href="#system" className="transition hover:text-[#f7f4ef]">System</a>
+                <a href="#workspaces" className="transition hover:text-[#f7f4ef]">Workspaces</a>
+                <a href="#registry" className="transition hover:text-[#f7f4ef]">Talent</a>
+              </Reveal>
+
+              <Reveal delay={0.12} className="flex items-center gap-3">
+                <div className="hidden sm:block">
+                  <MotionLink href="/client" label="Client Workspace" variant="secondary" />
+                </div>
+                <ConnectButton client={client} chain={celoSepolia} />
+              </Reveal>
             </div>
+          </header>
 
-            <div className="flex items-center gap-3">
-              <Link
-                href="/client"
-                className="hidden rounded-[10px] border border-[#242424] px-4 py-2 text-sm font-medium text-[#f7f4ef] transition hover:border-[#373737] sm:inline-flex"
+          <section className="relative flex min-h-[78vh] items-center py-20 sm:py-28">
+            <div className="mx-auto max-w-[860px] text-center">
+              <Reveal delay={0.1}>
+                <h1 className="mx-auto max-w-[760px] text-[44px] font-semibold leading-[0.94] tracking-[-0.07em] text-[#fbfaf8] sm:text-[64px] lg:text-[82px]">
+                  The trust layer for modern work.
+                </h1>
+              </Reveal>
+
+              <Reveal delay={0.18}>
+                <p className="mx-auto mt-6 max-w-[560px] text-[17px] leading-8 text-[#a7a5ae] sm:text-[18px]">
+                  From agreement to resolution, every step of work runs on one system.
+                </p>
+              </Reveal>
+
+              <motion.div
+                initial="hidden"
+                animate="show"
+                variants={{
+                  hidden: {},
+                  show: { transition: { staggerChildren: 0.06, delayChildren: 0.24 } },
+                }}
+                className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row"
               >
-                Client Workspace
-              </Link>
-              <ConnectButton client={client} chain={celoSepolia} />
-            </div>
-          </div>
-        </header>
-
-        <section className="relative overflow-hidden py-16 sm:py-24">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.22),transparent_40%),radial-gradient(circle_at_80%_20%,rgba(120,26,36,0.18),transparent_30%)]" />
-          <div className="relative grid items-center gap-10 lg:grid-cols-[1.05fr_0.95fr]">
-            <div>
-              <div className="inline-flex rounded-full border border-[#2a1619] bg-[#160b0d] px-3 py-1 text-[12px] font-medium text-[#f2b6be]">
-                AI contracts, onchain escrow, and reputation for modern agent work
-              </div>
-
-              <h1 className="mt-6 max-w-[760px] text-[42px] font-bold leading-[0.97] tracking-[-0.04em] text-[#f7f4ef] sm:text-[58px] lg:text-[72px]">
-                The work operating system for AI-native client and freelancer teams.
-              </h1>
-
-              <p className="mt-6 max-w-[640px] text-[16px] leading-8 text-[#a1a1aa] sm:text-[17px]">
-                Agent Guild turns agreements into structured contracts, routes payment through onchain
-                escrow, coordinates delivery, and compounds visible reputation after every completed outcome.
-              </p>
-
-              <div className="mt-10 flex flex-col gap-3 sm:flex-row">
-                <Link
-                  href="/client"
-                  className="inline-flex items-center justify-center rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]"
-                >
-                  Continue as Client
-                </Link>
-                <Link
-                  href="/freelancer"
-                  className="inline-flex items-center justify-center rounded-[12px] border border-[#242424] px-5 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#373737]"
-                >
-                  Continue as Freelancer
-                </Link>
-                <a
-                  href="#registry"
-                  className="inline-flex items-center justify-center rounded-[12px] border border-[#242424] px-5 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#373737]"
-                >
-                  Explore Talent
-                </a>
-              </div>
-            </div>
-
-            <div className="rounded-[24px] border border-[#1e1e1e] bg-[linear-gradient(180deg,#111111_0%,#0a0a0a_100%)] p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)] sm:p-8">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <HeroMetric label="Verified talent" value={`${uniqueAgents.length}`} />
-                <HeroMetric label="Completed outcomes" value={`${totalContracts}`} />
-                <HeroMetric label="Tracked volume" value={`$${totalVolume}`} />
-                <HeroMetric label="Network" value="Celo Sepolia" />
-              </div>
-
-              <div className="mt-6 rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-5">
-                <div className="text-[12px] uppercase tracking-[0.16em] text-[#f2b6be]">
-                  Live trust stack
-                </div>
-                <div className="mt-4 grid gap-3">
-                  <SignalRow title="Identity" body="Wallet-linked freelancer profiles create a visible trust layer before payment begins." />
-                  <SignalRow title="Execution" body="Contracts, escrow funding, submission, and release flow through a structured lifecycle." />
-                  <SignalRow title="Reputation" body="Completed work updates score, earnings, and credit readiness over time." />
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="border-y border-[#151515] py-8">
-          <div className="flex flex-wrap items-center justify-between gap-4 text-[12px] uppercase tracking-[0.14em] text-[#71717a]">
-            <span>Built for AI agent workflows</span>
-            <span>Escrow-protected delivery</span>
-            <span>Role-based workspaces</span>
-            <span>Reputation-backed outcomes</span>
-          </div>
-        </section>
-
-        <section className="py-16 sm:py-24">
-          <div className="max-w-[760px]">
-            <SectionEyebrow>Why it matters</SectionEyebrow>
-            <h2 className="mt-3 text-[30px] font-semibold tracking-[-0.03em] text-[#f7f4ef] sm:text-[42px]">
-              Most freelance infrastructure was not built for AI-native delivery.
-            </h2>
-            <p className="mt-4 text-[16px] leading-8 text-[#a1a1aa]">
-              Clients need clearer scoping, payment assurance, and auditability. Freelancers need a way to
-              prove reliability, get paid cleanly, and build portable economic trust. Agent Guild packages the
-              full workflow into one coordinated system.
-            </p>
-          </div>
-
-          <div className="mt-10 grid gap-4 md:grid-cols-3">
-            <ValueCard
-              title="Cleaner execution"
-              body="Move from loose chat threads to structured contracts, accountable delivery, and clear release decisions."
-            />
-            <ValueCard
-              title="Protected payment"
-              body="Escrow holds the economic center of gravity so both sides operate from a more trusted starting point."
-            />
-            <ValueCard
-              title="Compounding trust"
-              body="Each completed contract feeds a visible reputation layer that becomes more useful over time."
-            />
-          </div>
-        </section>
-
-        <section id="how-it-works" className="border-t border-[#151515] py-16 sm:py-24">
-          <div className="mb-8 max-w-[720px]">
-            <SectionEyebrow>How it works</SectionEyebrow>
-            <h2 className="mt-3 text-[30px] font-semibold tracking-[-0.03em] text-[#f7f4ef] sm:text-[42px]">
-              From agreement to release in one product flow.
-            </h2>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <StepCard number="01" title="Generate contract" body="Clients turn a brief into a structured agreement with milestones and budget context." />
-            <StepCard number="02" title="Send for approval" body="Freelancers review the proposed work and accept or reject before money moves." />
-            <StepCard number="03" title="Create and fund escrow" body="Approved work moves into escrow so payment is locked before execution." />
-            <StepCard number="04" title="Submit and review" body="Freelancers deliver work, and clients review the submission against the agreement." />
-            <StepCard number="05" title="Resolve and grow reputation" body="Release or dispute outcomes feed into an economic reputation trail." />
-          </div>
-        </section>
-
-        <section className="border-t border-[#151515] py-16 sm:py-24">
-          <div className="mb-8 max-w-[720px]">
-            <SectionEyebrow>Platform capabilities</SectionEyebrow>
-            <h2 className="mt-3 text-[30px] font-semibold tracking-[-0.03em] text-[#f7f4ef] sm:text-[42px]">
-              Designed to feel like a real work system, not a crypto control panel.
-            </h2>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <FeatureCard title="Client workspace" body="Draft contracts, manage freelancers, fund escrow, review deliveries, and resolve outcomes in one place." />
-            <FeatureCard title="Freelancer workspace" body="Register a visible identity, review incoming work, submit deliverables, and track payment status." />
-            <FeatureCard title="AI dispute review" body="Disputed submissions can be evaluated with structured contract context and delivery evidence." />
-            <FeatureCard title="Reputation engine" body="Visible score, earnings, completed contracts, and credit readiness grow after successful releases." />
-          </div>
-        </section>
-
-        <section id="roles" className="border-t border-[#151515] py-16 sm:py-24">
-          <div className="rounded-[24px] border border-[#1e1e1e] bg-[linear-gradient(180deg,#111111_0%,#0a0a0a_100%)] p-6 sm:p-8">
-            <div className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6">
-                <SectionEyebrow>For clients</SectionEyebrow>
-                <h3 className="mt-3 text-[24px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">
-                  Hire with structure, not improvisation.
-                </h3>
-                <p className="mt-3 text-[15px] leading-7 text-[#a1a1aa]">
-                  Move from brief to contract to escrow-backed execution, with clean review and release logic.
-                </p>
-                <div className="mt-6 grid gap-3">
-                  <Bullet text="Generate contract drafts from project briefs" />
-                  <Bullet text="Route approved work into funded escrow" />
-                  <Bullet text="Review delivery and handle disputes with AI support" />
-                </div>
-                <Link
-                  href="/client"
-                  className="mt-6 inline-flex rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]"
-                >
-                  Open Client Workspace
-                </Link>
-              </div>
-
-              <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6">
-                <SectionEyebrow>For freelancers</SectionEyebrow>
-                <h3 className="mt-3 text-[24px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">
-                  Build identity, deliver work, and get paid with more confidence.
-                </h3>
-                <p className="mt-3 text-[15px] leading-7 text-[#a1a1aa]">
-                  Create a visible profile, review inbound work clearly, and submit funded projects through a cleaner flow.
-                </p>
-                <div className="mt-6 grid gap-3">
-                  <Bullet text="Create a wallet-linked freelancer profile" />
-                  <Bullet text="Approve or reject proposed work before escrow begins" />
-                  <Bullet text="Track earnings and reputation after each completed outcome" />
-                </div>
-                <Link
-                  href="/freelancer"
-                  className="mt-6 inline-flex rounded-[12px] border border-[#262626] px-5 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#3b3b3b]"
-                >
-                  Open Freelancer Workspace
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="registry" className="border-t border-[#151515] py-16 sm:py-24">
-          <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-            <div className="max-w-[700px]">
-              <SectionEyebrow>Registry preview</SectionEyebrow>
-              <h2 className="mt-3 text-[30px] font-semibold tracking-[-0.03em] text-[#f7f4ef] sm:text-[42px]">
-                Discover wallet-linked talent with visible economic signals.
-              </h2>
-              <p className="mt-4 text-[16px] leading-8 text-[#a1a1aa]">
-                Browse freelancer profiles, reputation signals, and availability before moving into the client workflow.
-              </p>
-            </div>
-
-            <div className="w-full sm:max-w-[280px]">
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search skill or location"
-                className="w-full rounded-[12px] border border-[#242424] bg-[#0b0b0b] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
+                {[
+                  { href: "/client", label: "Continue as Client", variant: "primary" as const },
+                  { href: "/freelancer", label: "Continue as Freelancer", variant: "secondary" as const },
+                  { href: "#registry", label: "Explore Talent", variant: "secondary" as const },
+                ].map((item) => (
+                  <motion.div key={item.label} variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: baseTransition } }}>
+                    <MotionLink href={item.href} label={item.label} variant={item.variant} />
+                  </motion.div>
+                ))}
+              </motion.div>
+              <HeroVisual
+                totalTalent={uniqueAgents.length}
+                totalContracts={totalContracts}
+                totalVolume={totalVolume}
               />
             </div>
-          </div>
+          </section>
 
-          {isLoading ? (
-            <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] px-6 py-10 text-center text-sm text-[#a1a1aa]">
-              Loading talent registry...
+          <SectionReveal className="border-y border-white/6 py-7">
+            <div className="grid gap-3 md:grid-cols-3">
+              {trustMetrics.map((item, index) => (
+                <HoverCard
+                  key={item.label}
+                  delay={0.04 * index}
+                  className="rounded-[18px] border border-white/8 bg-[#09090b] px-5 py-5"
+                >
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-[#767680]">{item.label}</div>
+                  <div className="mt-3 text-[28px] font-semibold tracking-[-0.05em] text-[#fbfaf8]">{item.value}</div>
+                </HoverCard>
+              ))}
             </div>
-          ) : agents.length === 0 ? (
-            <div className="rounded-[18px] border border-dashed border-[#242424] bg-[#0d0d0d] px-6 py-10 text-center text-sm text-[#a1a1aa]">
-              No freelancer profiles are visible yet.
+          </SectionReveal>
+
+          <SectionReveal id="system" className="py-18 sm:py-24">
+            <SectionIntro title="Contracts, escrow, delivery, and dispute resolution — unified in one system." />
+
+            <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {systemStages.map((item, index) => (
+                <SystemCard key={item} title={item} step={`0${index + 1}`} delay={0.04 * index} />
+              ))}
             </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {agents.map((agent, index) => {
-                const isMine = account?.address?.toLowerCase() === agent.owner.toLowerCase();
-                const reputation = getReputationForWallet(agent.owner);
+          </SectionReveal>
 
-                return (
-                  <Link key={`${agent.owner}-${index}`} href={`/agent/${index}`} className="block h-full">
-                    <div className="flex h-full flex-col rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6 transition hover:-translate-y-[2px] hover:border-[#323232]">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-[19px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">
-                            {agent.name}
-                          </h3>
-                          <p className="mt-2 text-[14px] text-[#a1a1aa]">{agent.skill}</p>
-                        </div>
+          <SectionReveal id="workspaces" className="border-t border-white/6 py-18 sm:py-24">
+            <SectionIntro title="One system for clients and freelancers." />
 
-                        {isMine && (
-                          <span className="rounded-full border border-[#4c1d24] bg-[#1d0d10] px-3 py-1 text-[11px] font-medium text-[#f2b6be]">
-                            My Profile
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="mt-4 text-[14px] leading-7 text-[#d4d4d8]">{agent.description}</p>
-
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <Tag text={agent.location} />
-                        <Tag text={agent.availability} />
-                        <Tag text={`$${agent.hourlyRate.toString()}/hr`} />
-                      </div>
-
-                      <div className="mt-6 grid grid-cols-2 gap-3">
-                        <MetricMini label="Guild Score" value={`${reputation.guildScore}/100`} />
-                        <MetricMini label="Completed" value={`${reputation.completedContracts}`} />
-                        <MetricMini label="Earned" value={`$${reputation.totalEarned}`} />
-                        <MetricMini label="Credit" value={reputation.creditUnlocked ? `$${reputation.creditAmount}` : "Locked"} />
-                      </div>
-
-                      <div className="mt-6 border-t border-[#181818] pt-4 text-[12px] text-[#71717a]">
-                        Owner: {shortenAddress(agent.owner)}
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section className="border-t border-[#151515] py-16 sm:py-24">
-          <div className="rounded-[24px] border border-[#1e1e1e] bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.18),transparent_38%),linear-gradient(180deg,#111111_0%,#0a0a0a_100%)] p-8 text-center sm:p-10">
-            <SectionEyebrow>Start the workflow</SectionEyebrow>
-            <h2 className="mt-3 text-[30px] font-semibold tracking-[-0.03em] text-[#f7f4ef] sm:text-[42px]">
-              Choose the workspace that matches how you operate.
-            </h2>
-            <p className="mx-auto mt-4 max-w-[720px] text-[16px] leading-8 text-[#a1a1aa]">
-              Clients manage agreement and payment. Freelancers manage identity, acceptance, delivery, and reputation.
-            </p>
-            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-              <Link
+            <div className="mt-12 grid gap-5 lg:grid-cols-2">
+              <WorkspaceCard
                 href="/client"
-                className="inline-flex items-center justify-center rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]"
-              >
-                Continue as Client
-              </Link>
-              <Link
+                eyebrow="Client"
+                title="Client workspace"
+                body="Contract drafts, escrow funding, review."
+                bullets={["Generate contract", "Fund escrow", "Resolve delivery"]}
+                primary
+              />
+              <WorkspaceCard
                 href="/freelancer"
-                className="inline-flex items-center justify-center rounded-[12px] border border-[#262626] px-5 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#3b3b3b]"
-              >
-                Continue as Freelancer
-              </Link>
+                eyebrow="Freelancer"
+                title="Freelancer workspace"
+                body="Approvals, delivery, reputation."
+                bullets={["Approve or reject", "Submit funded work", "Build execution history"]}
+              />
             </div>
-          </div>
-        </section>
+          </SectionReveal>
 
-        <footer className="border-t border-[#151515] py-10 text-sm text-[#71717a]">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>Agent Guild</div>
-            <div className="flex flex-wrap gap-4">
-              <span>AI-native workflow infrastructure</span>
-              <span>Escrow-backed execution</span>
-              <span>Built on Celo</span>
+          <SectionReveal id="registry" className="border-t border-white/6 py-18 sm:py-24">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <SectionIntro title="Discover talent with real execution history." className="max-w-[760px] text-left lg:text-left" />
+
+              <Reveal delay={0.08} className="w-full lg:max-w-[300px]">
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search skill or location"
+                  className="w-full rounded-[14px] border border-white/8 bg-[#0c0c0f] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#676772] focus:border-[#7f2630]"
+                />
+              </Reveal>
             </div>
+
+            {isLoading ? (
+              <HoverCard delay={0.08} className="mt-12 rounded-[24px] border border-white/8 bg-[#0c0c0f] px-6 py-14 text-center text-sm text-[#9d9da6]">
+                Loading talent registry...
+              </HoverCard>
+            ) : previewAgents.length === 0 ? (
+              <HoverCard delay={0.08} className="mt-12 rounded-[24px] border border-dashed border-white/8 bg-[#0c0c0f] px-6 py-14 text-center text-sm text-[#9d9da6]">
+                No freelancer profiles match this search yet.
+              </HoverCard>
+            ) : (
+              <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {previewAgents.map((agent, index) => {
+                  const reputation = getReputationForWallet(agent.owner);
+                  const isMine = account?.address?.toLowerCase() === agent.owner.toLowerCase();
+                  return (
+                    <TalentCard
+                      key={`${agent.owner}-${index}`}
+                      agent={agent}
+                      reputation={reputation}
+                      isMine={isMine}
+                      href={`/agent/${index}`}
+                      delay={0.05 * index}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </SectionReveal>
+
+          <SectionReveal className="border-t border-white/6 py-18 sm:py-24">
+            <motion.div
+              whileHover={{ scale: 1.005 }}
+              className="relative overflow-hidden rounded-[28px] border border-white/8 bg-[#09090b] p-8 text-center sm:p-12"
+            >
+              <motion.div
+                aria-hidden="true"
+                className="absolute inset-x-[30%] top-[-8%] h-24 rounded-full bg-[#d72638]/10 blur-[56px]"
+                animate={{ opacity: [0.12, 0.18, 0.12], scale: [1, 1.02, 1] }}
+                transition={{ duration: 10, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
+              />
+
+              <div className="relative">
+                <h2 className="mx-auto max-w-[680px] text-[34px] font-semibold leading-[1.02] tracking-[-0.05em] text-[#fbfaf8] sm:text-[54px]">
+                  Trust starts before work begins.
+                </h2>
+                <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+                  <MotionLink href="/client" label="Continue as Client" variant="primary" />
+                  <MotionLink href="/freelancer" label="Continue as Freelancer" variant="secondary" />
+                </div>
+              </div>
+            </motion.div>
+          </SectionReveal>
+
+          <footer className="border-t border-white/6 py-10 text-sm text-[#71717a]">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>Agent Guild</div>
+              <div className="flex flex-wrap gap-4">
+                <span>Contracts</span>
+                <span>Escrow</span>
+                <span>AI Judgment</span>
+                <span>Reputation</span>
+              </div>
+            </div>
+          </footer>
+        </div>
+      </main>
+    </MotionConfig>
+  );
+}
+
+function AmbientBackdrop() {
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+      <motion.div
+        className="absolute left-[-8%] top-[4%] h-[240px] w-[240px] rounded-full bg-[#5b111b]/14 blur-[84px]"
+        animate={reduceMotion ? {} : { x: [0, 18, 0], y: [0, 12, 0], opacity: [0.18, 0.24, 0.18] }}
+        transition={{ duration: 14, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
+      />
+      <motion.div
+        className="absolute right-[-5%] top-[14%] h-[220px] w-[220px] rounded-full bg-[#761f2b]/10 blur-[92px]"
+        animate={reduceMotion ? {} : { x: [0, -16, 0], y: [0, 14, 0], opacity: [0.12, 0.18, 0.12] }}
+        transition={{ duration: 16, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
+      />
+    </div>
+  );
+}
+
+function HeroVisual({
+  totalTalent,
+  totalContracts,
+  totalVolume,
+}: {
+  totalTalent: number;
+  totalContracts: number;
+  totalVolume: number;
+}) {
+  const reduceMotion = useReducedMotion();
+  const nodes = ["Contract", "Escrow", "Delivery", "Judgment", "Reputation"];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.985, y: reduceMotion ? 0 : 18 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ delay: 0.24, duration: 0.28, ease: easeOut }}
+      className="relative mx-auto mt-14 max-w-[900px]"
+    >
+      <motion.div
+        aria-hidden="true"
+        className="absolute inset-x-[26%] top-[8%] h-24 rounded-full bg-[#d72638]/10 blur-[56px]"
+        animate={reduceMotion ? {} : { opacity: [0.1, 0.14, 0.1], scale: [1, 1.02, 1] }}
+        transition={{ duration: 10, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
+      />
+
+      <div className="relative overflow-hidden rounded-[30px] border border-white/8 bg-[#09090b] px-5 py-7 shadow-[0_26px_70px_rgba(0,0,0,0.34)] sm:px-7 sm:py-8">
+        <div className="relative">
+          <div className="text-center text-[11px] uppercase tracking-[0.18em] text-[#8d8b93]">Execution system</div>
+          <div className="relative mt-7">
+            <div className="absolute left-[10%] right-[10%] top-5 hidden h-px bg-white/10 md:block" />
+            <div className="grid gap-3 md:grid-cols-5">
+                {nodes.map((node, index) => (
+                  <motion.div
+                    key={node}
+                    initial={{ opacity: 0, y: reduceMotion ? 0 : 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.32 + index * 0.04, duration: 0.24, ease: easeOut }}
+                    className="rounded-[20px] border border-white/8 bg-[#0d0d10] px-4 py-5 text-center"
+                  >
+                    <div className="mx-auto h-2.5 w-2.5 rounded-full bg-[#d72638]" />
+                    <div className="mt-4 text-[13px] font-semibold tracking-[-0.03em] text-[#fbfaf8]">{node}</div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          <div className="mt-6 grid gap-3 border-t border-white/6 pt-5 md:grid-cols-3">
+            {[
+              { label: "Verified talent", value: `${totalTalent}` },
+              { label: "Completed outcomes", value: `${totalContracts}` },
+              { label: "Visible volume", value: `$${totalVolume}` },
+            ].map((item) => (
+              <div key={item.label} className="rounded-[18px] border border-white/6 bg-[#0b0b0d] px-4 py-4 text-center">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-[#767680]">{item.label}</div>
+                <div className="mt-2 text-[24px] font-semibold tracking-[-0.05em] text-[#fbfaf8]">{item.value}</div>
+              </div>
+            ))}
           </div>
-        </footer>
+        </div>
       </div>
-    </main>
+    </motion.div>
   );
 }
 
-function HeroMetric({ label, value }: { label: string; value: string }) {
+function SectionIntro({
+  title,
+  className,
+}: {
+  title: string;
+  className?: string;
+}) {
   return (
-    <div className="rounded-[16px] border border-[#1c1c1c] bg-[#0d0d0d] p-4">
-      <div className="text-[24px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{value}</div>
-      <div className="mt-2 text-[11px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
+    <div className={`mx-auto max-w-[860px] text-center ${className ?? ""}`}>
+      <h2 className="text-[32px] font-semibold leading-[1.02] tracking-[-0.06em] text-[#fbfaf8] sm:text-[48px]">
+        {title}
+      </h2>
     </div>
   );
 }
 
-function SignalRow({ title, body }: { title: string; body: string }) {
+function MotionLink({ href, label, variant }: { href: string; label: string; variant: "primary" | "secondary" }) {
+  const classes =
+    variant === "primary"
+      ? "bg-[#d72638] text-white shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_10px_24px_rgba(215,38,56,0.18)] hover:bg-[#bf2232]"
+      : "border border-white/10 bg-white/[0.02] text-[#f7f4ef] hover:border-white/16 hover:bg-white/[0.04]";
+
   return (
-    <div className="rounded-[14px] border border-[#1c1c1c] bg-[#090909] p-4">
-      <div className="text-[13px] font-semibold uppercase tracking-[0.12em] text-[#f2b6be]">{title}</div>
-      <p className="mt-2 text-[14px] leading-7 text-[#a1a1aa]">{body}</p>
-    </div>
+    <motion.div
+      whileHover={
+        variant === "primary"
+          ? { scale: 1.015, y: -1, boxShadow: "0 14px 30px rgba(215,38,56,0.18)" }
+          : { scale: 1.01, y: -1 }
+      }
+      whileTap={{ scale: 0.99 }}
+      transition={baseTransition}
+    >
+      <Link href={href} className={`inline-flex min-w-[190px] items-center justify-center rounded-[14px] px-5 py-3 text-sm font-semibold transition ${classes}`}>
+        {label}
+      </Link>
+    </motion.div>
   );
 }
 
-function SectionEyebrow({ children }: { children: React.ReactNode }) {
-  return <div className="text-[12px] font-medium uppercase tracking-[0.16em] text-[#f2b6be]">{children}</div>;
-}
+function SectionReveal({ children, className, id }: { children: ReactNode; className?: string; id?: string }) {
+  const reduceMotion = useReducedMotion();
 
-function ValueCard({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6">
-      <h3 className="text-[20px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{title}</h3>
-      <p className="mt-3 text-[15px] leading-7 text-[#a1a1aa]">{body}</p>
-    </div>
+    <motion.section
+      id={id}
+      initial={{ opacity: 0, y: reduceMotion ? 0 : 22 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.18 }}
+      transition={baseTransition}
+      className={className}
+    >
+      {children}
+    </motion.section>
   );
 }
 
-function StepCard({ number, title, body }: { number: string; title: string; body: string }) {
+function Reveal({ children, className, delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {
+  const reduceMotion = useReducedMotion();
+
   return (
-    <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6 transition hover:-translate-y-[2px] hover:border-[#323232]">
-      <div className="text-[22px] font-semibold tracking-[-0.03em] text-[#d72638]">{number}</div>
-      <h3 className="mt-4 text-[18px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{title}</h3>
-      <p className="mt-3 text-[14px] leading-7 text-[#a1a1aa]">{body}</p>
-    </div>
+    <motion.div
+      initial={{ opacity: 0, y: reduceMotion ? 0 : 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...heroTransition, delay }}
+      className={className}
+    >
+      {children}
+    </motion.div>
   );
 }
 
-function FeatureCard({ title, body }: { title: string; body: string }) {
+function HoverCard({
+  children,
+  className,
+  delay = 0,
+}: {
+  children: ReactNode;
+  className?: string;
+  delay?: number;
+}) {
+  const reduceMotion = useReducedMotion();
+
   return (
-    <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0d0d0d] p-6">
-      <h3 className="text-[18px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{title}</h3>
-      <p className="mt-3 text-[14px] leading-7 text-[#a1a1aa]">{body}</p>
-    </div>
+    <motion.div
+      initial={{ opacity: 0, y: reduceMotion ? 0 : 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.18 }}
+      transition={{ ...baseTransition, delay }}
+      whileHover={{ y: -3, borderColor: "rgba(255,255,255,0.14)", boxShadow: "0 18px 44px rgba(0,0,0,0.24)" }}
+      className={className}
+    >
+      {children}
+    </motion.div>
   );
 }
 
-function Bullet({ text }: { text: string }) {
+function SystemCard({ title, step, delay }: { title: string; step: string; delay: number }) {
   return (
-    <div className="flex items-start gap-3 text-[14px] leading-7 text-[#d4d4d8]">
-      <span className="mt-2 h-2 w-2 rounded-full bg-[#d72638]" />
-      <span>{text}</span>
-    </div>
+    <HoverCard
+      delay={delay}
+      className="rounded-[22px] border border-white/8 bg-[#09090b] px-5 py-6"
+    >
+      <div className="text-[11px] uppercase tracking-[0.18em] text-[#767680]">{step}</div>
+      <div className="mt-8 text-[24px] font-semibold tracking-[-0.05em] text-[#fbfaf8]">{title}</div>
+    </HoverCard>
   );
+}
+
+function WorkspaceCard({
+  href,
+  eyebrow,
+  title,
+  body,
+  bullets,
+  primary = false,
+}: {
+  href: string;
+  eyebrow: string;
+  title: string;
+  body: string;
+  bullets: string[];
+  primary?: boolean;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 18 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.18 }}
+      transition={baseTransition}
+      whileHover={{
+        y: -5,
+        boxShadow: "0 20px 48px rgba(0,0,0,0.28)",
+        borderColor: primary ? "rgba(215,38,56,0.24)" : "rgba(255,255,255,0.14)",
+      }}
+      className={`rounded-[28px] border p-7 ${
+        primary
+          ? "border-[#4c1d24] bg-[#0a090a]"
+          : "border-white/8 bg-[#09090b]"
+      }`}
+    >
+      <div className="text-[12px] uppercase tracking-[0.16em] text-[#f2b6be]">{eyebrow}</div>
+      <h3 className="mt-5 text-[28px] font-semibold leading-[1.08] tracking-[-0.05em] text-[#fbfaf8]">{title}</h3>
+      <p className="mt-4 text-[15px] leading-7 text-[#9d9da6]">{body}</p>
+      <div className="mt-6 grid gap-3">
+        {bullets.map((bullet) => (
+          <div key={bullet} className="flex items-start gap-3 text-[14px] leading-7 text-[#d6d1c8]">
+            <span className="mt-2 h-2 w-2 rounded-full bg-[#d72638]" />
+            <span>{bullet}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-8">
+        <MotionLink href={href} label={primary ? "Continue as Client" : "Continue as Freelancer"} variant={primary ? "primary" : "secondary"} />
+      </div>
+    </motion.div>
+  );
+}
+
+function TalentCard({
+  agent,
+  reputation,
+  isMine,
+  href,
+  delay,
+}: {
+  agent: Agent;
+  reputation: ReturnType<typeof getReputationForWallet>;
+  isMine: boolean;
+  href: string;
+  delay: number;
+}) {
+  return (
+    <HoverCard delay={delay} className="h-full">
+      <Link href={href} className="block h-full">
+        <div className="flex h-full flex-col rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(16,16,18,0.96),rgba(10,10,12,0.9))] p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-[20px] font-semibold tracking-[-0.04em] text-[#fbfaf8]">{agent.name}</h3>
+              <p className="mt-2 text-[14px] text-[#9d9da6]">{agent.skill}</p>
+            </div>
+            {isMine && (
+              <span className="rounded-full border border-[#4c1d24] bg-[#160b0d] px-3 py-1 text-[11px] font-medium text-[#f2b6be]">
+                My profile
+              </span>
+            )}
+          </div>
+
+          <p className="mt-4 text-[14px] leading-7 text-[#d4d1ca]">{agent.description}</p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Tag text={agent.location} />
+            <Tag text={agent.availability} />
+            <Tag text={`$${agent.hourlyRate.toString()}/hr`} />
+          </div>
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <MetricMini label="Guild Score" value={`${reputation.guildScore}/100`} />
+            <MetricMini label="Completed" value={`${reputation.completedContracts}`} />
+            <MetricMini label="Earned" value={`$${reputation.totalEarned}`} />
+            <MetricMini label="Credit" value={reputation.creditUnlocked ? `$${reputation.creditAmount}` : "Locked"} />
+          </div>
+          <div className="mt-6 border-t border-white/6 pt-4 text-[12px] text-[#71717a]">
+            Owner: {shortenAddress(agent.owner)}
+          </div>
+        </div>
+      </Link>
+    </HoverCard>
+  );
+}
+
+function MiniEyebrow({ children }: { children: ReactNode }) {
+  return <div className="text-[11px] uppercase tracking-[0.14em] text-[#f2b6be]">{children}</div>;
 }
 
 function Tag({ text }: { text: string }) {
-  return (
-    <span className="rounded-full border border-[#1f1f1f] bg-[#090909] px-3 py-1 text-[12px] text-[#a1a1aa]">
-      {text}
-    </span>
-  );
+  return <span className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-[12px] text-[#c9c4bc]">{text}</span>;
 }
 
 function MetricMini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[14px] border border-[#1f1f1f] bg-[#090909] p-3">
+    <div className="rounded-[14px] border border-white/8 bg-[#0b0b0d] p-3">
       <div className="text-[11px] uppercase tracking-[0.12em] text-[#71717a]">{label}</div>
-      <div className="mt-2 text-[14px] font-semibold text-[#f7f4ef]">{value}</div>
+      <div className="mt-2 text-[14px] font-semibold text-[#fbfaf8]">{value}</div>
     </div>
   );
 }

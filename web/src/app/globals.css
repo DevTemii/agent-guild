@@ -1,20 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  --background: #070707;
+  --background: #050506;
   --foreground: #f7f4ef;
+  --accent: #d72638;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Trebuchet MS", "Segoe UI", sans-serif;
+  --font-sans: "Inter", "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif;
   --font-mono: "Courier New", monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #070707;
+    --background: #050506;
     --foreground: #f7f4ef;
   }
 }
@@ -27,8 +28,24 @@ html {
   scroll-behavior: smooth;
 }
 
+html,
 body {
-  background: var(--background);
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(circle at top, rgba(215, 38, 56, 0.045), transparent 26%),
+    radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.022), transparent 20%),
+    var(--background);
   color: var(--foreground);
-  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  font-family: "Inter", "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(215, 38, 56, 0.32);
+  color: #ffffff;
 }

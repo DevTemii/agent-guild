@@ -3,8 +3,8 @@ import "./globals.css";
 import Providers from "./providers";
 
 export const metadata: Metadata = {
-  title: "Agent Guild",
-  description: "The Onchain Workforce Protocol",
+  title: "Agent Guild | Trust Infrastructure for Work",
+  description: "Contracts, escrow, AI judgment, and reputation for modern client and freelancer workflows.",
 };
 
 export default function RootLayout({
