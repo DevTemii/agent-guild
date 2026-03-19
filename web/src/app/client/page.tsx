@@ -62,8 +62,9 @@ export default function ClientWorkspacePage() {
   const [generatingContract, setGeneratingContract] = useState(false);
   const [contractStatus, setContractStatus] = useState("");
   const [notifications, setNotifications] = useState<string[]>([]);
-  const [freelancerName, setFreelancerName] = useState("");
-  const [freelancerWallet, setFreelancerWallet] = useState("");
+  const [freelancerSearch, setFreelancerSearch] = useState("");
+  const [selectedFreelancerWallet, setSelectedFreelancerWallet] = useState("");
+  const [customFreelancerWallet, setCustomFreelancerWallet] = useState("");
   const [contracts, setContracts] = useState<ProductContract[]>([]);
   const [selectedApprovedContractId, setSelectedApprovedContractId] = useState<string | null>(null);
 
@@ -81,6 +82,26 @@ export default function ClientWorkspacePage() {
     method: "getAgents",
     params: [],
   });
+
+  const allAgents = (data as Agent[] | undefined) || [];
+  const availableTalent = allAgents.filter((agent, index, arr) => {
+    const owner = agent.owner.toLowerCase();
+    return index === arr.findIndex((item) => item.owner.toLowerCase() === owner);
+  });
+
+  const filteredTalent = availableTalent.filter((agent) => {
+    const query = freelancerSearch.toLowerCase().trim();
+    if (!query) return true;
+
+    return (
+      agent.name.toLowerCase().includes(query) ||
+      agent.skill.toLowerCase().includes(query) ||
+      agent.location.toLowerCase().includes(query)
+    );
+  });
+
+  const selectedFreelancer =
+    availableTalent.find((agent) => agent.owner.toLowerCase() === selectedFreelancerWallet) ?? null;
 
   useEffect(() => {
     const savedProfileRaw = localStorage.getItem(PROFILE_STORAGE_KEY);
@@ -106,6 +127,12 @@ export default function ClientWorkspacePage() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (selectedFreelancer) {
+      setCustomFreelancerWallet("");
+    }
+  }, [selectedFreelancer]);
 
   useEffect(() => {
     if (!connectedAddress) {
@@ -173,8 +200,12 @@ export default function ClientWorkspacePage() {
       setContractStatus("Connect your wallet first.");
       return;
     }
-    if (!freelancerName.trim() || !freelancerWallet.trim()) {
-      setContractStatus("Add freelancer name and wallet before generating a contract.");
+
+    const freelancerWallet = selectedFreelancer?.owner?.toLowerCase() || customFreelancerWallet.trim().toLowerCase();
+    const freelancerName = selectedFreelancer?.name?.trim() || "Custom freelancer";
+
+    if (!freelancerWallet) {
+      setContractStatus("Select a freelancer profile or enter a wallet before generating a contract.");
       return;
     }
 
@@ -205,8 +236,8 @@ export default function ClientWorkspacePage() {
       const draft = createDraftContract({
         clientWallet: connectedAddress,
         clientName,
-        freelancerWallet: freelancerWallet.trim().toLowerCase(),
-        freelancerName: freelancerName.trim(),
+        freelancerWallet,
+        freelancerName,
         projectBrief,
         budget: Number(budget),
         summary: result.summary,
@@ -238,6 +269,15 @@ export default function ClientWorkspacePage() {
   const rejectedContracts = contracts.filter((contract) => contract.status === "rejected");
   const selectedApprovedContract =
     approvedContracts.find((contract) => contract.id === selectedApprovedContractId) ?? null;
+
+  function openEscrowForContract(contractId: string) {
+    setSelectedApprovedContractId(contractId);
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        document.getElementById("escrow-workspace")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#070707] text-[#f7f4ef]">
@@ -371,7 +411,7 @@ export default function ClientWorkspacePage() {
                 </h2>
               </div>
 
-              <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+              <div className="grid gap-6 xl:grid-cols-[0.88fr_1.12fr]">
                 <div className="rounded-[18px] border border-[#1d1d1d] bg-[#0d0d0d] p-6">
                   <div className="grid gap-3">
                     <input
@@ -393,18 +433,6 @@ export default function ClientWorkspacePage() {
                       placeholder="Budget in USD"
                       className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
                     />
-                    <input
-                      value={freelancerName}
-                      onChange={(e) => setFreelancerName(e.target.value)}
-                      placeholder="Freelancer profile name"
-                      className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
-                    />
-                    <input
-                      value={freelancerWallet}
-                      onChange={(e) => setFreelancerWallet(e.target.value)}
-                      placeholder="Freelancer wallet address"
-                      className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
-                    />
                     <button
                       onClick={handleGenerateContract}
                       className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]"
@@ -419,55 +447,151 @@ export default function ClientWorkspacePage() {
                   </div>
                 </div>
 
-                <div className="rounded-[18px] border border-[#1d1d1d] bg-[#0d0d0d] p-6">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-[12px] uppercase tracking-[0.14em] text-[#71717a]">Contract lifecycle</div>
-                      <div className="mt-2 text-[18px] font-semibold tracking-[-0.03em]">Drafts and handoff</div>
+                <div className="grid gap-6">
+                  <div className="rounded-[18px] border border-[#1d1d1d] bg-[#0d0d0d] p-6">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[12px] uppercase tracking-[0.14em] text-[#71717a]">Freelancer selection</div>
+                        <div className="mt-2 text-[18px] font-semibold tracking-[-0.03em]">Choose from registry</div>
+                      </div>
+                      <div className="rounded-full border border-[#1d1d1d] bg-[#090909] px-3 py-1 text-[12px] text-[#a1a1aa]">
+                        {availableTalent.length} profiles
+                      </div>
                     </div>
-                    <div className="rounded-full border border-[#1d1d1d] bg-[#090909] px-3 py-1 text-[12px] text-[#a1a1aa]">
-                      {draftContracts.length + sentContracts.length + approvedContracts.length + rejectedContracts.length} contracts
+
+                    <div className="mt-5 grid gap-4">
+                      <input
+                        value={freelancerSearch}
+                        onChange={(e) => setFreelancerSearch(e.target.value)}
+                        placeholder="Search freelancer by name, skill, or location"
+                        className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
+                      />
+
+                      <div className="grid max-h-[260px] gap-3 overflow-y-auto pr-1">
+                        {filteredTalent.slice(0, 8).map((agent) => {
+                          const isSelected = selectedFreelancerWallet === agent.owner.toLowerCase();
+                          return (
+                            <button
+                              key={agent.owner}
+                              type="button"
+                              onClick={() => setSelectedFreelancerWallet(agent.owner.toLowerCase())}
+                              className={`rounded-[14px] border p-4 text-left transition ${
+                                isSelected
+                                  ? "border-[#6f1d26] bg-[#160b0d]"
+                                  : "border-[#1d1d1d] bg-[#090909] hover:border-[#363636]"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-sm font-semibold text-[#f7f4ef]">{agent.name}</div>
+                                  <div className="mt-1 text-sm text-[#a1a1aa]">{agent.skill}</div>
+                                </div>
+                                <div className="rounded-full border border-[#232323] bg-[#0d0d0d] px-3 py-1 text-[11px] text-[#a1a1aa]">
+                                  ${agent.hourlyRate.toString()}/hr
+                                </div>
+                              </div>
+                              <div className="mt-3 text-xs text-[#71717a]">
+                                {agent.location} • {agent.availability}
+                              </div>
+                            </button>
+                          );
+                        })}
+                        {filteredTalent.length === 0 && (
+                          <div className="rounded-[14px] border border-dashed border-[#242424] bg-[#090909] px-4 py-6 text-sm text-[#a1a1aa]">
+                            No matching freelancers found in the registry.
+                          </div>
+                        )}
+                      </div>
+
+                      {selectedFreelancer ? (
+                        <div className="rounded-[16px] border border-[#4c1d24] bg-[#160b0d] p-4">
+                          <div className="text-[12px] uppercase tracking-[0.14em] text-[#f2b6be]">Selected freelancer</div>
+                          <div className="mt-3 text-[18px] font-semibold text-[#f7f4ef]">{selectedFreelancer.name}</div>
+                          <div className="mt-2 text-sm text-[#d4d4d8]">{selectedFreelancer.description}</div>
+                          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                            <MetadataPill label="Wallet" value={shortAddress(selectedFreelancer.owner)} />
+                            <MetadataPill label="Skill" value={selectedFreelancer.skill} />
+                            <MetadataPill label="Rate" value={`$${selectedFreelancer.hourlyRate.toString()}/hr`} />
+                            <MetadataPill label="Availability" value={selectedFreelancer.availability} />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-[16px] border border-[#1d1d1d] bg-[#090909] p-4">
+                          <div className="text-[12px] uppercase tracking-[0.14em] text-[#71717a]">Fallback</div>
+                          <input
+                            value={customFreelancerWallet}
+                            onChange={(e) => {
+                              setSelectedFreelancerWallet("");
+                              setCustomFreelancerWallet(e.target.value);
+                            }}
+                            placeholder="If needed, enter freelancer wallet manually"
+                            className="mt-3 w-full rounded-[12px] border border-[#242424] bg-[#0d0d0d] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {contracts.length === 0 ? (
-                    <p className="mt-6 text-sm text-[#a1a1aa]">
-                      Drafts generated here become the basis for freelancer approval before escrow can begin.
-                    </p>
-                  ) : (
-                    <div className="mt-6 grid gap-5">
-                      <ContractSection
-                        title="Drafts"
-                        emptyState="No drafts yet."
-                        contracts={draftContracts}
-                        actionLabel="Send To Freelancer"
-                        onAction={sendContract}
-                      />
-                      <ContractSection
-                        title="Sent Contracts"
-                        emptyState="No sent contracts yet."
-                        contracts={sentContracts}
-                      />
-                      <ContractSection
-                        title="Approved Contracts"
-                        emptyState="No approved contracts yet."
-                        contracts={approvedContracts}
-                        selectable
-                        selectedId={selectedApprovedContractId}
-                        onSelect={setSelectedApprovedContractId}
-                      />
-                      <ContractSection
-                        title="Rejected Contracts"
-                        emptyState="No rejected contracts yet."
-                        contracts={rejectedContracts}
-                      />
+                  <div className="rounded-[18px] border border-[#1d1d1d] bg-[#0d0d0d] p-6">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[12px] uppercase tracking-[0.14em] text-[#71717a]">Contract lifecycle</div>
+                        <div className="mt-2 text-[18px] font-semibold tracking-[-0.03em]">Drafts and handoff</div>
+                      </div>
+                      <div className="rounded-full border border-[#1d1d1d] bg-[#090909] px-3 py-1 text-[12px] text-[#a1a1aa]">
+                        {contracts.length} contracts
+                      </div>
                     </div>
-                  )}
+
+                    {contracts.length === 0 ? (
+                      <p className="mt-6 text-sm text-[#a1a1aa]">
+                        Drafts generated here become the basis for freelancer approval before escrow can begin.
+                      </p>
+                    ) : (
+                      <div className="mt-6 grid gap-5">
+                        <ContractSection
+                          title="Drafts"
+                          emptyState="No drafts yet."
+                          contracts={draftContracts}
+                          variant="client"
+                          actionLabel="Send To Freelancer"
+                          onAction={sendContract}
+                          nextActionLabel="Ready to send"
+                        />
+                        <ContractSection
+                          title="Sent Contracts"
+                          emptyState="No sent contracts yet."
+                          contracts={sentContracts}
+                          variant="client"
+                          nextActionLabel="Waiting for freelancer approval"
+                        />
+                        <ContractSection
+                          title="Approved Contracts"
+                          emptyState="No approved contracts yet."
+                          contracts={approvedContracts}
+                          variant="client"
+                          selectable
+                          selectedId={selectedApprovedContractId}
+                          onSelect={setSelectedApprovedContractId}
+                          actionLabel="Create Escrow For This Contract"
+                          onAction={openEscrowForContract}
+                          nextActionLabel="Escrow unlocked"
+                        />
+                        <ContractSection
+                          title="Rejected Contracts"
+                          emptyState="No rejected contracts yet."
+                          contracts={rejectedContracts}
+                          variant="client"
+                          nextActionLabel="Needs revision"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </section>
 
-            <section className="border-t border-[#151515] py-12 sm:py-16">
+            <section id="escrow-workspace" className="border-t border-[#151515] py-12 sm:py-16">
               <div className="mb-8 max-w-[760px]">
                 <div className="text-[12px] uppercase tracking-[0.16em] text-[#f2b6be]">Project execution</div>
                 <h2 className="mt-3 text-[28px] font-semibold tracking-[-0.03em]">
@@ -476,6 +600,17 @@ export default function ClientWorkspacePage() {
                 <p className="mt-4 text-[15px] leading-7 text-[#a1a1aa]">
                   The blockchain flow is unchanged. Escrow creation is now gated by freelancer approval at the product layer.
                 </p>
+                {selectedApprovedContract && (
+                  <div className="mt-5 rounded-[16px] border border-[#4c1d24] bg-[#160b0d] p-4">
+                    <div className="text-[12px] uppercase tracking-[0.14em] text-[#f2b6be]">Ready for escrow</div>
+                    <div className="mt-2 text-[20px] font-semibold text-[#f7f4ef]">
+                      {selectedApprovedContract.freelancerName} approved this contract
+                    </div>
+                    <div className="mt-2 text-sm text-[#d4d4d8]">
+                      ${selectedApprovedContract.budget} • {selectedApprovedContract.milestones.length} milestones
+                    </div>
+                  </div>
+                )}
               </div>
 
               <EscrowSimulator selectedRole="client" approvedContract={selectedApprovedContract} />
@@ -509,8 +644,10 @@ function ContractSection({
   title,
   emptyState,
   contracts,
+  variant,
   actionLabel,
   onAction,
+  nextActionLabel,
   selectable,
   selectedId,
   onSelect,
@@ -518,8 +655,10 @@ function ContractSection({
   title: string;
   emptyState: string;
   contracts: ProductContract[];
+  variant: "client" | "freelancer";
   actionLabel?: string;
   onAction?: (id: string) => void;
+  nextActionLabel?: string;
   selectable?: boolean;
   selectedId?: string | null;
   onSelect?: (id: string) => void;
@@ -532,10 +671,17 @@ function ContractSection({
       ) : (
         <div className="mt-3 grid gap-3">
           {contracts.map((contract) => (
-            <button
+            <div
               key={contract.id}
-              type="button"
               onClick={() => selectable && onSelect?.(contract.id)}
+              onKeyDown={(event) => {
+                if (selectable && (event.key === "Enter" || event.key === " ")) {
+                  event.preventDefault();
+                  onSelect?.(contract.id);
+                }
+              }}
+              role={selectable ? "button" : undefined}
+              tabIndex={selectable ? 0 : undefined}
               className={`rounded-[14px] border p-4 text-left ${
                 selectable && selectedId === contract.id
                   ? "border-[#6f1d26] bg-[#160b0d]"
@@ -543,12 +689,24 @@ function ContractSection({
               }`}
             >
               <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold text-[#f7f4ef]">{contract.freelancerName}</div>
-                <div className="text-[11px] uppercase tracking-[0.12em] text-[#a1a1aa]">{contract.status}</div>
+                <div>
+                  <div className="text-sm font-semibold text-[#f7f4ef]">
+                    {variant === "client" ? contract.freelancerName : contract.clientName}
+                  </div>
+                  <div className="mt-1 text-xs text-[#71717a]">
+                    {variant === "client" ? "Freelancer" : "Client"}
+                  </div>
+                </div>
+                <StatusBadge status={contract.status} />
               </div>
               <div className="mt-2 text-sm text-[#d4d4d8]">{contract.summary}</div>
-              <div className="mt-3 text-xs text-[#71717a]">
-                {contract.freelancerWallet} • ${contract.budget}
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <MetadataPill label="Budget" value={`$${contract.budget}`} />
+                <MetadataPill label="Milestones" value={`${contract.milestones.length}`} />
+                <MetadataPill
+                  label="Next"
+                  value={nextActionLabel || (contract.status === "approved" ? "Create escrow" : "In review")}
+                />
               </div>
               {actionLabel && onAction && (
                 <div className="mt-4">
@@ -564,10 +722,40 @@ function ContractSection({
                   </button>
                 </div>
               )}
-            </button>
+            </div>
           ))}
         </div>
       )}
     </div>
   );
+}
+
+function StatusBadge({ status }: { status: ProductContract["status"] }) {
+  const tone =
+    status === "approved"
+      ? "border-[#1f3b28] bg-[#0d1912] text-[#9be2b0]"
+      : status === "rejected"
+        ? "border-[#4c1d24] bg-[#160b0d] text-[#f2b6be]"
+        : status === "sent"
+          ? "border-[#3a2d18] bg-[#171108] text-[#f8d28c]"
+          : "border-[#242424] bg-[#0d0d0d] text-[#d4d4d8]";
+
+  return (
+    <div className={`rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.12em] ${tone}`}>
+      {status}
+    </div>
+  );
+}
+
+function MetadataPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[12px] border border-[#1d1d1d] bg-[#0d0d0d] px-3 py-3">
+      <div className="text-[10px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
+      <div className="mt-2 text-[13px] font-medium text-[#f7f4ef]">{value}</div>
+    </div>
+  );
+}
+
+function shortAddress(address: string) {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }

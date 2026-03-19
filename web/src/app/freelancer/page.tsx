@@ -236,8 +236,8 @@ export default function FreelancerWorkspacePage() {
               <div className="mt-8 grid gap-3 sm:grid-cols-4">
                 <SummaryCard label="Pending Contracts" value={`${pendingContracts.length}`} />
                 <SummaryCard label="Approved Contracts" value={`${approvedContracts.length}`} />
+                <SummaryCard label="Rejected Contracts" value={`${rejectedContracts.length}`} />
                 <SummaryCard label="Earned" value={reputation ? `$${reputation.totalEarned}` : "$0"} />
-                <SummaryCard label="Guild Score" value={reputation ? `${reputation.guildScore}/100` : "0/100"} />
               </div>
             </div>
 
@@ -362,6 +362,7 @@ export default function FreelancerWorkspacePage() {
                   title="Pending Contracts"
                   emptyState="No contracts are waiting for your decision."
                   contracts={pendingContracts}
+                  nextActionLabel="Approve or reject"
                   primaryActionLabel="Approve"
                   onPrimaryAction={approveContract}
                   secondaryActionLabel="Reject"
@@ -371,11 +372,13 @@ export default function FreelancerWorkspacePage() {
                   title="Approved Contracts"
                   emptyState="No approved contracts yet."
                   contracts={approvedContracts}
+                  nextActionLabel="Wait for escrow funding"
                 />
                 <ContractColumn
                   title="Rejected Contracts"
                   emptyState="No rejected contracts yet."
                   contracts={rejectedContracts}
+                  nextActionLabel="Client will need to revise"
                 />
               </div>
             </section>
@@ -441,6 +444,7 @@ function ContractColumn({
   title,
   emptyState,
   contracts,
+  nextActionLabel,
   primaryActionLabel,
   secondaryActionLabel,
   onPrimaryAction,
@@ -449,6 +453,7 @@ function ContractColumn({
   title: string;
   emptyState: string;
   contracts: ProductContract[];
+  nextActionLabel?: string;
   primaryActionLabel?: string;
   secondaryActionLabel?: string;
   onPrimaryAction?: (id: string) => void;
@@ -464,12 +469,17 @@ function ContractColumn({
           {contracts.map((contract) => (
             <div key={contract.id} className="rounded-[14px] border border-[#1d1d1d] bg-[#090909] p-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold text-[#f7f4ef]">{contract.clientName}</div>
-                <div className="text-[11px] uppercase tracking-[0.12em] text-[#a1a1aa]">{contract.status}</div>
+                <div>
+                  <div className="text-sm font-semibold text-[#f7f4ef]">{contract.clientName}</div>
+                  <div className="mt-1 text-xs text-[#71717a]">Client</div>
+                </div>
+                <StatusBadge status={contract.status} />
               </div>
               <div className="mt-2 text-sm text-[#d4d4d8]">{contract.summary}</div>
-              <div className="mt-3 text-xs text-[#71717a]">
-                ${contract.budget} • {contract.clientWallet.slice(0, 6)}...{contract.clientWallet.slice(-4)}
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <MetadataPill label="Budget" value={`$${contract.budget}`} />
+                <MetadataPill label="Milestones" value={`${contract.milestones.length}`} />
+                <MetadataPill label="Next" value={nextActionLabel || "Review"} />
               </div>
               {primaryActionLabel && onPrimaryAction && (
                 <div className="mt-4 flex gap-3">
@@ -493,6 +503,32 @@ function ContractColumn({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: ProductContract["status"] }) {
+  const tone =
+    status === "approved"
+      ? "border-[#1f3b28] bg-[#0d1912] text-[#9be2b0]"
+      : status === "rejected"
+        ? "border-[#4c1d24] bg-[#160b0d] text-[#f2b6be]"
+        : status === "sent"
+          ? "border-[#3a2d18] bg-[#171108] text-[#f8d28c]"
+          : "border-[#242424] bg-[#0d0d0d] text-[#d4d4d8]";
+
+  return (
+    <div className={`rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.12em] ${tone}`}>
+      {status}
+    </div>
+  );
+}
+
+function MetadataPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[12px] border border-[#1d1d1d] bg-[#0d0d0d] px-3 py-3">
+      <div className="text-[10px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
+      <div className="mt-2 text-[13px] font-medium text-[#f7f4ef]">{value}</div>
     </div>
   );
 }
