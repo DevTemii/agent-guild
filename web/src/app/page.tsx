@@ -7,7 +7,6 @@ import { ConnectButton, useActiveAccount, useReadContract } from "thirdweb/react
 import { defineChain, getContract } from "thirdweb";
 import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
-import { getReputation } from "@/lib/reputation";
 import { getReputationForWallet } from "@/lib/reputationStore";
 
 type Agent = {
@@ -19,6 +18,39 @@ type Agent = {
   location: string;
   availability: string;
 };
+
+const featuredTalentFallback = [
+  {
+    name: "Nora Vale",
+    skill: "Workflow Design",
+    description: "Builds contract-driven execution systems for recurring client delivery.",
+    rate: "$120/hr",
+    location: "Remote",
+    availability: "Available this week",
+    guildScore: "92/100",
+    completed: "18",
+  },
+  {
+    name: "Ibrahim Cole",
+    skill: "AI Ops",
+    description: "Specializes in agent deployment, monitoring, and milestone-based delivery.",
+    rate: "$140/hr",
+    location: "London",
+    availability: "Taking projects",
+    guildScore: "95/100",
+    completed: "24",
+  },
+  {
+    name: "Mina Park",
+    skill: "Product Systems",
+    description: "Translates product briefs into scoped execution plans with delivery accountability.",
+    rate: "$110/hr",
+    location: "Berlin",
+    availability: "Open next sprint",
+    guildScore: "89/100",
+    completed: "16",
+  },
+] as const;
 
 const celoSepolia = defineChain({
   id: 11142220,
@@ -62,7 +94,7 @@ export default function Home() {
     return index === arr.findIndex((item) => item.owner.toLowerCase() === owner);
   });
 
-  const agents = uniqueAgents.filter((agent) => {
+  const filteredAgents = uniqueAgents.filter((agent) => {
     const q = search.toLowerCase().trim();
     if (!q) return true;
     return (
@@ -71,25 +103,46 @@ export default function Home() {
       agent.location.toLowerCase().includes(q)
     );
   });
-  const previewAgents = agents.slice(0, 6);
 
-  const totalContracts = uniqueAgents.reduce((sum, agent) => {
-    const rep = getReputation(agent.owner);
-    return sum + rep.completedContracts;
-  }, 0);
+  const previewAgents = filteredAgents.slice(0, 6);
 
-  const totalVolume = uniqueAgents.reduce((sum, agent) => {
-    const rep = getReputationForWallet(agent.owner);
-    return sum + rep.totalEarned;
-  }, 0);
-
-  const trustMetrics = [
-    { label: "Verified talent", value: `${uniqueAgents.length}` },
-    { label: "Completed outcomes", value: `${totalContracts}` },
-    { label: "Visible volume", value: `$${totalVolume}` },
+  const trustStack = [
+    {
+      title: "Contracts",
+      body: "Structured agreements capture scope, milestones, and explicit approval before execution begins.",
+    },
+    {
+      title: "Escrow",
+      body: "Funding follows approval so payment is committed before delivery work starts.",
+    },
+    {
+      title: "Delivery",
+      body: "Submission stays tied to the agreed record instead of getting lost across chat, files, and status updates.",
+    },
+    {
+      title: "Judgment",
+      body: "Disputes reuse contract context, delivery evidence, and the stated challenge in one review path.",
+    },
+    {
+      title: "Reputation",
+      body: "Every resolved outcome becomes durable signal for the next hiring or delivery decision.",
+    },
   ];
 
-  const systemStages = ["Contracts", "Escrow", "Delivery", "Dispute resolution"];
+  const whyItMatters = [
+    {
+      title: "Fragmented agreements",
+      body: "Scope often lives across briefs, messages, and edits, so both sides operate from different assumptions.",
+    },
+    {
+      title: "Unclear payments",
+      body: "Money frequently sits outside the agreement, which weakens confidence before work even starts.",
+    },
+    {
+      title: "Weak dispute systems",
+      body: "When delivery is contested, most workflows lack a structured record strong enough to resolve it cleanly.",
+    },
+  ];
 
   return (
     <MotionConfig transition={baseTransition}>
@@ -106,6 +159,7 @@ export default function Home() {
               </Reveal>
 
               <Reveal delay={0.08} className="hidden items-center gap-6 text-[13px] text-[#8a8a93] md:flex">
+                <a href="#why" className="transition hover:text-[#f7f4ef]">Why</a>
                 <a href="#system" className="transition hover:text-[#f7f4ef]">System</a>
                 <a href="#workspaces" className="transition hover:text-[#f7f4ef]">Workspaces</a>
                 <a href="#registry" className="transition hover:text-[#f7f4ef]">Talent</a>
@@ -148,69 +202,131 @@ export default function Home() {
                   { href: "/freelancer", label: "Continue as Freelancer", variant: "secondary" as const },
                   { href: "#registry", label: "Explore Talent", variant: "secondary" as const },
                 ].map((item) => (
-                  <motion.div key={item.label} variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: baseTransition } }}>
+                  <motion.div
+                    key={item.label}
+                    variants={{
+                      hidden: { opacity: 0, y: 14 },
+                      show: { opacity: 1, y: 0, transition: baseTransition },
+                    }}
+                  >
                     <MotionLink href={item.href} label={item.label} variant={item.variant} />
                   </motion.div>
                 ))}
               </motion.div>
-              <HeroVisual
-                totalTalent={uniqueAgents.length}
-                totalContracts={totalContracts}
-                totalVolume={totalVolume}
-              />
+
+              <HeroVisual />
             </div>
           </section>
 
-          <SectionReveal className="border-y border-white/6 py-7">
+          <SectionReveal className="border-y border-white/6 py-8 md:py-10">
             <div className="grid gap-3 md:grid-cols-3">
-              {trustMetrics.map((item, index) => (
+              {[
+                {
+                  title: "Approval before funds",
+                  body: "Work moves into escrow only after both sides align on the agreement.",
+                },
+                {
+                  title: "Delivery tied to scope",
+                  body: "Submission stays attached to the same contract record that started the job.",
+                },
+                {
+                  title: "Resolution becomes trust",
+                  body: "Every completed outcome strengthens the reputation layer for future work.",
+                },
+              ].map((item, index) => (
                 <HoverCard
-                  key={item.label}
+                  key={item.title}
                   delay={0.04 * index}
-                  className="rounded-[18px] border border-white/8 bg-[#09090b] px-5 py-5"
+                  className="rounded-[20px] border border-white/8 bg-[#09090b] px-5 py-5"
                 >
-                  <div className="text-[11px] uppercase tracking-[0.16em] text-[#767680]">{item.label}</div>
-                  <div className="mt-3 text-[28px] font-semibold tracking-[-0.05em] text-[#fbfaf8]">{item.value}</div>
+                  <div className="text-[14px] font-semibold tracking-[-0.03em] text-[#fbfaf8]">{item.title}</div>
+                  <div className="mt-3 text-[14px] leading-7 text-[#9d9da6]">{item.body}</div>
                 </HoverCard>
               ))}
             </div>
           </SectionReveal>
 
-          <SectionReveal id="system" className="py-18 sm:py-24">
-            <SectionIntro title="Contracts, escrow, delivery, and dispute resolution — unified in one system." />
+          <SectionReveal id="why" className="py-24 sm:py-30">
+            <div className="rounded-[34px] border border-white/6 bg-[#08080a] px-6 py-8 sm:px-8 sm:py-10">
+              <SectionEyebrow>Why it matters</SectionEyebrow>
+              <SectionIntro
+                title="Work slows down when trust lives in too many places."
+                className="mt-4 max-w-[760px] text-left"
+              />
 
-            <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {systemStages.map((item, index) => (
-                <SystemCard key={item} title={item} step={`0${index + 1}`} delay={0.04 * index} />
-              ))}
+              <div className="mt-12 grid gap-4 lg:grid-cols-3">
+                {whyItMatters.map((item, index) => (
+                  <ProblemCard
+                    key={item.title}
+                    title={item.title}
+                    body={item.body}
+                    delay={0.04 * index}
+                  />
+                ))}
+              </div>
             </div>
           </SectionReveal>
 
-          <SectionReveal id="workspaces" className="border-t border-white/6 py-18 sm:py-24">
+          <SectionReveal id="system" className="py-24 sm:py-30">
+            <div className="rounded-[34px] border border-white/6 bg-[linear-gradient(180deg,rgba(10,10,12,0.98),rgba(7,7,9,0.96))] px-6 py-8 sm:px-8 sm:py-10">
+              <SectionEyebrow>Trust Stack</SectionEyebrow>
+              <SectionIntro
+                title={"Contracts, escrow, delivery, and dispute resolution \u2014 unified in one system."}
+                className="mt-4 text-left"
+              />
+
+              <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                {trustStack.map((item, index) => (
+                  <SystemCard
+                    key={item.title}
+                    title={item.title}
+                    body={item.body}
+                    step={`0${index + 1}`}
+                    delay={0.04 * index}
+                  />
+                ))}
+              </div>
+            </div>
+          </SectionReveal>
+
+          <SectionReveal id="workspaces" className="border-t border-white/6 py-24 sm:py-30">
             <SectionIntro title="One system for clients and freelancers." />
 
-            <div className="mt-12 grid gap-5 lg:grid-cols-2">
+            <div className="mt-14 grid gap-6 lg:grid-cols-2">
               <WorkspaceCard
                 href="/client"
                 eyebrow="Client"
                 title="Client workspace"
-                body="Contract drafts, escrow funding, review."
-                bullets={["Generate contract", "Fund escrow", "Resolve delivery"]}
+                body="Run agreement, approval, funding, and review from one operating surface."
+                bullets={[
+                  "Generate contract drafts from project briefs",
+                  "Send work for approval before escrow creation",
+                  "Fund escrow once approval is in place",
+                  "Review delivery and release or dispute",
+                ]}
                 primary
               />
               <WorkspaceCard
                 href="/freelancer"
                 eyebrow="Freelancer"
                 title="Freelancer workspace"
-                body="Approvals, delivery, reputation."
-                bullets={["Approve or reject", "Submit funded work", "Build execution history"]}
+                body="Move from profile to approval, funded execution, and visible reputation growth."
+                bullets={[
+                  "Approve or reject incoming contracts",
+                  "Track funded work ready for delivery",
+                  "Submit against escrow-backed scope",
+                  "Compound earnings and guild reputation",
+                ]}
               />
             </div>
           </SectionReveal>
 
-          <SectionReveal id="registry" className="border-t border-white/6 py-18 sm:py-24">
+          <SectionReveal id="registry" className="border-t border-white/6 py-24 sm:py-30">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-              <SectionIntro title="Discover talent with real execution history." className="max-w-[760px] text-left lg:text-left" />
+              <SectionIntro
+                title="Discover talent with real execution history."
+                className="max-w-[760px] text-left"
+              />
 
               <Reveal delay={0.08} className="w-full lg:max-w-[300px]">
                 <input
@@ -222,35 +338,40 @@ export default function Home() {
               </Reveal>
             </div>
 
-            {isLoading ? (
-              <HoverCard delay={0.08} className="mt-12 rounded-[24px] border border-white/8 bg-[#0c0c0f] px-6 py-14 text-center text-sm text-[#9d9da6]">
-                Loading talent registry...
-              </HoverCard>
-            ) : previewAgents.length === 0 ? (
-              <HoverCard delay={0.08} className="mt-12 rounded-[24px] border border-dashed border-white/8 bg-[#0c0c0f] px-6 py-14 text-center text-sm text-[#9d9da6]">
-                No freelancer profiles match this search yet.
-              </HoverCard>
-            ) : (
-              <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {previewAgents.map((agent, index) => {
-                  const reputation = getReputationForWallet(agent.owner);
-                  const isMine = account?.address?.toLowerCase() === agent.owner.toLowerCase();
-                  return (
-                    <TalentCard
-                      key={`${agent.owner}-${index}`}
-                      agent={agent}
-                      reputation={reputation}
-                      isMine={isMine}
-                      href={`/agent/${index}`}
+            <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {!isLoading && previewAgents.length > 0
+                ? previewAgents.map((agent, index) => {
+                    const reputation = getReputationForWallet(agent.owner);
+                    const isMine = account?.address?.toLowerCase() === agent.owner.toLowerCase();
+                    return (
+                      <TalentCard
+                        key={`${agent.owner}-${index}`}
+                        agent={agent}
+                        reputation={reputation}
+                        isMine={isMine}
+                        href={`/agent/${index}`}
+                        delay={0.05 * index}
+                      />
+                    );
+                  })
+                : featuredTalentFallback.map((profile, index) => (
+                    <PlaceholderTalentCard
+                      key={profile.name}
+                      name={profile.name}
+                      skill={profile.skill}
+                      description={profile.description}
+                      rate={profile.rate}
+                      location={profile.location}
+                      availability={profile.availability}
+                      guildScore={profile.guildScore}
+                      completed={profile.completed}
                       delay={0.05 * index}
                     />
-                  );
-                })}
-              </div>
-            )}
+                  ))}
+            </div>
           </SectionReveal>
 
-          <SectionReveal className="border-t border-white/6 py-18 sm:py-24">
+          <SectionReveal className="border-t border-white/6 py-24 sm:py-30">
             <motion.div
               whileHover={{ scale: 1.005 }}
               className="relative overflow-hidden rounded-[28px] border border-white/8 bg-[#09090b] p-8 text-center sm:p-12"
@@ -306,27 +427,53 @@ function AmbientBackdrop() {
         animate={reduceMotion ? {} : { x: [0, -16, 0], y: [0, 14, 0], opacity: [0.12, 0.18, 0.12] }}
         transition={{ duration: 16, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
       />
+      <motion.div
+        className="absolute bottom-[-4%] left-[24%] h-[180px] w-[380px] rounded-full bg-[#d72638]/8 blur-[110px]"
+        animate={reduceMotion ? {} : { x: [0, 14, 0], y: [0, -10, 0], opacity: [0.08, 0.12, 0.08] }}
+        transition={{ duration: 18, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
+      />
     </div>
   );
 }
 
-function HeroVisual({
-  totalTalent,
-  totalContracts,
-  totalVolume,
-}: {
-  totalTalent: number;
-  totalContracts: number;
-  totalVolume: number;
-}) {
+function HeroVisual() {
   const reduceMotion = useReducedMotion();
-  const nodes = ["Contract", "Escrow", "Delivery", "Judgment", "Reputation"];
+  const nodes = [
+    {
+      title: "Contract",
+      body: "Scope, milestones, and approval are established before work begins.",
+    },
+    {
+      title: "Escrow",
+      body: "Funding is committed after approval so the job starts from a trusted position.",
+    },
+    {
+      title: "Delivery",
+      body: "Work is submitted against the agreed record instead of floating across channels.",
+    },
+    {
+      title: "Judgment",
+      body: "Contested outcomes are reviewed against the contract, delivery, and dispute reason.",
+    },
+    {
+      title: "Reputation",
+      body: "Resolved work compounds into a visible trust signal for the next engagement.",
+    },
+  ];
 
   return (
     <motion.div
       initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.985, y: reduceMotion ? 0 : 18 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ delay: 0.24, duration: 0.28, ease: easeOut }}
+      animate={
+        reduceMotion
+          ? { opacity: 1, scale: 1, y: 0 }
+          : { opacity: 1, scale: 1, y: [0, -4, 0, 2, 0] }
+      }
+      transition={{
+        opacity: { delay: 0.24, duration: 0.28, ease: easeOut },
+        scale: { delay: 0.24, duration: 0.28, ease: easeOut },
+        y: { delay: 0.24, duration: 6, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" },
+      }}
       className="relative mx-auto mt-14 max-w-[900px]"
     >
       <motion.div
@@ -338,40 +485,90 @@ function HeroVisual({
 
       <div className="relative overflow-hidden rounded-[30px] border border-white/8 bg-[#09090b] px-5 py-7 shadow-[0_26px_70px_rgba(0,0,0,0.34)] sm:px-7 sm:py-8">
         <div className="relative">
-          <div className="text-center text-[11px] uppercase tracking-[0.18em] text-[#8d8b93]">Execution system</div>
-          <div className="relative mt-7">
-            <div className="absolute left-[10%] right-[10%] top-5 hidden h-px bg-white/10 md:block" />
-            <div className="grid gap-3 md:grid-cols-5">
-                {nodes.map((node, index) => (
-                  <motion.div
-                    key={node}
-                    initial={{ opacity: 0, y: reduceMotion ? 0 : 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.32 + index * 0.04, duration: 0.24, ease: easeOut }}
-                    className="rounded-[20px] border border-white/8 bg-[#0d0d10] px-4 py-5 text-center"
-                  >
-                    <div className="mx-auto h-2.5 w-2.5 rounded-full bg-[#d72638]" />
-                    <div className="mt-4 text-[13px] font-semibold tracking-[-0.03em] text-[#fbfaf8]">{node}</div>
-                  </motion.div>
-                ))}
-              </div>
+          <div className="mx-auto max-w-[720px] text-center">
+            <div className="text-[26px] font-semibold tracking-[-0.05em] text-[#fbfaf8] sm:text-[34px]">
+              Contracts. Escrow. Delivery. Judgment. Reputation.
             </div>
-          <div className="mt-6 grid gap-3 border-t border-white/6 pt-5 md:grid-cols-3">
-            {[
-              { label: "Verified talent", value: `${totalTalent}` },
-              { label: "Completed outcomes", value: `${totalContracts}` },
-              { label: "Visible volume", value: `$${totalVolume}` },
-            ].map((item) => (
-              <div key={item.label} className="rounded-[18px] border border-white/6 bg-[#0b0b0d] px-4 py-4 text-center">
-                <div className="text-[11px] uppercase tracking-[0.16em] text-[#767680]">{item.label}</div>
-                <div className="mt-2 text-[24px] font-semibold tracking-[-0.05em] text-[#fbfaf8]">{item.value}</div>
-              </div>
-            ))}
+            <div className="mt-4 text-[15px] leading-7 text-[#9d9da6] sm:text-[16px]">
+              Every job follows a structured path from agreement to resolution.
+            </div>
+          </div>
+
+          <div className="relative mt-10">
+            <div className="absolute left-[10%] right-[10%] top-9 hidden h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.05),rgba(255,255,255,0.18),rgba(255,255,255,0.05))] xl:block" />
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              {nodes.map((node, index) => (
+                <div key={node.title} className="relative">
+                  <motion.div
+                    initial={{ opacity: 0, y: reduceMotion ? 0 : 14 }}
+                    animate={
+                      reduceMotion
+                        ? { opacity: 1, y: 0 }
+                        : {
+                            opacity: 1,
+                            y: 0,
+                            scale: [1, 1.006, 1],
+                            boxShadow: [
+                              "0 0 0 rgba(215,38,56,0)",
+                              "0 14px 26px rgba(215,38,56,0.08)",
+                              "0 0 0 rgba(215,38,56,0)",
+                            ],
+                          }
+                    }
+                    transition={{
+                      opacity: { delay: 0.32 + index * 0.04, duration: 0.24, ease: easeOut },
+                      y: { delay: 0.32 + index * 0.04, duration: 0.24, ease: easeOut },
+                      scale: { duration: 5.2, delay: index * 0.45, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" },
+                      boxShadow: { duration: 5.2, delay: index * 0.45, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" },
+                    }}
+                    className="h-full rounded-[22px] border border-white/8 bg-[#0d0d10] px-4 py-6 text-center"
+                  >
+                    <motion.div
+                      className="mx-auto h-2.5 w-2.5 rounded-full bg-[#d72638]"
+                      animate={
+                        reduceMotion
+                          ? {}
+                          : {
+                              scale: [1, 1.16, 1],
+                              opacity: [0.82, 1, 0.82],
+                              boxShadow: [
+                                "0 0 0 rgba(215,38,56,0)",
+                                "0 0 10px rgba(215,38,56,0.28)",
+                                "0 0 0 rgba(215,38,56,0)",
+                              ],
+                            }
+                      }
+                      transition={{
+                        duration: 4.6,
+                        delay: index * 0.45,
+                        repeat: Number.POSITIVE_INFINITY,
+                        ease: "easeInOut",
+                      }}
+                    />
+                    <div className="mt-4 text-[15px] font-semibold tracking-[-0.03em] text-[#fbfaf8]">
+                      {node.title}
+                    </div>
+                    <div className="mt-3 text-[13px] leading-6 text-[#9d9da6]">
+                      {node.body}
+                    </div>
+                  </motion.div>
+                  {index < nodes.length - 1 && (
+                    <div className="pointer-events-none absolute right-[-10px] top-8 hidden text-[18px] text-transparent after:block after:text-[#6c6b73] after:content-['→'] xl:block">
+                      →
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
     </motion.div>
   );
+}
+
+function SectionEyebrow({ children }: { children: ReactNode }) {
+  return <div className="text-[12px] font-medium uppercase tracking-[0.18em] text-[#f2b6be]">{children}</div>;
 }
 
 function SectionIntro({
@@ -391,6 +588,7 @@ function SectionIntro({
 }
 
 function MotionLink({ href, label, variant }: { href: string; label: string; variant: "primary" | "secondary" }) {
+  const reduceMotion = useReducedMotion();
   const classes =
     variant === "primary"
       ? "bg-[#d72638] text-white shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_10px_24px_rgba(215,38,56,0.18)] hover:bg-[#bf2232]"
@@ -398,15 +596,37 @@ function MotionLink({ href, label, variant }: { href: string; label: string; var
 
   return (
     <motion.div
+      animate={
+        reduceMotion || variant !== "primary"
+          ? {}
+          : {
+              scale: [1, 1.006, 1],
+              boxShadow: [
+                "0 10px 24px rgba(215,38,56,0.12)",
+                "0 14px 30px rgba(215,38,56,0.18)",
+                "0 10px 24px rgba(215,38,56,0.12)",
+              ],
+            }
+      }
       whileHover={
         variant === "primary"
           ? { scale: 1.015, y: -1, boxShadow: "0 14px 30px rgba(215,38,56,0.18)" }
           : { scale: 1.01, y: -1 }
       }
       whileTap={{ scale: 0.99 }}
-      transition={baseTransition}
+      transition={
+        reduceMotion || variant !== "primary"
+          ? baseTransition
+          : {
+              scale: { duration: 4.8, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" },
+              boxShadow: { duration: 4.8, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" },
+            }
+      }
     >
-      <Link href={href} className={`inline-flex min-w-[190px] items-center justify-center rounded-[14px] px-5 py-3 text-sm font-semibold transition ${classes}`}>
+      <Link
+        href={href}
+        className={`inline-flex min-w-[190px] items-center justify-center rounded-[14px] px-5 py-3 text-sm font-semibold transition ${classes}`}
+      >
         {label}
       </Link>
     </motion.div>
@@ -470,15 +690,81 @@ function HoverCard({
   );
 }
 
-function SystemCard({ title, step, delay }: { title: string; step: string; delay: number }) {
+function ProblemCard({
+  title,
+  body,
+  delay,
+}: {
+  title: string;
+  body: string;
+  delay: number;
+}) {
   return (
     <HoverCard
       delay={delay}
-      className="rounded-[22px] border border-white/8 bg-[#09090b] px-5 py-6"
+      className="rounded-[26px] border border-white/8 bg-[#0b0b0d] p-6"
+    >
+      <div className="text-[19px] font-semibold tracking-[-0.04em] text-[#fbfaf8]">{title}</div>
+      <p className="mt-4 text-[15px] leading-7 text-[#9d9da6]">{body}</p>
+    </HoverCard>
+  );
+}
+
+function SystemCard({
+  title,
+  body,
+  step,
+  delay,
+}: {
+  title: string;
+  body: string;
+  step: string;
+  delay: number;
+}) {
+  const reduceMotion = useReducedMotion();
+  const loopDelay = delay * 18;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: reduceMotion ? 0 : 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.18 }}
+      animate={
+        reduceMotion
+          ? {}
+          : {
+              scale: [1, 1.006, 1],
+              borderColor: [
+                "rgba(255,255,255,0.08)",
+                "rgba(215,38,56,0.22)",
+                "rgba(255,255,255,0.08)",
+              ],
+              boxShadow: [
+                "0 18px 44px rgba(0,0,0,0.16)",
+                "0 22px 48px rgba(215,38,56,0.10)",
+                "0 18px 44px rgba(0,0,0,0.16)",
+              ],
+            }
+      }
+      whileHover={{ y: -3, borderColor: "rgba(255,255,255,0.14)", boxShadow: "0 18px 44px rgba(0,0,0,0.24)" }}
+      transition={{
+        opacity: { ...baseTransition, delay },
+        scale: reduceMotion
+          ? baseTransition
+          : { duration: 5.4, delay: loopDelay, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" },
+        borderColor: reduceMotion
+          ? baseTransition
+          : { duration: 5.4, delay: loopDelay, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" },
+        boxShadow: reduceMotion
+          ? baseTransition
+          : { duration: 5.4, delay: loopDelay, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" },
+      }}
+      className="rounded-[24px] border border-white/8 bg-[#0b0b0d] px-5 py-6"
     >
       <div className="text-[11px] uppercase tracking-[0.18em] text-[#767680]">{step}</div>
-      <div className="mt-8 text-[24px] font-semibold tracking-[-0.05em] text-[#fbfaf8]">{title}</div>
-    </HoverCard>
+      <div className="mt-6 text-[22px] font-semibold tracking-[-0.05em] text-[#fbfaf8]">{title}</div>
+      <p className="mt-4 text-[14px] leading-7 text-[#9d9da6]">{body}</p>
+    </motion.div>
   );
 }
 
@@ -497,27 +783,39 @@ function WorkspaceCard({
   bullets: string[];
   primary?: boolean;
 }) {
+  const reduceMotion = useReducedMotion();
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 18 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.18 }}
-      transition={baseTransition}
+      animate={
+        reduceMotion
+          ? {}
+          : {
+              scale: [1, 1.004, 1],
+            }
+      }
+      transition={{
+        opacity: baseTransition,
+        scale: reduceMotion
+          ? baseTransition
+          : { duration: 6, delay: primary ? 0.3 : 1.1, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" },
+      }}
       whileHover={{
         y: -5,
         boxShadow: "0 20px 48px rgba(0,0,0,0.28)",
         borderColor: primary ? "rgba(215,38,56,0.24)" : "rgba(255,255,255,0.14)",
       }}
-      className={`rounded-[28px] border p-7 ${
-        primary
-          ? "border-[#4c1d24] bg-[#0a090a]"
-          : "border-white/8 bg-[#09090b]"
+      className={`rounded-[30px] border p-8 sm:p-9 ${
+        primary ? "border-[#4c1d24] bg-[#0a090a]" : "border-white/8 bg-[#09090b]"
       }`}
     >
       <div className="text-[12px] uppercase tracking-[0.16em] text-[#f2b6be]">{eyebrow}</div>
-      <h3 className="mt-5 text-[28px] font-semibold leading-[1.08] tracking-[-0.05em] text-[#fbfaf8]">{title}</h3>
-      <p className="mt-4 text-[15px] leading-7 text-[#9d9da6]">{body}</p>
-      <div className="mt-6 grid gap-3">
+      <h3 className="mt-5 text-[30px] font-semibold leading-[1.06] tracking-[-0.05em] text-[#fbfaf8]">{title}</h3>
+      <p className="mt-5 max-w-[520px] text-[15px] leading-7 text-[#9d9da6]">{body}</p>
+      <div className="mt-8 grid gap-3">
         {bullets.map((bullet) => (
           <div key={bullet} className="flex items-start gap-3 text-[14px] leading-7 text-[#d6d1c8]">
             <span className="mt-2 h-2 w-2 rounded-full bg-[#d72638]" />
@@ -525,8 +823,12 @@ function WorkspaceCard({
           </div>
         ))}
       </div>
-      <div className="mt-8">
-        <MotionLink href={href} label={primary ? "Continue as Client" : "Continue as Freelancer"} variant={primary ? "primary" : "secondary"} />
+      <div className="mt-10">
+        <MotionLink
+          href={href}
+          label={primary ? "Continue as Client" : "Continue as Freelancer"}
+          variant={primary ? "primary" : "secondary"}
+        />
       </div>
     </motion.div>
   );
@@ -582,17 +884,68 @@ function TalentCard({
   );
 }
 
-function MiniEyebrow({ children }: { children: ReactNode }) {
-  return <div className="text-[11px] uppercase tracking-[0.14em] text-[#f2b6be]">{children}</div>;
+function PlaceholderTalentCard({
+  name,
+  skill,
+  description,
+  rate,
+  location,
+  availability,
+  guildScore,
+  completed,
+  delay,
+}: {
+  name: string;
+  skill: string;
+  description: string;
+  rate: string;
+  location: string;
+  availability: string;
+  guildScore: string;
+  completed: string;
+  delay: number;
+}) {
+  return (
+    <HoverCard delay={delay} className="h-full">
+      <div className="flex h-full flex-col rounded-[24px] border border-white/8 bg-[#0b0b0d] p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-[20px] font-semibold tracking-[-0.04em] text-[#fbfaf8]">{name}</h3>
+            <p className="mt-2 text-[14px] text-[#9d9da6]">{skill}</p>
+          </div>
+          <span className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-[11px] font-medium text-[#cfc9c1]">
+            Featured
+          </span>
+        </div>
+
+        <p className="mt-4 text-[14px] leading-7 text-[#d4d1ca]">{description}</p>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Tag text={location} />
+          <Tag text={availability} />
+          <Tag text={rate} />
+        </div>
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          <MetricMini label="Guild Score" value={guildScore} />
+          <MetricMini label="Completed" value={completed} />
+          <MetricMini label="Focus" value={skill} />
+          <MetricMini label="Status" value="Ready" />
+        </div>
+      </div>
+    </HoverCard>
+  );
 }
 
 function Tag({ text }: { text: string }) {
-  return <span className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-[12px] text-[#c9c4bc]">{text}</span>;
+  return (
+    <span className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-[12px] text-[#c9c4bc]">
+      {text}
+    </span>
+  );
 }
 
 function MetricMini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[14px] border border-white/8 bg-[#0b0b0d] p-3">
+    <div className="rounded-[14px] border border-white/8 bg-[#0d0d10] p-3">
       <div className="text-[11px] uppercase tracking-[0.12em] text-[#71717a]">{label}</div>
       <div className="mt-2 text-[14px] font-semibold text-[#fbfaf8]">{value}</div>
     </div>
