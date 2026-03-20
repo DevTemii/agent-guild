@@ -18,11 +18,15 @@ import {
     getReputationForWallet,
     setReputationForWallet,
 } from "@/lib/reputationStore";
-import { ProductContract } from "@/lib/workflowStore";
+import {
+    appendNotifications,
+    getNotificationsForWallet,
+    getWorkflowRefreshEventName,
+    ProductContract,
+} from "@/lib/workflowStore";
 
 const ESCROW_STORAGE_KEY = "agent-guild-active-escrow";
 const CONTRACT_STORAGE_KEY = "agent-guild-generated-contract";
-const NOTIFICATION_STORAGE_KEY = "agent-guild-notifications";
 const DISPUTE_STORAGE_KEY_PREFIX = "agent-guild-dispute";
 const JUDGMENT_STORAGE_KEY_PREFIX = "agent-guild-dispute-judgment";
 const RESOLUTION_STORAGE_KEY_PREFIX = "agent-guild-dispute-resolution";
@@ -131,16 +135,27 @@ export default function EscrowSimulator({
                 console.error("Failed to restore escrow state", err);
             }
         }
-
-        const savedNotifications = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
-        if (savedNotifications) {
-            try {
-                setNotifications(JSON.parse(savedNotifications));
-            } catch (err) {
-                console.error("Failed to restore notifications", err);
-            }
-        }
     }, []);
+
+    useEffect(() => {
+        const syncNotifications = () => {
+            if (!connectedAddress) {
+                setNotifications([]);
+                return;
+            }
+
+            setNotifications(getNotificationsForWallet(connectedAddress));
+        };
+
+        syncNotifications();
+        window.addEventListener("storage", syncNotifications);
+        window.addEventListener(getWorkflowRefreshEventName(), syncNotifications);
+
+        return () => {
+            window.removeEventListener("storage", syncNotifications);
+            window.removeEventListener(getWorkflowRefreshEventName(), syncNotifications);
+        };
+    }, [connectedAddress]);
 
     useEffect(() => {
         if (projectId === null) {
@@ -238,6 +253,20 @@ export default function EscrowSimulator({
     const isClient = !!connectedAddress && connectedAddress === onchainClient;
     const isFreelancer =
         !!connectedAddress && connectedAddress === onchainFreelancer;
+    const participantWallets = Array.from(
+        new Set(
+            [
+                connectedAddress,
+                approvedContract?.clientWallet,
+                approvedContract?.freelancerWallet,
+                onchainClient,
+                onchainFreelancer,
+                freelancerAddress,
+            ]
+                .map((wallet) => wallet?.toLowerCase().trim())
+                .filter((wallet): wallet is string => !!wallet)
+        )
+    );
 
     useEffect(() => {
         if (!projectData) return;
@@ -250,12 +279,13 @@ export default function EscrowSimulator({
         if (statusCode === 3) setEscrowState("released");
     }, [projectData]);
 
-    function pushNotification(message: string) {
-        setNotifications((prev) => {
-            const next = [message, ...prev].slice(0, 8);
-            localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(next));
-            return next;
-        });
+    function pushNotification(message: string, wallets: string[] = participantWallets) {
+        appendNotifications(
+            wallets.map((wallet) => ({
+                wallet,
+                message,
+            }))
+        );
     }
 
     async function loadMyProjects() {

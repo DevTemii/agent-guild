@@ -9,8 +9,10 @@ import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
 import { getReputationForWallet } from "@/lib/reputationStore";
 import {
-  appendNotification,
+  appendNotifications,
   getContractsForFreelancer,
+  getNotificationsForWallet,
+  getPendingContractsForFreelancer,
   getWorkflowRefreshEventName,
   ProductContract,
   updateProductContractStatus,
@@ -26,8 +28,6 @@ type Agent = {
   availability: string;
 };
 
-const NOTIFICATION_STORAGE_KEY = "agent-guild-notifications";
-
 const celoSepolia = defineChain({
   id: 11142220,
   name: "Celo Sepolia",
@@ -41,7 +41,7 @@ const celoSepolia = defineChain({
 
 export default function FreelancerWorkspacePage() {
   const account = useActiveAccount();
-  const address = account?.address;
+  const connectedAddress = account?.address?.toLowerCase() ?? null;
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -71,16 +71,14 @@ export default function FreelancerWorkspacePage() {
 
   useEffect(() => {
     const syncWorkflow = () => {
-      const savedNotifications = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
-      if (savedNotifications) {
-        try {
-          setNotifications(JSON.parse(savedNotifications));
-        } catch (error) {
-          console.error("Failed to restore notifications", error);
-        }
+      if (!connectedAddress) {
+        setNotifications([]);
+        setContracts([]);
+        return;
       }
 
-      setContracts(getContractsForFreelancer(address));
+      setNotifications(getNotificationsForWallet(connectedAddress));
+      setContracts(getContractsForFreelancer(connectedAddress));
     };
 
     syncWorkflow();
@@ -91,7 +89,7 @@ export default function FreelancerWorkspacePage() {
       window.removeEventListener("storage", syncWorkflow);
       window.removeEventListener(getWorkflowRefreshEventName(), syncWorkflow);
     };
-  }, [address]);
+  }, [connectedAddress]);
 
   const allAgents = (data as Agent[] | undefined) || [];
   const uniqueAgents = allAgents.filter((agent, index, arr) => {
@@ -100,24 +98,42 @@ export default function FreelancerWorkspacePage() {
   });
 
   const myProfile =
-    uniqueAgents.find((agent) => agent.owner.toLowerCase() === address?.toLowerCase()) || null;
+    uniqueAgents.find((agent) => agent.owner.toLowerCase() === connectedAddress) || null;
   const reputation = myProfile ? getReputationForWallet(myProfile.owner) : null;
-  const pendingContracts = contracts.filter((contract) => contract.status === "sent");
+  const pendingContracts = getPendingContractsForFreelancer(connectedAddress);
   const approvedContracts = contracts.filter((contract) => contract.status === "approved");
   const rejectedContracts = contracts.filter((contract) => contract.status === "rejected");
 
   function approveContract(contractId: string) {
     const next = updateProductContractStatus(contractId, "approved");
     if (!next) return;
-    appendNotification(`Contract approved by ${next.freelancerName}. Client can now create escrow.`);
-    setContracts(getContractsForFreelancer(address));
+    appendNotifications([
+      {
+        wallet: next.freelancerWallet,
+        message: `You approved ${next.clientName}'s contract and unlocked escrow setup.`,
+      },
+      {
+        wallet: next.clientWallet,
+        message: `${next.freelancerName} approved your contract. Escrow can now be created.`,
+      },
+    ]);
+    setContracts(getContractsForFreelancer(connectedAddress));
   }
 
   function rejectContract(contractId: string) {
     const next = updateProductContractStatus(contractId, "rejected");
     if (!next) return;
-    appendNotification(`Contract rejected by ${next.freelancerName}.`);
-    setContracts(getContractsForFreelancer(address));
+    appendNotifications([
+      {
+        wallet: next.freelancerWallet,
+        message: `You rejected ${next.clientName}'s contract.`,
+      },
+      {
+        wallet: next.clientWallet,
+        message: `${next.freelancerName} rejected your contract.`,
+      },
+    ]);
+    setContracts(getContractsForFreelancer(connectedAddress));
   }
 
   async function createAgent() {
@@ -135,7 +151,7 @@ export default function FreelancerWorkspacePage() {
     const latestAgents = (latest.data as Agent[] | undefined) || allAgents;
 
     const walletExists = latestAgents.some(
-      (agent) => agent.owner.toLowerCase() === address?.toLowerCase()
+      (agent) => agent.owner.toLowerCase() === connectedAddress
     );
 
     if (walletExists) {

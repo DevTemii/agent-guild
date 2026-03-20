@@ -8,12 +8,13 @@ import EscrowSimulator from "@/components/EscrowSimulator";
 import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
 import {
-  appendNotification,
+  appendNotifications,
   createDraftContract,
   getContractsForClient,
+  getNotificationsForWallet,
   getWorkflowRefreshEventName,
   ProductContract,
-  updateProductContractStatus,
+  sendProductContract,
 } from "@/lib/workflowStore";
 
 type Agent = {
@@ -34,7 +35,6 @@ type ClientProfile = {
 
 const PROFILE_STORAGE_KEY = "agent-guild-client-profile";
 const CONTRACT_STORAGE_KEY = "agent-guild-generated-contract";
-const NOTIFICATION_STORAGE_KEY = "agent-guild-notifications";
 
 const celoSepolia = defineChain({
   id: 11142220,
@@ -118,14 +118,7 @@ export default function ClientWorkspacePage() {
       }
     }
 
-    const savedNotificationsRaw = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
-    if (savedNotificationsRaw) {
-      try {
-        setNotifications(JSON.parse(savedNotificationsRaw));
-      } catch (error) {
-        console.error("Failed to restore notifications", error);
-      }
-    }
+    setNotifications([]);
   }, []);
 
   useEffect(() => {
@@ -137,6 +130,7 @@ export default function ClientWorkspacePage() {
   useEffect(() => {
     if (!connectedAddress) {
       setContracts([]);
+      setNotifications([]);
       setSelectedApprovedContractId(null);
       return;
     }
@@ -153,14 +147,7 @@ export default function ClientWorkspacePage() {
         return approvedContracts[0]?.id ?? null;
       });
 
-      const savedNotificationsRaw = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
-      if (savedNotificationsRaw) {
-        try {
-          setNotifications(JSON.parse(savedNotificationsRaw));
-        } catch (error) {
-          console.error("Failed to restore notifications", error);
-        }
-      }
+      setNotifications(getNotificationsForWallet(connectedAddress));
     };
 
     syncWorkflow();
@@ -244,7 +231,12 @@ export default function ClientWorkspacePage() {
         milestones: result.milestones,
       });
 
-      appendNotification(`Contract draft created for ${draft.freelancerName}.`);
+      appendNotifications([
+        {
+          wallet: connectedAddress,
+          message: `Contract draft created for ${draft.freelancerName}.`,
+        },
+      ]);
       setContracts(getContractsForClient(connectedAddress));
       setContractStatus("AI contract generated and saved as draft.");
     } catch (error) {
@@ -256,9 +248,18 @@ export default function ClientWorkspacePage() {
   }
 
   function sendContract(contractId: string) {
-    const next = updateProductContractStatus(contractId, "sent");
+    const next = sendProductContract(contractId);
     if (!next) return;
-    appendNotification(`Contract sent to ${next.freelancerName} for approval.`);
+    appendNotifications([
+      {
+        wallet: connectedAddress,
+        message: `Contract sent to ${next.freelancerName} for approval.`,
+      },
+      {
+        wallet: next.freelancerWallet,
+        message: `New contract from ${next.clientName} is awaiting your decision.`,
+      },
+    ]);
     setContracts(getContractsForClient(connectedAddress));
     setContractStatus(`Contract sent to ${next.freelancerName}.`);
   }
