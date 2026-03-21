@@ -11,6 +11,7 @@ export type ProductContract = {
   clientName: string;
   freelancerWallet: string;
   freelancerName: string;
+  linkedProjectId?: number | null;
   projectBrief: string;
   budget: number;
   summary: string;
@@ -23,9 +24,28 @@ export type ProductContract = {
 const CONTRACTS_STORAGE_KEY = "agent-guild-product-contracts";
 const NOTIFICATION_STORAGE_KEY_PREFIX = "agent-guild-notifications";
 const WORKFLOW_REFRESH_EVENT = "agent-guild:workflow-refresh";
+export const FREELANCER_CONTRACT_RECEIVED_NOTIFICATION =
+  "New contract received. Review and approve before escrow begins.";
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function normalizeLinkedProjectId(projectId?: number | null) {
+  if (typeof projectId !== "number" || !Number.isInteger(projectId) || projectId < 1) {
+    return null;
+  }
+
+  return projectId;
+}
+
+function normalizeContract(contract: ProductContract): ProductContract {
+  return {
+    ...contract,
+    clientWallet: normalizeWallet(contract.clientWallet),
+    freelancerWallet: normalizeWallet(contract.freelancerWallet),
+    linkedProjectId: normalizeLinkedProjectId(contract.linkedProjectId),
+  };
 }
 
 function normalizeWallet(wallet?: string | null) {
@@ -68,6 +88,21 @@ export function getProductContracts() {
   return readJson<ProductContract[]>(CONTRACTS_STORAGE_KEY, []);
 }
 
+export function getProductContractById(id: string) {
+  return getProductContracts().find((contract) => contract.id === id) ?? null;
+}
+
+export function getProductContractByLinkedProjectId(projectId?: number | null) {
+  const normalizedProjectId = normalizeLinkedProjectId(projectId);
+  if (!normalizedProjectId) return null;
+
+  return (
+    getProductContracts().find(
+      (contract) => normalizeLinkedProjectId(contract.linkedProjectId) === normalizedProjectId
+    ) ?? null
+  );
+}
+
 export function saveProductContracts(contracts: ProductContract[]) {
   writeJson(CONTRACTS_STORAGE_KEY, contracts);
   emitWorkflowRefresh();
@@ -76,15 +111,13 @@ export function saveProductContracts(contracts: ProductContract[]) {
 export function createDraftContract(
   input: Omit<ProductContract, "id" | "status" | "createdAt" | "updatedAt">
 ) {
-  const nextContract: ProductContract = {
+  const nextContract = normalizeContract({
     ...input,
-    clientWallet: normalizeWallet(input.clientWallet),
-    freelancerWallet: normalizeWallet(input.freelancerWallet),
     id: crypto.randomUUID(),
     status: "draft",
     createdAt: nowIso(),
     updatedAt: nowIso(),
-  };
+  });
 
   saveProductContracts([nextContract, ...getProductContracts()]);
   return nextContract;
@@ -92,8 +125,28 @@ export function createDraftContract(
 
 export function updateProductContractStatus(id: string, status: ContractStatus) {
   const nextContracts = getProductContracts().map((contract) =>
-    contract.id === id ? { ...contract, status, updatedAt: nowIso() } : contract
+    contract.id === id
+      ? normalizeContract({ ...contract, status, updatedAt: nowIso() })
+      : normalizeContract(contract)
   );
+  saveProductContracts(nextContracts);
+  return nextContracts.find((contract) => contract.id === id) ?? null;
+}
+
+export function linkProductContractToProject(id: string, projectId: number) {
+  const normalizedProjectId = normalizeLinkedProjectId(projectId);
+  if (!normalizedProjectId) return null;
+
+  const nextContracts = getProductContracts().map((contract) =>
+    contract.id === id
+      ? normalizeContract({
+          ...contract,
+          linkedProjectId: normalizedProjectId,
+          updatedAt: nowIso(),
+        })
+      : normalizeContract(contract)
+  );
+
   saveProductContracts(nextContracts);
   return nextContracts.find((contract) => contract.id === id) ?? null;
 }
@@ -101,7 +154,17 @@ export function updateProductContractStatus(id: string, status: ContractStatus) 
 export function sendProductContract(id: string) {
   const contract = getProductContracts().find((entry) => entry.id === id) ?? null;
   if (!contract || !normalizeWallet(contract.freelancerWallet)) return null;
-  return updateProductContractStatus(id, "sent");
+  const next = updateProductContractStatus(id, "sent");
+  if (!next) return null;
+
+  appendNotifications([
+    {
+      wallet: next.freelancerWallet,
+      message: FREELANCER_CONTRACT_RECEIVED_NOTIFICATION,
+    },
+  ]);
+
+  return next;
 }
 
 export function getContractsForClient(wallet?: string | null) {
