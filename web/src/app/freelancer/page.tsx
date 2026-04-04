@@ -288,13 +288,18 @@ export default function FreelancerWorkspacePage() {
         </>
       }
       metricStrip={<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><SummaryCard label="Pending" value={`${pendingContracts.length}`} /><SummaryCard label="Approved" value={`${approvedContracts.length}`} /><SummaryCard label="Active Links" value={`${linkedContracts.length}`} /><SummaryCard label="Earned" value={`$${reputation?.totalEarned ?? 0}`} /></div>}
-      focusArea={<SectionNotice eyebrow={nextAction.eyebrow} title={nextAction.title} description={nextAction.description} action={nextAction.actionLabel ? <button type="button" onClick={nextAction.onAction} className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]">{nextAction.actionLabel}</button> : null} />}
+      focusArea={<SectionNotice eyebrow={nextAction.eyebrow} title={nextAction.title} description={nextAction.description} action={!connectedAddress ? <ConnectButton client={client} chain={celoSepolia} /> : nextAction.actionLabel ? <button type="button" onClick={nextAction.onAction} className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]">{nextAction.actionLabel}</button> : null} />}
       mainArea={
         <>
           {activeView === "overview" ? (
             <div className="grid gap-6">
               <WorkspacePanel title={!myProfile ? "Complete freelancer setup" : "Current operating state"} subtitle={!myProfile ? "Create your onchain freelancer profile here. Wallet activity remains visible even before public profile setup is complete." : "Your profile, active contracts, and delivery state now live in focused dashboard views."}>
-                {!myProfile ? (
+                {!connectedAddress ? (
+                  <WalletSignInPanel
+                    title="Sign in as freelancer"
+                    description="Connect the wallet you use for freelancer contracts, inbox access, and active project delivery."
+                  />
+                ) : !myProfile ? (
                   <div className="grid gap-3">
                     <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name *" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
                     <input value={skill} onChange={(e) => setSkill(e.target.value)} placeholder="Primary skill *" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
@@ -347,6 +352,12 @@ export default function FreelancerWorkspacePage() {
             </div>
           ) : null}
           {activeView === "inbox" ? (
+            !connectedAddress ? (
+              <WalletSignInPanel
+                title="Sign in to open the freelancer inbox"
+                description="Pending contracts and approval actions are scoped to the connected freelancer wallet."
+              />
+            ) : (
             <div className="grid gap-6">
               <WorkspacePanel title="Contract inbox" subtitle="Keep only one inbox state visible at a time so review stays focused." action={<SegmentedControl items={[{ id: "pending", label: `Pending (${pendingContracts.length})` }, { id: "approved", label: `Approved (${approvedContracts.length})` }, { id: "rejected", label: `Rejected (${rejectedContracts.length})` }]} activeId={inboxFilter} onChange={(id) => setInboxFilter(id as InboxFilter)} />}>
                 <ContractCardList
@@ -375,14 +386,28 @@ export default function FreelancerWorkspacePage() {
                 />
               </WorkspacePanel>
             </div>
+            )
           ) : null}
           {activeView === "active" ? (
+            !connectedAddress ? (
+              <WalletSignInPanel
+                title="Sign in to manage active work"
+                description="Project permissions and submit-work actions only unlock after the freelancer wallet is connected."
+              />
+            ) : (
             <div className="grid gap-6">
               {!myProfile ? <WorkspacePanel title="Profile note" subtitle="Wallet permissions still govern active work, but your public freelancer profile is not complete yet."><EmptyState copy="You can still inspect project state for this wallet. Finish profile setup in Overview to appear in the public talent registry." /></WorkspacePanel> : null}
               <div id="freelancer-active-work"><EscrowSimulator selectedRole="freelancer" /></div>
             </div>
+            )
           ) : null}
           {activeView === "earnings" ? (
+            !connectedAddress ? (
+              <WalletSignInPanel
+                title="Sign in to view earnings and history"
+                description="Reputation, payout history, and completed work are all attached to the connected freelancer wallet."
+              />
+            ) : (
             <div className="grid gap-6">
               <WorkspacePanel title="Earnings and reputation" subtitle="Reputation is part of the product, not a separate afterthought.">
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -403,6 +428,7 @@ export default function FreelancerWorkspacePage() {
                 />
               </WorkspacePanel>
             </div>
+            )
           ) : null}
         </>
       }
@@ -448,4 +474,23 @@ export default function FreelancerWorkspacePage() {
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+function WalletSignInPanel({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-[16px] border border-[#4c1d24] bg-[#160b0d] p-5">
+      <div className="text-[12px] uppercase tracking-[0.14em] text-[#f2b6be]">Freelancer access</div>
+      <div className="mt-3 text-[20px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{title}</div>
+      <p className="mt-3 max-w-[620px] text-sm leading-7 text-[#e6c7cb]">{description}</p>
+      <div className="mt-5">
+        <ConnectButton client={client} chain={celoSepolia} />
+      </div>
+    </div>
+  );
 }
