@@ -129,10 +129,11 @@ export default function FreelancerWorkspacePage() {
   const pendingContracts = sortedContracts.filter((entry) => entry.status === "sent");
   const approvedContracts = sortedContracts.filter((entry) => entry.status === "approved");
   const rejectedContracts = sortedContracts.filter((entry) => entry.status === "rejected");
+  const unusedApprovedContracts = approvedContracts.filter((entry) => !(entry.linkedProjectId ?? 0));
   const linkedContracts = approvedContracts.filter((entry) => (entry.linkedProjectId ?? 0) > 0);
   const currentTask = pendingContracts[0] ?? linkedContracts[0] ?? approvedContracts[0] ?? null;
   const inboxContracts =
-    inboxFilter === "pending" ? pendingContracts : inboxFilter === "approved" ? approvedContracts : rejectedContracts;
+    inboxFilter === "pending" ? pendingContracts : inboxFilter === "approved" ? unusedApprovedContracts : rejectedContracts;
 
   function approveContract(contractId: string) {
     const next = updateProductContractStatus(contractId, "approved");
@@ -251,7 +252,7 @@ export default function FreelancerWorkspacePage() {
         onAction: undefined,
       };
     }
-    if (approvedContracts.length > 0) {
+    if (unusedApprovedContracts.length > 0) {
       return {
         eyebrow: "Waiting",
         title: "Approved work is waiting for client escrow setup.",
@@ -267,7 +268,7 @@ export default function FreelancerWorkspacePage() {
       actionLabel: "Open Inbox",
       onAction: () => setActiveView("inbox"),
     };
-  }, [connectedAddress, pendingContracts.length, linkedContracts.length, myProfile, approvedContracts.length]);
+  }, [connectedAddress, pendingContracts.length, linkedContracts.length, myProfile, unusedApprovedContracts.length]);
 
   const navItems: WorkspaceNavItem[] = [
     { id: "overview", label: "Overview", badge: myProfile ? undefined : "Setup", hint: "Current task, notifications, and profile status." },
@@ -291,7 +292,7 @@ export default function FreelancerWorkspacePage() {
           <ConnectButton client={client} chain={celoSepolia} />
         </>
       }
-      metricStrip={<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><SummaryCard label="Pending" value={`${pendingContracts.length}`} /><SummaryCard label="Approved" value={`${approvedContracts.length}`} /><SummaryCard label="Active Links" value={`${linkedContracts.length}`} /><SummaryCard label="Earned" value={`${reputation?.totalEarned ?? 0} CELO`} /></div>}
+      metricStrip={<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><SummaryCard label="Pending" value={`${pendingContracts.length}`} /><SummaryCard label="Approved" value={`${unusedApprovedContracts.length}`} /><SummaryCard label="Active Links" value={`${linkedContracts.length}`} /><SummaryCard label="Earned" value={`${reputation?.totalEarned ?? 0} CELO`} /></div>}
       focusArea={<SectionNotice eyebrow={nextAction.eyebrow} title={nextAction.title} description={nextAction.description} action={!connectedAddress ? <ConnectButton client={client} chain={celoSepolia} /> : nextAction.actionLabel ? <button type="button" onClick={nextAction.onAction} className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]">{nextAction.actionLabel}</button> : null} />}
       mainArea={
         <>
@@ -320,7 +321,7 @@ export default function FreelancerWorkspacePage() {
                 ) : (
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <SummaryCard label="Pending Contracts" value={`${pendingContracts.length}`} />
-                    <SummaryCard label="Approved Contracts" value={`${approvedContracts.length}`} />
+                    <SummaryCard label="Approved Contracts" value={`${unusedApprovedContracts.length}`} />
                     <SummaryCard label="Completed Contracts" value={`${reputation?.completedContracts ?? 0}`} />
                     <SummaryCard label="Guild Score" value={`${reputation?.guildScore ?? 0}/100`} />
                   </div>
@@ -347,7 +348,7 @@ export default function FreelancerWorkspacePage() {
                 <WorkspacePanel title="Workload snapshot" subtitle="Keep the inbox and active work lanes visible at a glance.">
                   <div className="grid gap-3">
                     <PipelineRow label="Pending decisions" value={`${pendingContracts.length}`} tone="amber" />
-                    <PipelineRow label="Approved contracts" value={`${approvedContracts.length}`} tone="neutral" />
+                    <PipelineRow label="Approved contracts" value={`${unusedApprovedContracts.length}`} tone="neutral" />
                     <PipelineRow label="Linked projects" value={`${linkedContracts.length}`} tone="red" />
                     <PipelineRow label="Rejected" value={`${rejectedContracts.length}`} tone="green" />
                   </div>
@@ -363,11 +364,11 @@ export default function FreelancerWorkspacePage() {
               />
             ) : (
             <div className="grid gap-6">
-              <WorkspacePanel title="Contract inbox" subtitle="Keep only one inbox state visible at a time so review stays focused." action={<SegmentedControl items={[{ id: "pending", label: `Pending (${pendingContracts.length})` }, { id: "approved", label: `Approved (${approvedContracts.length})` }, { id: "rejected", label: `Rejected (${rejectedContracts.length})` }]} activeId={inboxFilter} onChange={(id) => setInboxFilter(id as InboxFilter)} />}>
+              <WorkspacePanel title="Contract inbox" subtitle="Keep only one inbox state visible at a time so review stays focused." action={<SegmentedControl items={[{ id: "pending", label: `Pending (${pendingContracts.length})` }, { id: "approved", label: `Approved (${unusedApprovedContracts.length})` }, { id: "rejected", label: `Rejected (${rejectedContracts.length})` }]} activeId={inboxFilter} onChange={(id) => setInboxFilter(id as InboxFilter)} />}>
                 <ContractCardList
                   contracts={inboxContracts}
                   variant="freelancer"
-                  emptyState={inboxFilter === "pending" ? "No contracts are waiting for your decision." : inboxFilter === "approved" ? "No approved contracts yet." : "No rejected contracts yet."}
+                  emptyState={inboxFilter === "pending" ? "No contracts are waiting for your decision." : inboxFilter === "approved" ? "No approved contracts are waiting for client escrow setup." : "No rejected contracts yet."}
                   nextActionLabel={(contract) =>
                     contract.status === "sent"
                       ? "Approve or reject"

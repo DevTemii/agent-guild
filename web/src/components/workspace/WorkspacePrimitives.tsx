@@ -89,21 +89,22 @@ export function ContractCardList({
       {contracts.map((contract) => {
         const linkedProjectId = typeof contract.linkedProjectId === "number" ? contract.linkedProjectId : null;
         const isEscrowLinked = linkedProjectId !== null && linkedProjectId > 0;
+        const canSelect = selectable && !isEscrowLinked;
 
         return (
           <div
             key={contract.id}
-            onClick={() => selectable && onSelect?.(contract.id)}
+            onClick={() => canSelect && onSelect?.(contract.id)}
             onKeyDown={(event) => {
-              if (selectable && (event.key === "Enter" || event.key === " ")) {
+              if (canSelect && (event.key === "Enter" || event.key === " ")) {
                 event.preventDefault();
                 onSelect?.(contract.id);
               }
             }}
-            role={selectable ? "button" : undefined}
-            tabIndex={selectable ? 0 : undefined}
+            role={canSelect ? "button" : undefined}
+            tabIndex={canSelect ? 0 : undefined}
             className={`rounded-[16px] border p-4 text-left transition ${
-              selectable && selectedId === contract.id
+              canSelect && selectedId === contract.id
                 ? "border-[#6f1d26] bg-[#160b0d]"
                 : "border-[#1d1d1d] bg-[#090909]"
             }`}
@@ -145,8 +146,8 @@ export function ContractCardList({
             </div>
 
             {isEscrowLinked ? (
-              <div className="mt-4 rounded-[12px] border border-[#1f1f1f] bg-[#111111] px-3 py-3 text-xs text-[#d4d4d8]">
-                Escrow created for Project #{linkedProjectId}.
+              <div className="mt-4 rounded-[12px] border border-[#1f3b28] bg-[#0d1912] px-3 py-3 text-xs text-[#9be2b0]">
+                Linked project state: Escrow created for Project #{linkedProjectId}.
               </div>
             ) : null}
 

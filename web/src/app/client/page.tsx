@@ -269,11 +269,17 @@ export default function ClientWorkspacePage() {
       : contractFilter === "sent"
         ? sentContracts
         : contractFilter === "approved"
-          ? approvedContracts
+          ? unusedApprovedContracts
           : rejectedContracts;
 
   function selectApprovedContractForEscrow(contractId: string, shouldFocusEscrow = false) {
-    setSelectedApprovedContractId(contractId);
+    const nextContract = unusedApprovedContracts.find((contract) => contract.id === contractId) ?? null;
+    if (!nextContract) {
+      if (shouldFocusEscrow) setActiveView("active");
+      return;
+    }
+
+    setSelectedApprovedContractId(nextContract.id);
     setEscrowSelectionNonce((current) => current + 1);
     if (shouldFocusEscrow) setActiveView("active");
   }
@@ -429,8 +435,8 @@ export default function ClientWorkspacePage() {
                     </div>
                   </WorkspacePanel>
                 </div>
-                <WorkspacePanel title="Contracts" subtitle="Keep only one contract state in view at a time so the workspace stays focused." action={<SegmentedControl items={[{ id: "draft", label: `Drafts (${draftContracts.length})` }, { id: "sent", label: `Sent (${sentContracts.length})` }, { id: "approved", label: `Approved (${approvedContracts.length})` }, { id: "rejected", label: `Rejected (${rejectedContracts.length})` }]} activeId={contractFilter} onChange={(id) => setContractFilter(id as ContractFilter)} />}>
-                  <ContractCardList contracts={filteredContracts} variant="client" emptyState={contractFilter === "draft" ? "No drafts yet." : contractFilter === "sent" ? "No sent contracts yet." : contractFilter === "approved" ? "No approved contracts yet." : "No rejected contracts yet."} selectedId={selectedApprovedContractId} selectable={contractFilter === "approved"} onSelect={(id) => selectApprovedContractForEscrow(id)} actionLabel={contractFilter === "draft" ? "Send To Freelancer" : contractFilter === "approved" ? "Create Escrow For This Contract" : undefined} onAction={(id) => contractFilter === "draft" ? sendContract(id) : selectApprovedContractForEscrow(id, true)} nextActionLabel={(contract) => contract.linkedProjectId ? `Escrow created for Project #${contract.linkedProjectId}` : contract.status === "draft" ? "Ready to send" : contract.status === "sent" ? "Waiting for freelancer approval" : contract.status === "approved" ? "Escrow unlocked" : "Needs revision"} />
+                <WorkspacePanel title="Contracts" subtitle="Keep only one contract state in view at a time so the workspace stays focused." action={<SegmentedControl items={[{ id: "draft", label: `Drafts (${draftContracts.length})` }, { id: "sent", label: `Sent (${sentContracts.length})` }, { id: "approved", label: `Approved (${unusedApprovedContracts.length})` }, { id: "rejected", label: `Rejected (${rejectedContracts.length})` }]} activeId={contractFilter} onChange={(id) => setContractFilter(id as ContractFilter)} />}>
+                  <ContractCardList contracts={filteredContracts} variant="client" emptyState={contractFilter === "draft" ? "No drafts yet." : contractFilter === "sent" ? "No sent contracts yet." : contractFilter === "approved" ? "No approved contracts ready for escrow." : "No rejected contracts yet."} selectedId={selectedApprovedContractId} selectable={contractFilter === "approved"} onSelect={(id) => selectApprovedContractForEscrow(id)} actionLabel={contractFilter === "draft" ? "Send To Freelancer" : contractFilter === "approved" ? "Create Escrow For This Contract" : undefined} onAction={(id) => contractFilter === "draft" ? sendContract(id) : selectApprovedContractForEscrow(id, true)} nextActionLabel={(contract) => contract.linkedProjectId ? `Escrow created for Project #${contract.linkedProjectId}` : contract.status === "draft" ? "Ready to send" : contract.status === "sent" ? "Waiting for freelancer approval" : contract.status === "approved" ? "Escrow unlocked" : "Needs revision"} />
                 </WorkspacePanel>
               </div>
             ) : <SetupGate copy="Create your client workspace in Overview before drafting and sending contracts." />
