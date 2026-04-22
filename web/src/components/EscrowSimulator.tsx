@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+    formatDisplayBudget,
+    formatSettlementAmountCelo,
+    parseSettlementAmountCeloToWei,
+    validateSettlementAmountCelo,
+} from "@/lib/budget";
 import { useActiveAccount, useReadContract } from "thirdweb/react";
 import {
     defineChain,
@@ -26,6 +32,7 @@ import {
     getWorkflowRefreshEventName,
     linkProductContractToProject,
     ProductContract,
+    updateProductContractSettlementAmount,
 } from "@/lib/workflowStore";
 
 const ESCROW_STORAGE_KEY = "agent-guild-active-escrow";
@@ -62,12 +69,6 @@ type DisputeJudgment = {
 type JudgeResolution = "judge_release" | "judge_refund";
 type ProjectPermissionRole = "client" | "freelancer" | "viewer" | "disconnected";
 
-function toWeiFromCelo(value: string) {
-    const num = Number(value);
-    if (!num || num <= 0) return BigInt(0);
-    return BigInt(Math.floor(num * 1e18));
-}
-
 function normalizeProjectId(value: number | null | undefined) {
     if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
         return null;
@@ -84,10 +85,6 @@ function getEscrowStateFromStatusCode(statusCode: number): EscrowStatus {
     return "idle";
 }
 
-function getContractBudgetValue(contract: ProductContract) {
-    return String(contract.budget);
-}
-
 export default function EscrowSimulator({
     selectedRole,
     approvedContract = null,
@@ -100,7 +97,7 @@ export default function EscrowSimulator({
     const [clientWallet, setClientWallet] = useState("");
     const [freelancerName, setFreelancerName] = useState("");
     const [freelancerAddress, setFreelancerAddress] = useState("");
-    const [budget, setBudget] = useState("");
+    const [settlementAmountCelo, setSettlementAmountCelo] = useState("");
     const [sourceContractId, setSourceContractId] = useState<string | null>(null);
     const [projectId, setProjectId] = useState<number | null>(null);
     const [status, setStatus] = useState("");
@@ -135,7 +132,7 @@ export default function EscrowSimulator({
         setClientWallet(contract.clientWallet.toLowerCase());
         setFreelancerName(contract.freelancerName);
         setFreelancerAddress(contract.freelancerWallet.toLowerCase());
-        setBudget(getContractBudgetValue(contract));
+        setSettlementAmountCelo(contract.settlementAmountCelo ?? "");
         setSourceContractId(contract.id);
     }
 
@@ -182,7 +179,7 @@ export default function EscrowSimulator({
                 setClientWallet(data.clientWallet?.toLowerCase() ?? "");
                 setFreelancerName(data.freelancerName ?? "");
                 setFreelancerAddress(data.freelancerAddress ?? "");
-                setBudget(data.budget ?? "");
+                setSettlementAmountCelo(data.settlementAmountCelo ?? "");
                 setSourceContractId(data.sourceContractId ?? null);
 
                 if (restoredProjectId === null) {
@@ -280,7 +277,7 @@ export default function EscrowSimulator({
                     setClientWallet(data.clientWallet?.toLowerCase() ?? "");
                     setFreelancerName(data.freelancerName ?? "");
                     setFreelancerAddress(data.freelancerAddress ?? "");
-                    setBudget(data.budget ?? "");
+                    setSettlementAmountCelo(data.settlementAmountCelo ?? "");
                     setSourceContractId(data.sourceContractId ?? null);
                 }
             } catch (err) {
@@ -475,8 +472,18 @@ export default function EscrowSimulator({
             }
         }
 
-        if (!clientName || !freelancerName || !freelancerAddress || !effectiveBudget) {
-            setStatus("Fill client name, freelancer name, freelancer wallet, and budget.");
+        const normalizedSettlementAmount = effectiveSettlementAmountCelo.trim();
+        const settlementAmountError = validateSettlementAmountCelo(
+            normalizedSettlementAmount
+        );
+
+        if (!clientName || !freelancerName || !freelancerAddress) {
+            setStatus("Fill client name, freelancer name, and freelancer wallet.");
+            return;
+        }
+
+        if (settlementAmountError) {
+            setStatus(settlementAmountError);
             return;
         }
 
@@ -513,10 +520,22 @@ export default function EscrowSimulator({
             setClientWallet(connectedAddress ?? "");
             setSubmissionLink("");
             setSubmittedWorkLink("");
-            const linkedContract =
+            const contractWithSettlement =
                 sourceContractId !== null
-                    ? linkProductContractToProject(sourceContractId, latestCount)
+                    ? updateProductContractSettlementAmount(
+                        sourceContractId,
+                        normalizedSettlementAmount
+                    )
                     : null;
+            const linkedContract =
+                contractWithSettlement
+                    ? linkProductContractToProject(
+                        contractWithSettlement.id,
+                        latestCount
+                    )
+                    : sourceContractId !== null
+                        ? linkProductContractToProject(sourceContractId, latestCount)
+                        : null;
 
             if (linkedContract) {
                 applyApprovedContractContext(linkedContract);
@@ -530,12 +549,12 @@ export default function EscrowSimulator({
                     clientWallet: connectedAddress ?? "",
                     freelancerName,
                     freelancerAddress,
-                    budget: effectiveBudget,
+                    settlementAmountCelo: normalizedSettlementAmount,
                     sourceContractId: linkedContract?.id ?? sourceContractId,
                 })
             );
 
-            const message = `Escrow created for ${freelancerName}. Client should fund Project #${latestCount}.`;
+            const message = `Escrow created for ${freelancerName}. Client should fund ${normalizedSettlementAmount} CELO into Project #${latestCount}.`;
             setStatus(`Escrow project created onchain. Project ID: ${latestCount}`);
             pushNotification(message);
             await refreshEscrowUi(latestCount);
@@ -568,6 +587,14 @@ export default function EscrowSimulator({
             return;
         }
 
+        const settlementAmountError = validateSettlementAmountCelo(
+            effectiveSettlementAmountCelo
+        );
+        if (settlementAmountError) {
+            setStatus(settlementAmountError);
+            return;
+        }
+
         try {
             setBusy(true);
             setStatus("Depositing CELO into escrow...");
@@ -576,7 +603,9 @@ export default function EscrowSimulator({
                 contract: escrowContract,
                 method: "function deposit(uint256 _projectId)",
                 params: [BigInt(projectId)],
-                value: toWeiFromCelo(effectiveBudget),
+                value: parseSettlementAmountCeloToWei(
+                    effectiveSettlementAmountCelo
+                ),
             });
 
             await sendTransaction({
@@ -588,7 +617,7 @@ export default function EscrowSimulator({
             setEscrowState("funded");
             setStatus("Escrow funded successfully.");
             pushNotification(
-                `Escrow funded. Freelancer can now submit work for Project #${projectId}.`
+                `Escrow funded with ${effectiveSettlementAmountCelo} CELO. Freelancer can now submit work for Project #${projectId}.`
             );
             await refreshEscrowUi();
         } catch (error) {
@@ -715,7 +744,9 @@ export default function EscrowSimulator({
             const previous = getReputationForWallet(freelancerAddress);
             const completedContracts = previous.completedContracts + 1;
             const guildScore = Math.min(completedContracts * 10, 100);
-            const totalEarned = previous.totalEarned + Number(effectiveBudget);
+            const totalEarned =
+                previous.totalEarned +
+                Number.parseFloat(effectiveSettlementAmountCelo || "0");
             const creditUnlocked = completedContracts >= 3;
             const creditAmount = creditUnlocked ? 200 : 0;
 
@@ -776,7 +807,7 @@ export default function EscrowSimulator({
             setSourceContractId(null);
             setClientName("");
             setFreelancerName("");
-            setBudget("");
+            setSettlementAmountCelo("");
         }
         setStatus("");
     }
@@ -942,9 +973,24 @@ export default function EscrowSimulator({
                 : null) ?? null;
     const activeProjectContract = getProductContractByLinkedProjectId(projectId);
     const effectiveEscrowContract = activeProjectContract ?? selectedSourceContract;
-    const effectiveBudget = effectiveEscrowContract
-        ? getContractBudgetValue(effectiveEscrowContract)
-        : budget;
+    const effectiveDisplayBudget = effectiveEscrowContract
+        ? formatDisplayBudget(effectiveEscrowContract.displayBudget)
+        : "Not set";
+    const effectiveSettlementAmountCelo =
+        effectiveEscrowContract?.settlementAmountCelo?.trim() ||
+        settlementAmountCelo.trim();
+    const settlementAmountError =
+        effectiveSettlementAmountCelo
+            ? validateSettlementAmountCelo(effectiveSettlementAmountCelo)
+            : null;
+    const preFundingCopy =
+        projectId !== null &&
+            escrowState === "created" &&
+            isClient &&
+            effectiveSettlementAmountCelo &&
+            !settlementAmountError
+            ? `You are about to fund ${effectiveSettlementAmountCelo} CELO`
+            : null;
     const effectiveFreelancerName =
         effectiveEscrowContract?.freelancerName ||
         freelancerName ||
@@ -1090,15 +1136,13 @@ export default function EscrowSimulator({
     useEffect(() => {
         if (!effectiveEscrowContract) return;
 
-        const contractBudget = getContractBudgetValue(effectiveEscrowContract);
-        if (budget === contractBudget) return;
+        const contractSettlementAmount =
+            effectiveEscrowContract.settlementAmountCelo?.trim() ?? "";
+        if (!contractSettlementAmount || settlementAmountCelo === contractSettlementAmount) {
+            return;
+        }
 
-        console.warn("Escrow budget drift detected. Re-syncing to approved contract budget.", {
-            contractId: effectiveEscrowContract.id,
-            budget,
-            contractBudget,
-        });
-        setBudget(contractBudget);
+        setSettlementAmountCelo(contractSettlementAmount);
 
         const savedEscrow = localStorage.getItem(ESCROW_STORAGE_KEY);
         if (!savedEscrow) return;
@@ -1116,13 +1160,13 @@ export default function EscrowSimulator({
                 ESCROW_STORAGE_KEY,
                 JSON.stringify({
                     ...data,
-                    budget: contractBudget,
+                    settlementAmountCelo: contractSettlementAmount,
                 })
             );
         } catch (error) {
-            console.error("Failed to sync escrow budget invariant", error);
+            console.error("Failed to sync escrow settlement amount", error);
         }
-    }, [effectiveEscrowContract?.id, budget, projectId]);
+    }, [effectiveEscrowContract?.id, effectiveEscrowContract?.settlementAmountCelo, settlementAmountCelo, projectId]);
 
     return (
         <section className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
@@ -1178,13 +1222,17 @@ export default function EscrowSimulator({
                             <TimelineRail steps={timelineSteps} activeIndex={activeStageIndex} />
                         </div>
 
-                        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                        <div className="mt-6 grid gap-3 sm:grid-cols-4">
                             <MiniStateCard label="Project" value={projectId ? `#${projectId}` : "Not created"} />
                             <MiniStateCard
                                 label="Freelancer"
                                 value={effectiveFreelancerName}
                             />
-                            <MiniStateCard label="Budget" value={effectiveBudget ? `${effectiveBudget} CELO` : "Pending"} />
+                            <MiniStateCard label="Contract value" value={effectiveDisplayBudget} />
+                            <MiniStateCard
+                                label="Settlement amount"
+                                value={formatSettlementAmountCelo(effectiveSettlementAmountCelo)}
+                            />
                         </div>
 
                         {effectiveEscrowContract && (
@@ -1195,15 +1243,19 @@ export default function EscrowSimulator({
                                 <div className="mt-2 text-[18px] font-semibold tracking-[-0.02em] text-[#f8fafc]">
                                     Contract {effectiveEscrowContract.id.slice(0, 8)}
                                 </div>
-                                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                                <div className="mt-4 grid gap-3 sm:grid-cols-4">
                                     <MiniStateCard label="Client" value={effectiveEscrowContract.clientName} />
                                     <MiniStateCard
                                         label="Freelancer"
                                         value={effectiveEscrowContract.freelancerName}
                                     />
                                     <MiniStateCard
-                                        label="Budget"
-                                        value={`${effectiveBudget} CELO`}
+                                        label="Contract value"
+                                        value={formatDisplayBudget(effectiveEscrowContract.displayBudget)}
+                                    />
+                                    <MiniStateCard
+                                        label="Settlement amount"
+                                        value={formatSettlementAmountCelo(effectiveSettlementAmountCelo)}
                                     />
                                 </div>
                                 <p className="mt-4 text-[13px] leading-6 text-[#d4d4d8]">
@@ -1238,7 +1290,7 @@ export default function EscrowSimulator({
                                 )}
 
                                 {selectedSourceContract ? (
-                                    <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="grid gap-3 sm:grid-cols-3">
                                         <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
                                             <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
                                                 Freelancer
@@ -1253,13 +1305,25 @@ export default function EscrowSimulator({
 
                                         <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
                                             <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
-                                                Escrow Budget
+                                                Contract value
                                             </div>
                                             <div className="mt-2 text-[15px] font-semibold text-[#f8fafc]">
-                                                {effectiveBudget} CELO
+                                                {formatDisplayBudget(selectedSourceContract.displayBudget)}
                                             </div>
                                             <div className="mt-2 text-[13px] text-[#9ca3af]">
                                                 {selectedSourceContract.milestones.length} milestones agreed
+                                            </div>
+                                        </div>
+
+                                        <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
+                                            <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                                                Settlement amount
+                                            </div>
+                                            <div className="mt-2 text-[15px] font-semibold text-[#f8fafc]">
+                                                {formatSettlementAmountCelo(effectiveSettlementAmountCelo)}
+                                            </div>
+                                            <div className="mt-2 text-[13px] text-[#9ca3af]">
+                                                Set the CELO amount you actually want to fund onchain.
                                             </div>
                                         </div>
                                     </div>
@@ -1287,13 +1351,28 @@ export default function EscrowSimulator({
                                         />
 
                                         <input
-                                            value={budget}
-                                            onChange={(e) => setBudget(e.target.value)}
-                                            placeholder="Budget in CELO e.g 0.01"
+                                            value={settlementAmountCelo}
+                                            onChange={(e) => setSettlementAmountCelo(e.target.value)}
+                                            placeholder="Settlement amount in CELO e.g 0.01"
                                             className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#6f1d26]"
                                         />
                                     </>
                                 )}
+
+                                {selectedSourceContract && projectId === null && (
+                                    <input
+                                        value={settlementAmountCelo}
+                                        onChange={(e) => setSettlementAmountCelo(e.target.value)}
+                                        placeholder="Settlement amount in CELO e.g 0.01"
+                                        className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#6f1d26]"
+                                    />
+                                )}
+
+                                {settlementAmountError && (projectId === null || escrowState === "created") ? (
+                                    <div className="rounded-[12px] border border-[#4c1d24] bg-[#160b0d] px-4 py-3 text-sm text-[#f2b6be]">
+                                        {settlementAmountError}
+                                    </div>
+                                ) : null}
 
                                 <div className="flex flex-col gap-3 pt-2">
                                     {projectId === null && selectedSourceContract && (
@@ -1306,10 +1385,16 @@ export default function EscrowSimulator({
                                         </button>
                                     )}
 
+                                    {preFundingCopy && (
+                                        <div className="rounded-[12px] border border-[#1f3b28] bg-[#0d1912] px-4 py-3 text-sm text-[#9be2b0]">
+                                            {preFundingCopy}
+                                        </div>
+                                    )}
+
                                     {projectId !== null && escrowState === "created" && isClient && (
                                         <button
                                             onClick={depositFunds}
-                                            disabled={busy}
+                                            disabled={busy || !!settlementAmountError || !effectiveSettlementAmountCelo}
                                             className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
                                         >
                                             Deposit Funds
