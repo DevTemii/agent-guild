@@ -1,5 +1,8 @@
 import type { Account } from "thirdweb/wallets";
 import {
+  getWalletCacheKey,
+} from "./cacheKeys";
+import {
   type ContractStatus,
   type ProjectSubmission,
   type ProductContract,
@@ -36,8 +39,7 @@ type WorkflowSnapshot = {
 };
 
 function getWalletScopedStorageKey(prefix: string, wallet?: string | null) {
-  const normalizedWallet = normalizeWallet(wallet);
-  return normalizedWallet ? `${prefix}:${normalizedWallet}` : null;
+  return getWalletCacheKey(prefix, wallet);
 }
 
 function readJson<T>(key: string, fallback: T): T {
