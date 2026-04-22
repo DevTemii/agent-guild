@@ -337,7 +337,7 @@ export default function FreelancerWorkspacePage() {
                         contract.status === "sent"
                           ? "Approve or reject"
                           : contract.linkedProjectId
-                            ? `Project #${contract.linkedProjectId}`
+                            ? `Linked to Project #${contract.linkedProjectId}`
                             : "Waiting for escrow funding"
                       }
                     />
@@ -373,7 +373,7 @@ export default function FreelancerWorkspacePage() {
                     contract.status === "sent"
                       ? "Approve or reject"
                       : contract.linkedProjectId
-                        ? `Project #${contract.linkedProjectId}`
+                        ? `Linked to Project #${contract.linkedProjectId}`
                         : contract.status === "approved"
                           ? "Wait for client escrow setup"
                           : "Archived"
@@ -428,7 +428,7 @@ export default function FreelancerWorkspacePage() {
                   variant="freelancer"
                   emptyState="No historical work records yet."
                   nextActionLabel={(contract) =>
-                    contract.linkedProjectId ? `Project #${contract.linkedProjectId}` : contract.status === "rejected" ? "Archived" : "Stored"
+                    contract.linkedProjectId ? `Linked to Project #${contract.linkedProjectId}` : contract.status === "rejected" ? "Archived" : "Stored"
                   }
                 />
               </WorkspacePanel>
