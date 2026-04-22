@@ -11,14 +11,18 @@ import { useActiveAccount, useReadContract } from "thirdweb/react";
 import {
     defineChain,
     getContract,
+    parseEventLogs,
     prepareContractCall,
+    prepareEvent,
     readContract,
     sendTransaction,
+    waitForReceipt,
 } from "thirdweb";
 import { client } from "@/lib/client";
 import {
     FREELANCE_ESCROW_ABI,
     FREELANCE_ESCROW_ADDRESS,
+    FREELANCE_ESCROW_PROJECT_CREATED_EVENT,
 } from "@/lib/contract";
 import {
     getReputationForWallet,
@@ -52,6 +56,10 @@ const celoSepolia = defineChain({
     },
 });
 
+const projectCreatedEvent = prepareEvent({
+    signature: FREELANCE_ESCROW_PROJECT_CREATED_EVENT,
+});
+
 type EscrowStatus = "idle" | "created" | "funded" | "submitted" | "released";
 
 type EscrowSimulatorProps = {
@@ -75,6 +83,35 @@ function normalizeProjectId(value: number | null | undefined) {
     }
 
     return value;
+}
+
+function resolveCreatedProjectIdFromReceipt({
+    receipt,
+    expectedClient,
+    expectedFreelancer,
+}: {
+    receipt: Awaited<ReturnType<typeof waitForReceipt>>;
+    expectedClient: string;
+    expectedFreelancer: string;
+}) {
+    const matchingEvents = parseEventLogs({
+        events: [projectCreatedEvent],
+        logs: receipt.logs,
+    }).filter((eventLog) => {
+        const clientWallet = eventLog.args.client?.toLowerCase();
+        const freelancerWallet = eventLog.args.freelancer?.toLowerCase();
+
+        return (
+            clientWallet === expectedClient.toLowerCase() &&
+            freelancerWallet === expectedFreelancer.toLowerCase()
+        );
+    });
+
+    if (matchingEvents.length !== 1) {
+        return null;
+    }
+
+    return normalizeProjectId(Number(matchingEvents[0].args.projectId));
 }
 
 function getEscrowStateFromStatusCode(statusCode: number): EscrowStatus {
@@ -435,10 +472,7 @@ export default function EscrowSimulator({
             Number(latestProjectCount?.data ?? projectCountData ?? BigInt(0))
         );
         const targetProjectId = normalizeProjectId(
-            nextProjectId ??
-                (projectId !== null
-                    ? projectId
-                    : latestKnownCount ?? 0)
+            nextProjectId ?? projectId
         );
 
         if (targetProjectId !== null && targetProjectId !== projectId) {
@@ -497,25 +531,31 @@ export default function EscrowSimulator({
                 params: [freelancerAddress as `0x${string}`],
             });
 
-            await sendTransaction({
+            const transactionResult = await sendTransaction({
                 transaction: tx,
                 account,
             });
 
-            const latest = await refetchProjectCount();
-            const latestCount = normalizeProjectId(
-                Number(latest?.data ?? projectCountData ?? BigInt(0))
-            );
+            const receipt = await waitForReceipt({
+                client,
+                chain: celoSepolia,
+                transactionHash: transactionResult.transactionHash,
+            });
+            const createdProjectId = resolveCreatedProjectIdFromReceipt({
+                receipt,
+                expectedClient: connectedAddress ?? "",
+                expectedFreelancer: freelancerAddress,
+            });
 
-            if (latestCount === null) {
+            if (createdProjectId === null) {
                 setStatus(
-                    "Escrow was created, but the new project ID could not be resolved yet. Select the real project from My Projects."
+                    "Escrow transaction confirmed, but the created project ID could not be verified from the receipt. This deployment must emit ProjectCreated before the app can link escrow safely."
                 );
                 await refreshEscrowUi();
                 return;
             }
 
-            setProjectId(latestCount);
+            setProjectId(createdProjectId);
             setEscrowState("created");
             setClientWallet(connectedAddress ?? "");
             setSubmissionLink("");
@@ -531,10 +571,10 @@ export default function EscrowSimulator({
                 contractWithSettlement
                     ? linkProductContractToProject(
                         contractWithSettlement.id,
-                        latestCount
+                        createdProjectId
                     )
                     : sourceContractId !== null
-                        ? linkProductContractToProject(sourceContractId, latestCount)
+                        ? linkProductContractToProject(sourceContractId, createdProjectId)
                         : null;
 
             if (linkedContract) {
@@ -544,7 +584,7 @@ export default function EscrowSimulator({
             localStorage.setItem(
                 ESCROW_STORAGE_KEY,
                 JSON.stringify({
-                    projectId: latestCount,
+                    projectId: createdProjectId,
                     clientName,
                     clientWallet: connectedAddress ?? "",
                     freelancerName,
@@ -554,10 +594,10 @@ export default function EscrowSimulator({
                 })
             );
 
-            const message = `Escrow created for ${freelancerName}. Client should fund ${normalizedSettlementAmount} CELO into Project #${latestCount}.`;
-            setStatus(`Escrow project created onchain. Project ID: ${latestCount}`);
+            const message = `Escrow created for ${freelancerName}. Client should fund ${normalizedSettlementAmount} CELO into Project #${createdProjectId}.`;
+            setStatus(`Escrow project created onchain. Project ID: ${createdProjectId}`);
             pushNotification(message);
-            await refreshEscrowUi(latestCount);
+            await refreshEscrowUi(createdProjectId);
         } catch (error) {
             console.error(error);
             setStatus("Failed to create escrow project.");
