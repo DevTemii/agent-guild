@@ -22,7 +22,7 @@ function fallbackJudgment(
             verdict: "refund_client",
             confidence: 74,
             reasoning:
-                "No submitted work link was provided, so the safer decision is to refund the client.",
+                "No submitted work link was provided, so the safer beta recommendation is to avoid releasing funds onchain and route the case to support review.",
         };
     }
 
@@ -39,7 +39,7 @@ function fallbackJudgment(
         verdict: "refund_client",
         confidence: 60,
         reasoning:
-            "The dispute context is incomplete, so refunding the client is the safer fallback recommendation.",
+            "The dispute context is incomplete, so the safer beta recommendation is to avoid releasing funds onchain pending support review.",
     };
 }
 
@@ -95,6 +95,8 @@ Return ONLY valid JSON in this exact format:
 Rules:
 - confidence must be an integer from 0 to 100
 - reasoning must be short and plain English
+- "release_funds" means the recommendation supports releasing funds onchain
+- "refund_client" means do not release onchain; this is only a non-settling support recommendation for beta
 - output raw JSON only
 - no markdown
 - no backticks
