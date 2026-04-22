@@ -35,6 +35,7 @@ import {
     getProductContractByLinkedProjectId,
     getWorkflowRefreshEventName,
     linkProductContractToProject,
+    normalizeWallet,
     ProductContract,
     updateProductContractSettlementAmount,
 } from "@/lib/workflowStore";
@@ -128,7 +129,7 @@ export default function EscrowSimulator({
     escrowSelectionNonce = 0,
 }: EscrowSimulatorProps) {
     const account = useActiveAccount();
-    const connectedAddress = account?.address?.toLowerCase();
+    const connectedAddress = normalizeWallet(account?.address) || undefined;
 
     const [clientName, setClientName] = useState("");
     const [clientWallet, setClientWallet] = useState("");
@@ -1792,7 +1793,9 @@ export default function EscrowSimulator({
                             <div className="mt-3 space-y-3">
                                 {notifications.length === 0 ? (
                                     <div className="text-[14px] text-[#9ca3af]">
-                                        No notifications yet.
+                                        {connectedAddress
+                                            ? "No notifications for this wallet yet."
+                                            : "Connect a wallet to see wallet-scoped notifications."}
                                     </div>
                                 ) : (
                                     notifications.slice(0, 4).map((note, index) => (

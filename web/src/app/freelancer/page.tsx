@@ -30,12 +30,11 @@ import {
 } from "@/lib/budget";
 import { getReputationForWallet } from "@/lib/reputationStore";
 import {
-  appendNotificationForWallet,
   appendNotifications,
-  FREELANCER_CONTRACT_RECEIVED_NOTIFICATION,
   getContractsForFreelancer,
   getNotificationsForWallet,
   getWorkflowRefreshEventName,
+  normalizeWallet,
   ProductContract,
   updateProductContractStatus,
 } from "@/lib/workflowStore";
@@ -62,7 +61,7 @@ const celoSepolia = defineChain({
 
 export default function FreelancerWorkspacePage() {
   const account = useActiveAccount();
-  const connectedAddress = account?.address?.toLowerCase() ?? null;
+  const connectedAddress = normalizeWallet(account?.address) || null;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [skill, setSkill] = useState("");
@@ -98,14 +97,8 @@ export default function FreelancerWorkspacePage() {
       }
       const nextContracts = getContractsForFreelancer(connectedAddress);
       const nextNotifications = getNotificationsForWallet(connectedAddress);
-      const hasPendingContract = nextContracts.some((entry) => entry.status === "sent");
-      const hasPendingNotification = nextNotifications.includes(FREELANCER_CONTRACT_RECEIVED_NOTIFICATION);
 
       setContracts(nextContracts);
-      if (hasPendingContract && !hasPendingNotification) {
-        setNotifications(appendNotificationForWallet(connectedAddress, FREELANCER_CONTRACT_RECEIVED_NOTIFICATION));
-        return;
-      }
       setNotifications(nextNotifications);
     };
 
@@ -120,10 +113,10 @@ export default function FreelancerWorkspacePage() {
 
   const allAgents = (data as Agent[] | undefined) || [];
   const uniqueAgents = allAgents.filter((agent, index, arr) => {
-    const owner = agent.owner.toLowerCase();
-    return index === arr.findIndex((item) => item.owner.toLowerCase() === owner);
+    const owner = normalizeWallet(agent.owner);
+    return index === arr.findIndex((item) => normalizeWallet(item.owner) === owner);
   });
-  const myProfile = uniqueAgents.find((agent) => agent.owner.toLowerCase() === connectedAddress) || null;
+  const myProfile = uniqueAgents.find((agent) => normalizeWallet(agent.owner) === connectedAddress) || null;
   const reputation = connectedAddress ? getReputationForWallet(connectedAddress) : null;
   const sortedContracts = [...contracts].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
   const pendingContracts = sortedContracts.filter((entry) => entry.status === "sent");
@@ -169,7 +162,7 @@ export default function FreelancerWorkspacePage() {
 
     const latest = await refetch();
     const latestAgents = (latest.data as Agent[] | undefined) || allAgents;
-    const walletExists = latestAgents.some((agent) => agent.owner.toLowerCase() === connectedAddress);
+    const walletExists = latestAgents.some((agent) => normalizeWallet(agent.owner) === connectedAddress);
     if (walletExists) {
       setProfileStatus("This wallet already has a profile. One wallet can only create one freelancer profile in this demo.");
       return;
@@ -342,7 +335,7 @@ export default function FreelancerWorkspacePage() {
                       }
                     />
                   ) : (
-                    <EmptyState copy="No current task yet. Incoming contracts and funded work will appear here first." />
+                    <EmptyState copy="No current contracts or linked projects are assigned to this wallet yet." />
                   )}
                 </WorkspacePanel>
                 <WorkspacePanel title="Workload snapshot" subtitle="Keep the inbox and active work lanes visible at a glance.">
@@ -368,7 +361,7 @@ export default function FreelancerWorkspacePage() {
                 <ContractCardList
                   contracts={inboxContracts}
                   variant="freelancer"
-                  emptyState={inboxFilter === "pending" ? "No contracts are waiting for your decision." : inboxFilter === "approved" ? "No approved contracts are waiting for client escrow setup." : "No rejected contracts yet."}
+                  emptyState={inboxFilter === "pending" ? "No pending contracts are assigned to this wallet." : inboxFilter === "approved" ? "No approved contracts are assigned to this wallet." : "No rejected contracts are assigned to this wallet."}
                   nextActionLabel={(contract) =>
                     contract.status === "sent"
                       ? "Approve or reject"
@@ -440,7 +433,7 @@ export default function FreelancerWorkspacePage() {
       supportArea={
         <>
           <WorkspacePanel title="Notifications" subtitle="Recent workflow updates for this connected wallet.">
-            <NotificationList notifications={notifications} emptyCopy="No notifications yet. Contract and project activity will appear here." />
+            <NotificationList notifications={notifications} emptyCopy={connectedAddress ? "No notifications for this wallet yet." : "Connect a wallet to see wallet-scoped notifications."} />
           </WorkspacePanel>
           <WorkspacePanel title="Profile summary" subtitle="Registry identity and wallet context.">
             {myProfile ? (

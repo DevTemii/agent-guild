@@ -80,7 +80,7 @@ function normalizeContract(contract: LegacyProductContract): ProductContract {
   };
 }
 
-function normalizeWallet(wallet?: string | null) {
+export function normalizeWallet(wallet?: string | null) {
   return wallet?.trim().toLowerCase() ?? "";
 }
 
