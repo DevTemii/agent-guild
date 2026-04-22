@@ -23,6 +23,10 @@ import {
     FREELANCE_ESCROW_ADDRESS,
     FREELANCE_ESCROW_PROJECT_CREATED_EVENT,
 } from "@/lib/contract";
+import {
+    getProjectCacheKey,
+    getWalletCacheKey,
+} from "@/lib/cacheKeys";
 import { agentGuildChain, agentGuildChainLabel } from "@/lib/networkConfig";
 import {
     getReputationForWallet,
@@ -42,8 +46,7 @@ import {
     updateProductContractSettlementAmount,
 } from "@/lib/workflowStore";
 
-const ESCROW_STORAGE_KEY = "agent-guild-active-escrow";
-const CONTRACT_STORAGE_KEY = "agent-guild-generated-contract";
+const ESCROW_STORAGE_KEY_PREFIX = "agent-guild-active-escrow";
 const SUBMISSION_STORAGE_KEY_PREFIX = "agent-guild-submission";
 const DISPUTE_STORAGE_KEY_PREFIX = "agent-guild-dispute";
 const JUDGMENT_STORAGE_KEY_PREFIX = "agent-guild-dispute-judgment";
@@ -79,10 +82,6 @@ function normalizeProjectId(value: number | null | undefined) {
     }
 
     return value;
-}
-
-function getSubmissionStorageKey(projectId: number) {
-    return `${SUBMISSION_STORAGE_KEY_PREFIX}-${projectId}`;
 }
 
 function resolveCreatedProjectIdFromReceipt({
@@ -129,6 +128,10 @@ export default function EscrowSimulator({
 }: EscrowSimulatorProps) {
     const account = useActiveAccount();
     const connectedAddress = normalizeWallet(account?.address) || undefined;
+    const activeEscrowStorageKey = getWalletCacheKey(
+        ESCROW_STORAGE_KEY_PREFIX,
+        connectedAddress
+    );
 
     const [clientName, setClientName] = useState("");
     const [clientWallet, setClientWallet] = useState("");
@@ -163,6 +166,34 @@ export default function EscrowSimulator({
         null
     );
     const [judgeResolution, setJudgeResolution] = useState<JudgeResolution | null>(null);
+
+    function getSubmissionStorageKey(projectId: number) {
+        return getProjectCacheKey(SUBMISSION_STORAGE_KEY_PREFIX, {
+            wallet: connectedAddress,
+            projectId,
+        });
+    }
+
+    function getDisputeStorageKey(projectId: number) {
+        return getProjectCacheKey(DISPUTE_STORAGE_KEY_PREFIX, {
+            wallet: connectedAddress,
+            projectId,
+        });
+    }
+
+    function getJudgmentStorageKey(projectId: number) {
+        return getProjectCacheKey(JUDGMENT_STORAGE_KEY_PREFIX, {
+            wallet: connectedAddress,
+            projectId,
+        });
+    }
+
+    function getResolutionStorageKey(projectId: number) {
+        return getProjectCacheKey(RESOLUTION_STORAGE_KEY_PREFIX, {
+            wallet: connectedAddress,
+            projectId,
+        });
+    }
 
     function clearDraftEscrowContractContext() {
         setClientName("");
@@ -204,7 +235,9 @@ export default function EscrowSimulator({
     useEffect(() => {
         if (escrowSelectionNonce === 0) return;
 
-        localStorage.removeItem(ESCROW_STORAGE_KEY);
+        if (activeEscrowStorageKey) {
+            localStorage.removeItem(activeEscrowStorageKey);
+        }
         setProjectId(null);
         setEscrowState("idle");
         setStatus("");
@@ -220,7 +253,7 @@ export default function EscrowSimulator({
         if (approvedContract) {
             applyApprovedContractContext(approvedContract);
         }
-    }, [approvedContract, escrowSelectionNonce]);
+    }, [activeEscrowStorageKey, approvedContract, escrowSelectionNonce]);
 
     const escrowContract = useMemo(() => {
         return getContract({
@@ -232,13 +265,22 @@ export default function EscrowSimulator({
     }, []);
 
     useEffect(() => {
-        const savedEscrow = localStorage.getItem(ESCROW_STORAGE_KEY);
+        setProjectId(null);
+        setEscrowState("idle");
+        setSubmissionLink("");
+        setSubmittedWorkLink("");
+
+        if (!activeEscrowStorageKey) {
+            return;
+        }
+
+        const savedEscrow = localStorage.getItem(activeEscrowStorageKey);
         if (savedEscrow) {
             try {
                 const data = JSON.parse(savedEscrow);
                 const restoredProjectId = normalizeProjectId(Number(data.projectId));
                 if (restoredProjectId === null) {
-                    localStorage.removeItem(ESCROW_STORAGE_KEY);
+                    localStorage.removeItem(activeEscrowStorageKey);
                     return;
                 }
 
@@ -253,7 +295,7 @@ export default function EscrowSimulator({
                 console.error("Failed to restore escrow state", err);
             }
         }
-    }, []);
+    }, [activeEscrowStorageKey]);
 
     useEffect(() => {
         const syncNotifications = () => {
@@ -299,10 +341,13 @@ export default function EscrowSimulator({
                 }
 
                 if (sharedSubmission?.deliveryUrl) {
-                    localStorage.setItem(
-                        getSubmissionStorageKey(projectId),
-                        sharedSubmission.deliveryUrl
-                    );
+                    const submissionStorageKey = getSubmissionStorageKey(projectId);
+                    if (submissionStorageKey) {
+                        localStorage.setItem(
+                            submissionStorageKey,
+                            sharedSubmission.deliveryUrl
+                        );
+                    }
                     setSubmittedWorkLink(sharedSubmission.deliveryUrl);
                     return;
                 }
@@ -310,8 +355,11 @@ export default function EscrowSimulator({
                 console.error("Failed to load shared submission metadata", error);
             }
 
+            const submissionStorageKey = getSubmissionStorageKey(projectId);
             const legacySubmission =
-                localStorage.getItem(getSubmissionStorageKey(projectId))?.trim() ?? "";
+                (submissionStorageKey
+                    ? localStorage.getItem(submissionStorageKey)
+                    : null)?.trim() ?? "";
 
             if (
                 legacySubmission &&
@@ -352,9 +400,10 @@ export default function EscrowSimulator({
 
         void syncSubmission();
 
-        const savedDispute = localStorage.getItem(
-            `${DISPUTE_STORAGE_KEY_PREFIX}-${projectId}`
-        );
+        const disputeStorageKey = getDisputeStorageKey(projectId);
+        const savedDispute = disputeStorageKey
+            ? localStorage.getItem(disputeStorageKey)
+            : null;
         if (savedDispute) {
             setSavedDisputeReason(savedDispute);
             setDisputeReason(savedDispute);
@@ -364,9 +413,10 @@ export default function EscrowSimulator({
         }
         setShowDisputeForm(false);
 
-        const savedJudgment = localStorage.getItem(
-            `${JUDGMENT_STORAGE_KEY_PREFIX}-${projectId}`
-        );
+        const judgmentStorageKey = getJudgmentStorageKey(projectId);
+        const savedJudgment = judgmentStorageKey
+            ? localStorage.getItem(judgmentStorageKey)
+            : null;
         if (savedJudgment) {
             try {
                 setDisputeJudgment(JSON.parse(savedJudgment));
@@ -378,19 +428,24 @@ export default function EscrowSimulator({
             setDisputeJudgment(null);
         }
 
-        const savedResolution = localStorage.getItem(
-            `${RESOLUTION_STORAGE_KEY_PREFIX}-${projectId}`
-        );
+        const resolutionStorageKey = getResolutionStorageKey(projectId);
+        const savedResolution = resolutionStorageKey
+            ? localStorage.getItem(resolutionStorageKey)
+            : null;
         if (savedResolution === "judge_release") {
             setJudgeResolution(savedResolution);
         } else {
             if (savedResolution === "judge_refund") {
-                localStorage.removeItem(`${RESOLUTION_STORAGE_KEY_PREFIX}-${projectId}`);
+                if (resolutionStorageKey) {
+                    localStorage.removeItem(resolutionStorageKey);
+                }
             }
             setJudgeResolution(null);
         }
 
-        const savedEscrow = localStorage.getItem(ESCROW_STORAGE_KEY);
+        const savedEscrow = activeEscrowStorageKey
+            ? localStorage.getItem(activeEscrowStorageKey)
+            : null;
         if (savedEscrow) {
             try {
                 const data = JSON.parse(savedEscrow);
@@ -411,6 +466,7 @@ export default function EscrowSimulator({
         };
     }, [
         account,
+        activeEscrowStorageKey,
         approvedContract?.clientWallet,
         approvedContract?.freelancerWallet,
         clientWallet,
@@ -685,18 +741,20 @@ export default function EscrowSimulator({
                 applyApprovedContractContext(linkedContract);
             }
 
-            localStorage.setItem(
-                ESCROW_STORAGE_KEY,
-                JSON.stringify({
-                    projectId: createdProjectId,
-                    clientName: selectedSourceContract.clientName,
-                    clientWallet: connectedAddress ?? "",
-                    freelancerName: selectedSourceContract.freelancerName,
-                    freelancerAddress: selectedSourceContract.freelancerWallet.toLowerCase(),
-                    settlementAmountCelo: normalizedSettlementAmount,
-                    sourceContractId: linkedContract?.id ?? selectedSourceContract.id,
-                })
-            );
+            if (activeEscrowStorageKey) {
+                localStorage.setItem(
+                    activeEscrowStorageKey,
+                    JSON.stringify({
+                        projectId: createdProjectId,
+                        clientName: selectedSourceContract.clientName,
+                        clientWallet: connectedAddress ?? "",
+                        freelancerName: selectedSourceContract.freelancerName,
+                        freelancerAddress: selectedSourceContract.freelancerWallet.toLowerCase(),
+                        settlementAmountCelo: normalizedSettlementAmount,
+                        sourceContractId: linkedContract?.id ?? selectedSourceContract.id,
+                    })
+                );
+            }
 
             const message = `Escrow created for ${selectedSourceContract.freelancerName}. Client should fund ${normalizedSettlementAmount} CELO into Project #${createdProjectId}.`;
             setStatus(`Escrow project created onchain. Project ID: ${createdProjectId}`);
@@ -837,10 +895,13 @@ export default function EscrowSimulator({
 
             const sharedDeliveryUrl =
                 syncedSubmission?.deliveryUrl ?? submissionLink.trim();
-            localStorage.setItem(
-                getSubmissionStorageKey(projectId),
-                sharedDeliveryUrl
-            );
+            const submissionStorageKey = getSubmissionStorageKey(projectId);
+            if (submissionStorageKey) {
+                localStorage.setItem(
+                    submissionStorageKey,
+                    sharedDeliveryUrl
+                );
+            }
             setSubmittedWorkLink(sharedDeliveryUrl);
             setStatus("Work submitted successfully.");
             pushNotification(
@@ -900,10 +961,13 @@ export default function EscrowSimulator({
                 throw new Error("Shared delivery metadata could not be saved.");
             }
 
-            localStorage.setItem(
-                getSubmissionStorageKey(projectId),
-                syncedSubmission.deliveryUrl
-            );
+            const submissionStorageKey = getSubmissionStorageKey(projectId);
+            if (submissionStorageKey) {
+                localStorage.setItem(
+                    submissionStorageKey,
+                    syncedSubmission.deliveryUrl
+                );
+            }
             setSubmittedWorkLink(syncedSubmission.deliveryUrl);
             setStatus("Delivery link synced. The client can now review this project.");
             pushNotification(
@@ -956,10 +1020,13 @@ export default function EscrowSimulator({
             await refetchProjectData();
             setEscrowState("released");
             if (projectId !== null && resolutionSource) {
-                localStorage.setItem(
-                    `${RESOLUTION_STORAGE_KEY_PREFIX}-${projectId}`,
-                    resolutionSource
-                );
+                const resolutionStorageKey = getResolutionStorageKey(projectId);
+                if (resolutionStorageKey) {
+                    localStorage.setItem(
+                        resolutionStorageKey,
+                        resolutionSource
+                    );
+                }
                 setJudgeResolution(resolutionSource);
             }
             setStatus(
@@ -991,7 +1058,9 @@ export default function EscrowSimulator({
                     : `Payment released for Project #${projectId}. Freelancer has been paid.`
             );
 
-            localStorage.removeItem(ESCROW_STORAGE_KEY);
+            if (activeEscrowStorageKey) {
+                localStorage.removeItem(activeEscrowStorageKey);
+            }
             await refreshEscrowUi();
         } catch (error) {
             console.error(error);
@@ -1056,10 +1125,13 @@ export default function EscrowSimulator({
         }
 
         const nextReason = disputeReason.trim();
-        localStorage.setItem(
-            `${DISPUTE_STORAGE_KEY_PREFIX}-${projectId}`,
-            nextReason
-        );
+        const disputeStorageKey = getDisputeStorageKey(projectId);
+        if (!disputeStorageKey) {
+            setStatus("Support review cache is unavailable for this wallet.");
+            return;
+        }
+
+        localStorage.setItem(disputeStorageKey, nextReason);
         setSavedDisputeReason(nextReason);
         setShowDisputeForm(false);
         setStatus("Support review request saved. Run AI support review for a non-settling recommendation.");
@@ -1084,31 +1156,18 @@ export default function EscrowSimulator({
             return;
         }
 
-        const savedContract = localStorage.getItem(CONTRACT_STORAGE_KEY);
-        if (!savedContract) {
-            setStatus("Generate a contract first so AI support review has contract context.");
-            return;
-        }
-
-        let contractData: {
-            summary?: string;
-            milestones?: Array<{ title: string; amount: number }>;
-        } | null = null;
-
-        try {
-            contractData = JSON.parse(savedContract);
-        } catch (err) {
-            console.error("Failed to parse saved contract", err);
-            setStatus("Saved contract data is invalid. Generate a new contract first.");
-            return;
-        }
+        const reviewContextContract =
+            getProductContractByLinkedProjectId(projectId) ??
+            (sourceContractId ? getProductContractById(sourceContractId) : null);
 
         if (
-            !contractData?.summary ||
-            !Array.isArray(contractData.milestones) ||
-            contractData.milestones.length === 0
+            !reviewContextContract?.summary ||
+            !Array.isArray(reviewContextContract.milestones) ||
+            reviewContextContract.milestones.length === 0
         ) {
-            setStatus("Saved contract data is incomplete. Generate a new contract first.");
+            setStatus(
+                "The linked contract context is missing for this project. Reopen the current project from the active wallet and try again."
+            );
             return;
         }
 
@@ -1122,8 +1181,8 @@ export default function EscrowSimulator({
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                    contractSummary: contractData.summary,
-                    milestones: contractData.milestones,
+                    contractSummary: reviewContextContract.summary,
+                    milestones: reviewContextContract.milestones,
                     submittedWorkLink,
                     disputeReason: savedDisputeReason,
                 }),
@@ -1135,10 +1194,13 @@ export default function EscrowSimulator({
                 throw new Error(result?.error || "AI support review failed.");
             }
 
-            localStorage.setItem(
-                `${JUDGMENT_STORAGE_KEY_PREFIX}-${projectId}`,
-                JSON.stringify(result)
-            );
+            const judgmentStorageKey = getJudgmentStorageKey(projectId);
+            if (judgmentStorageKey) {
+                localStorage.setItem(
+                    judgmentStorageKey,
+                    JSON.stringify(result)
+                );
+            }
             setDisputeJudgment(result);
             setStatus("AI support recommendation ready. Refund outcomes remain non-settling in beta.");
             pushNotification(
@@ -1358,7 +1420,9 @@ export default function EscrowSimulator({
 
         setSettlementAmountCelo(contractSettlementAmount);
 
-        const savedEscrow = localStorage.getItem(ESCROW_STORAGE_KEY);
+        if (!activeEscrowStorageKey) return;
+
+        const savedEscrow = localStorage.getItem(activeEscrowStorageKey);
         if (!savedEscrow) return;
 
         try {
@@ -1371,7 +1435,7 @@ export default function EscrowSimulator({
             }
 
             localStorage.setItem(
-                ESCROW_STORAGE_KEY,
+                activeEscrowStorageKey,
                 JSON.stringify({
                     ...data,
                     settlementAmountCelo: contractSettlementAmount,
@@ -1380,7 +1444,7 @@ export default function EscrowSimulator({
         } catch (error) {
             console.error("Failed to sync escrow settlement amount", error);
         }
-    }, [effectiveEscrowContract?.id, effectiveEscrowContract?.settlementAmountCelo, settlementAmountCelo, projectId]);
+    }, [activeEscrowStorageKey, effectiveEscrowContract?.id, effectiveEscrowContract?.settlementAmountCelo, settlementAmountCelo, projectId]);
 
     return (
         <section className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
