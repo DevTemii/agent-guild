@@ -2,11 +2,13 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   type ContractStatus,
+  type ProjectSubmission,
   type ProductContract,
   type WorkflowNotification,
   normalizeContract,
   normalizeLinkedProjectId,
   normalizeNotification,
+  normalizeProjectSubmission,
   normalizeSettlementAmountCelo,
   normalizeWallet,
   nowIso,
@@ -15,6 +17,7 @@ import {
 type WorkflowDatabase = {
   contracts: ProductContract[];
   notifications: WorkflowNotification[];
+  submissions: ProjectSubmission[];
 };
 
 type WorkflowDraftInput = Omit<
@@ -41,11 +44,15 @@ async function readWorkflowDatabase(): Promise<WorkflowDatabase> {
       notifications: (parsed.notifications ?? [])
         .map((entry) => normalizeNotification(entry))
         .filter((entry): entry is WorkflowNotification => entry !== null),
+      submissions: (parsed.submissions ?? [])
+        .map((entry) => normalizeProjectSubmission(entry))
+        .filter((entry): entry is ProjectSubmission => entry !== null),
     };
   } catch {
     return {
       contracts: [],
       notifications: [],
+      submissions: [],
     };
   }
 }
@@ -121,6 +128,16 @@ function requireContractParticipant(contract: ProductContract, wallet: string) {
 function requireWalletMatch(actualWallet: string, expectedWallet: string, errorMessage: string) {
   if (normalizeWallet(actualWallet) !== normalizeWallet(expectedWallet)) {
     throw new Error(errorMessage);
+  }
+}
+
+function requireProjectParticipant(submission: ProjectSubmission, wallet: string) {
+  const normalizedWallet = normalizeWallet(wallet);
+  if (
+    submission.clientWallet !== normalizedWallet &&
+    submission.freelancerWallet !== normalizedWallet
+  ) {
+    throw new Error("Only project participants can access this submission.");
   }
 }
 
@@ -358,5 +375,105 @@ export async function importLegacyWorkflowForWallet(
         (notification) => notification.wallet === normalizedWallet
       ),
     };
+  });
+}
+
+export async function getWorkflowSubmission(projectId: number, wallet: string) {
+  const normalizedProjectId = normalizeLinkedProjectId(projectId);
+  if (!normalizedProjectId) {
+    throw new Error("Project ID must be a valid non-zero integer.");
+  }
+
+  const database = await readWorkflowDatabase();
+  const submission =
+    database.submissions.find((entry) => entry.projectId === normalizedProjectId) ?? null;
+
+  if (!submission) {
+    return null;
+  }
+
+  requireProjectParticipant(submission, wallet);
+  return submission;
+}
+
+export async function upsertWorkflowSubmission(input: {
+  wallet: string;
+  projectId: number;
+  deliveryUrl: string;
+  clientWallet: string;
+  freelancerWallet: string;
+  txHash?: string | null;
+}) {
+  return mutateWorkflowDatabase((database) => {
+    const projectId = normalizeLinkedProjectId(input.projectId);
+    if (!projectId) {
+      throw new Error("Project ID must be a valid non-zero integer.");
+    }
+
+    const deliveryUrl = input.deliveryUrl.trim();
+    if (!deliveryUrl) {
+      throw new Error("Delivery URL is required.");
+    }
+
+    requireWalletMatch(
+      input.wallet,
+      input.freelancerWallet,
+      "Only the freelancer wallet can save delivery metadata."
+    );
+
+    const clientWallet = normalizeWallet(input.clientWallet);
+    const freelancerWallet = normalizeWallet(input.freelancerWallet);
+    if (!clientWallet || !freelancerWallet) {
+      throw new Error("Client and freelancer wallets are required.");
+    }
+
+    const linkedContract = database.contracts.find(
+      (contract) => normalizeLinkedProjectId(contract.linkedProjectId) === projectId
+    );
+    if (!linkedContract) {
+      throw new Error("No linked contract was found for this project.");
+    }
+
+    requireWalletMatch(
+      linkedContract.freelancerWallet,
+      freelancerWallet,
+      "Delivery metadata can only be saved for the linked freelancer."
+    );
+    requireWalletMatch(
+      linkedContract.clientWallet,
+      clientWallet,
+      "Delivery metadata can only be saved for the linked client."
+    );
+
+    const timestamp = nowIso();
+    const nextSubmission: ProjectSubmission = {
+      projectId,
+      clientWallet,
+      freelancerWallet,
+      deliveryUrl,
+      submittedAt:
+        database.submissions.find((entry) => entry.projectId === projectId)?.submittedAt ??
+        timestamp,
+      updatedAt: timestamp,
+      txHash: input.txHash?.trim() || null,
+    };
+
+    database.submissions = [
+      nextSubmission,
+      ...database.submissions.filter((entry) => entry.projectId !== projectId),
+    ];
+
+    appendNotifications(database, [
+      {
+        wallet: clientWallet,
+        message: `Delivery submitted for Project #${projectId}. Review the work and release when ready.`,
+      },
+      {
+        wallet: freelancerWallet,
+        message: `Delivery synced for Project #${projectId}. The client can now review your submission.`,
+      },
+    ]);
+
+    return nextSubmission;
   });
 }

@@ -1,10 +1,12 @@
 import type { Account } from "thirdweb/wallets";
 import {
   type ContractStatus,
+  type ProjectSubmission,
   type ProductContract,
   type WorkflowNotification,
   normalizeContract,
   normalizeNotification,
+  normalizeProjectSubmission,
   normalizeWallet,
 } from "./workflowTypes";
 
@@ -12,6 +14,7 @@ export type {
   ContractMilestone,
   ContractStatus,
   LegacyProductContract,
+  ProjectSubmission,
   ProductContract,
   WorkflowNotification,
 } from "./workflowTypes";
@@ -481,6 +484,58 @@ export async function sendProductContract(
   return postWorkflowMutation<ProductContract>(account, {
     path: `/api/workflow/contracts/${id}/send`,
   });
+}
+
+export async function getProjectSubmission(
+  projectId: number,
+  account: Account | null | undefined
+) {
+  if (!account) {
+    return null;
+  }
+
+  await ensureBackendWorkflowSession(account);
+
+  const response = await fetch(`/api/workflow/projects/${projectId}/submission`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      return null;
+    }
+
+    const message = await parseErrorMessage(
+      response,
+      "Failed to load project submission."
+    );
+    if (response.status === 400 && message.toLowerCase().includes("not found")) {
+      return null;
+    }
+    throw new Error(message);
+  }
+
+  const payload = (await response.json()) as {
+    submission?: ProjectSubmission | null;
+  };
+
+  return payload.submission ? normalizeProjectSubmission(payload.submission) : null;
+}
+
+export async function saveProjectSubmission(
+  input: {
+    projectId: number;
+    deliveryUrl: string;
+    clientWallet: string;
+    freelancerWallet: string;
+    txHash?: string | null;
+  },
+  account: Account | null | undefined
+) {
+  return postWorkflowMutation<ProjectSubmission>(account, {
+    path: `/api/workflow/projects/${input.projectId}/submission`,
+    body: input,
+  }).then((submission) => normalizeProjectSubmission(submission));
 }
 
 export function getContractsForClient(wallet?: string | null) {
