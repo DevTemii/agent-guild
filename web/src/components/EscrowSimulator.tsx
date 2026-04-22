@@ -75,8 +75,11 @@ type DisputeJudgment = {
     reasoning: string;
 };
 
-type JudgeResolution = "judge_release" | "judge_refund";
+type JudgeResolution = "judge_release";
 type ProjectPermissionRole = "client" | "freelancer" | "viewer" | "disconnected";
+
+const BETA_DISPUTE_SUPPORT_COPY =
+    "Mainnet beta uses support review only for disputes. Release is the only onchain final settlement right now.";
 
 function normalizeProjectId(value: number | null | undefined) {
     if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
@@ -327,9 +330,12 @@ export default function EscrowSimulator({
         const savedResolution = localStorage.getItem(
             `${RESOLUTION_STORAGE_KEY_PREFIX}-${projectId}`
         );
-        if (savedResolution === "judge_release" || savedResolution === "judge_refund") {
+        if (savedResolution === "judge_release") {
             setJudgeResolution(savedResolution);
         } else {
+            if (savedResolution === "judge_refund") {
+                localStorage.removeItem(`${RESOLUTION_STORAGE_KEY_PREFIX}-${projectId}`);
+            }
             setJudgeResolution(null);
         }
 
@@ -892,12 +898,12 @@ export default function EscrowSimulator({
         }
 
         if (!isReviewStage || !isClient) {
-            setStatus("Disputes are only available to the client during the review stage.");
+            setStatus("Support review is only available to the client during the review stage.");
             return;
         }
 
         if (!disputeReason.trim()) {
-            setStatus("Enter a dispute reason before submitting.");
+            setStatus("Enter a support review reason before submitting.");
             return;
         }
 
@@ -908,9 +914,9 @@ export default function EscrowSimulator({
         );
         setSavedDisputeReason(nextReason);
         setShowDisputeForm(false);
-        setStatus("Dispute submitted. Run the AI judge to review the case.");
+        setStatus("Support review request saved. Run AI support review for a non-settling recommendation.");
         pushNotification(
-            `Dispute raised for Project #${projectId}. The case is ready for AI review.`
+            `Support review opened for Project #${projectId}. The case is ready for AI review.`
         );
     }
 
@@ -921,18 +927,18 @@ export default function EscrowSimulator({
         }
 
         if (!savedDisputeReason.trim()) {
-            setStatus("Save a dispute reason before judging.");
+            setStatus("Save a support review reason before judging.");
             return;
         }
 
         if (!submittedWorkLink.trim()) {
-            setStatus("A submitted work link is required for the AI judge.");
+            setStatus("A submitted work link is required for AI support review.");
             return;
         }
 
         const savedContract = localStorage.getItem(CONTRACT_STORAGE_KEY);
         if (!savedContract) {
-            setStatus("Generate a contract first so the AI judge has contract context.");
+            setStatus("Generate a contract first so AI support review has contract context.");
             return;
         }
 
@@ -960,7 +966,7 @@ export default function EscrowSimulator({
 
         try {
             setJudgingDispute(true);
-            setStatus("AI judge is reviewing the dispute...");
+            setStatus("AI support review is evaluating the case...");
 
             const res = await fetch("/api/judge-dispute", {
                 method: "POST",
@@ -978,7 +984,7 @@ export default function EscrowSimulator({
             const result = await res.json();
 
             if (!res.ok) {
-                throw new Error(result?.error || "AI dispute judge failed.");
+                throw new Error(result?.error || "AI support review failed.");
             }
 
             localStorage.setItem(
@@ -986,13 +992,13 @@ export default function EscrowSimulator({
                 JSON.stringify(result)
             );
             setDisputeJudgment(result);
-            setStatus("AI dispute judgment ready.");
+            setStatus("AI support recommendation ready. Refund outcomes remain non-settling in beta.");
             pushNotification(
-                `AI dispute judgment completed for Project #${projectId}.`
+                `AI support review completed for Project #${projectId}.`
             );
         } catch (error: any) {
             console.error(error);
-            setStatus(error?.message || "AI dispute judge failed.");
+            setStatus(error?.message || "AI support review failed.");
         } finally {
             setJudgingDispute(false);
         }
@@ -1000,40 +1006,16 @@ export default function EscrowSimulator({
 
     async function resolveJudgeRelease() {
         if (!disputeJudgment || disputeJudgment.verdict !== "release_funds") {
-            setStatus("AI judge has not recommended release for this project.");
+            setStatus("AI support review has not recommended release for this project.");
             return;
         }
 
         await approveAndRelease("judge_release");
     }
 
-    function resolveJudgeRefund() {
-        if (projectId === null) {
-            setStatus("Select a project first.");
-            return;
-        }
-
-        if (!disputeJudgment || disputeJudgment.verdict !== "refund_client") {
-            setStatus("AI judge has not recommended refund for this project.");
-            return;
-        }
-
-        localStorage.setItem(
-            `${RESOLUTION_STORAGE_KEY_PREFIX}-${projectId}`,
-            "judge_refund"
-        );
-        setJudgeResolution("judge_refund");
-        setStatus(
-            "Project resolved by judge in favor of refund. Current contract does not execute refunds onchain yet."
-        );
-        pushNotification(
-            `Project #${projectId} resolved by judge in favor of refund recommendation.`
-        );
-    }
-
     function verdictLabel(verdict: DisputeJudgment["verdict"]) {
         if (verdict === "release_funds") return "Release Funds";
-        return "Refund Client";
+        return "Do Not Release Onchain";
     }
 
     const isClientWorkspace = selectedRole === "client";
@@ -1086,9 +1068,7 @@ export default function EscrowSimulator({
     const finalResolutionLabel =
         judgeResolution === "judge_release"
             ? "Resolved by Judge: Release"
-            : judgeResolution === "judge_refund"
-                ? "Resolved by Judge: Refund"
-                : "Released / Resolved";
+            : "Released / Resolved";
     const actualRole: ProjectPermissionRole =
         !connectedAddress
             ? "disconnected"
@@ -1118,7 +1098,7 @@ export default function EscrowSimulator({
         "Escrow Created",
         "Escrow Funded",
         "Work Submitted",
-        "Review / Dispute",
+        "Review / Support",
         finalResolutionLabel,
     ];
     const currentRoleLabel =
@@ -1161,8 +1141,8 @@ export default function EscrowSimulator({
                     ? "Select an approved contract or project to determine the next client action."
                     : judgeResolution === "judge_release"
                         ? "Client resolution is complete. Funds were released in favor of the judge verdict."
-                        : judgeResolution === "judge_refund"
-                            ? "Client resolution is complete. Refund was recorded as a product-layer judge outcome."
+                        : disputeJudgment?.verdict === "refund_client" && escrowState === "submitted"
+                            ? "AI support review recommends not releasing funds onchain. Beta mode does not support onchain refunds."
                             : escrowState === "funded"
                                 ? "The client is waiting for the freelancer to submit work."
                                 : escrowState === "released"
@@ -1190,23 +1170,23 @@ export default function EscrowSimulator({
         status ||
         (judgeResolution === "judge_release"
             ? "The dispute has been resolved by judge in favor of release, and payout has been completed onchain."
-            : judgeResolution === "judge_refund"
-                ? "The dispute has been resolved by judge in favor of refund. This is currently a product-layer resolution because refunds are not executable onchain yet."
-                : projectId === null && approvedContract
-                    ? "The contract is approved and ready to move onchain."
-                    : projectId === null
-                        ? "Waiting for an approved contract or a selected project to continue."
-                        : escrowState === "created"
-                            ? "Escrow exists onchain and is ready for the funding step."
-                            : escrowState === "funded"
-                                ? "Escrow is funded. The freelancer can now submit delivery."
-                                : escrowState === "submitted"
-                                    ? hasSubmittedDispute
-                                        ? disputeJudgment
-                                            ? "A dispute was raised and the AI judge has returned a review outcome. Resolve the project using the recommended path."
-                                            : "A dispute has been submitted. Run the AI judge to generate a verdict."
-                                        : "Work has been submitted and is waiting for client review."
-                                    : "The project has reached its final resolved state.");
+            : projectId === null && approvedContract
+                ? "The contract is approved and ready to move onchain."
+                : projectId === null
+                    ? "Waiting for an approved contract or a selected project to continue."
+                    : escrowState === "created"
+                        ? "Escrow exists onchain and is ready for the funding step."
+                        : escrowState === "funded"
+                            ? "Escrow is funded. The freelancer can now submit delivery."
+                            : escrowState === "submitted"
+                                ? hasSubmittedDispute
+                                    ? disputeJudgment
+                                        ? disputeJudgment.verdict === "release_funds"
+                                            ? "Support review recommends release. The client can still choose whether to settle onchain."
+                                            : "Support review recommends holding release. Refunds are not executable onchain in beta."
+                                        : "A support review request has been submitted. Run AI support review for a non-settling recommendation."
+                                    : "Work has been submitted and is waiting for client review."
+                                : "The project has reached its final resolved state.");
 
     useEffect(() => {
         if (!activeProjectContract || projectId === null) return;
@@ -1501,7 +1481,7 @@ export default function EscrowSimulator({
                                                     disabled={busy}
                                                     className="rounded-[10px] border border-[#7f1d1d] px-5 py-3 text-sm font-semibold text-[#fecaca] transition hover:border-[#991b1b] disabled:opacity-50"
                                                 >
-                                                    {showDisputeForm ? "Close Dispute" : "Open Dispute"}
+                                                    {showDisputeForm ? "Close Support Review" : "Open Support Review"}
                                                 </button>
                                             </div>
 
@@ -1510,7 +1490,7 @@ export default function EscrowSimulator({
                                                     <textarea
                                                         value={disputeReason}
                                                         onChange={(e) => setDisputeReason(e.target.value)}
-                                                        placeholder="Explain why this submission is being disputed"
+                                                        placeholder="Explain why this submission needs support review"
                                                         rows={4}
                                                         className="w-full rounded-[12px] border border-[#2a2a2a] bg-[#0b0b0b] px-4 py-3 text-sm outline-none placeholder:text-[#6b7280] focus:border-[#6f1d26]"
                                                     />
@@ -1521,7 +1501,7 @@ export default function EscrowSimulator({
                                                             type="button"
                                                             className="rounded-[10px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]"
                                                         >
-                                                            Submit Dispute
+                                                            Save Support Review
                                                         </button>
 
                                                         <button
@@ -1538,10 +1518,13 @@ export default function EscrowSimulator({
                                             {hasSubmittedDispute && !disputeJudgment && (
                                                 <div className="rounded-[12px] border border-[#4c1d24] bg-[#160b0d] px-4 py-4">
                                                     <div className="text-[12px] uppercase tracking-[0.12em] text-[#f2b6be]">
-                                                        Dispute submitted
+                                                        Support review saved
                                                     </div>
                                                     <div className="mt-2 text-sm leading-7 text-[#d1d5db]">
-                                                        The dispute reason is saved. Run the AI judge to evaluate the contract, milestones, and submitted work.
+                                                        The review request is saved. Run AI support review to generate a non-settling recommendation from the contract, milestones, and submitted work.
+                                                    </div>
+                                                    <div className="mt-3 rounded-[10px] border border-[#3f2c11] bg-[#18120a] px-3 py-3 text-xs leading-6 text-[#facc15]">
+                                                        {BETA_DISPUTE_SUPPORT_COPY}
                                                     </div>
                                                     <button
                                                         onClick={judgeDispute}
@@ -1549,14 +1532,14 @@ export default function EscrowSimulator({
                                                         disabled={judgingDispute}
                                                         className="mt-4 rounded-[10px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30] disabled:opacity-50"
                                                     >
-                                                        {judgingDispute ? "Running AI Judge..." : "Run AI Judge"}
+                                                        {judgingDispute ? "Running AI Support Review..." : "Run AI Support Review"}
                                                     </button>
                                                 </div>
                                             )}
 
                                             {disputeJudgment && (
                                                 <div className="rounded-[12px] border border-[#1f3b28] bg-[#0d1912] px-4 py-4 text-sm text-[#9be2b0]">
-                                                    AI judge review completed. See the support rail for verdict, confidence, and reasoning.
+                                                    AI support review completed. See the support rail for the recommendation, confidence, and reasoning.
                                                 </div>
                                             )}
                                         </div>
@@ -1565,13 +1548,15 @@ export default function EscrowSimulator({
                                     {canResolveFromJudgment && disputeJudgment && (
                                         <div className="rounded-[12px] border border-[#4c1d24] bg-[#160b0d] px-4 py-4">
                                             <div className="text-[12px] uppercase tracking-[0.12em] text-[#f2b6be]">
-                                                AI judge recommendation
+                                                AI support recommendation
                                             </div>
                                             <div className="mt-2 text-[16px] font-semibold text-[#f8fafc]">
                                                 {verdictLabel(disputeJudgment.verdict)}
                                             </div>
                                             <div className="mt-2 text-sm leading-7 text-[#d1d5db]">
-                                                Confidence {disputeJudgment.confidence}%. Choose the resolution path that matches the judge verdict.
+                                                {disputeJudgment.verdict === "release_funds"
+                                                    ? `Confidence ${disputeJudgment.confidence}%. Release remains the only onchain settlement path in beta.`
+                                                    : `Confidence ${disputeJudgment.confidence}%. This is a non-settling recommendation only. Beta mode does not execute refunds onchain.`}
                                             </div>
 
                                             {disputeJudgment.verdict === "release_funds" ? (
@@ -1580,16 +1565,12 @@ export default function EscrowSimulator({
                                                     disabled={busy}
                                                     className="mt-4 rounded-[10px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30] disabled:opacity-50"
                                                 >
-                                                    {busy ? "Resolving..." : "Resolve Project In Favor Of Release"}
+                                                    {busy ? "Resolving..." : "Release Funds Onchain"}
                                                 </button>
                                             ) : (
-                                                <button
-                                                    onClick={resolveJudgeRefund}
-                                                    type="button"
-                                                    className="mt-4 rounded-[10px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]"
-                                                >
-                                                    Resolve Project In Favor Of Refund
-                                                </button>
+                                                <div className="mt-4 rounded-[10px] border border-[#3f2c11] bg-[#18120a] px-4 py-3 text-sm leading-7 text-[#facc15]">
+                                                    Refunds are not executable onchain in mainnet beta. Use this recommendation for offchain support review only.
+                                                </div>
                                             )}
                                         </div>
                                     )}
@@ -1714,37 +1695,40 @@ export default function EscrowSimulator({
                                     <MiniStateCard label="Submitted work" value={submittedWorkLink} accent />
                                 )}
                                 {savedDisputeReason && (
-                                    <MiniStateCard label="Dispute reason" value={savedDisputeReason} />
+                                    <MiniStateCard label="Support review reason" value={savedDisputeReason} />
                                 )}
                                 {!savedDisputeReason && isReviewStage && (
-                                    <MiniStateCard label="Dispute status" value="No dispute submitted" />
+                                    <MiniStateCard label="Support review status" value="No support review submitted" />
                                 )}
                                 {judgeResolution === "judge_release" && (
                                     <MiniStateCard label="Final outcome" value="Resolved by Judge: Release" accent />
                                 )}
-                                {judgeResolution === "judge_refund" && (
-                                    <MiniStateCard label="Final outcome" value="Resolved by Judge: Refund" accent />
+                                {disputeJudgment?.verdict === "refund_client" && !judgeResolution && (
+                                    <MiniStateCard
+                                        label="Support recommendation"
+                                        value="Do not release onchain"
+                                    />
                                 )}
                             </div>
                         </div>
 
                         <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
                             <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
-                                AI Judge
+                                AI Support Review
                             </div>
                             {!hasSubmittedDispute ? (
                                 <div className="mt-2 text-[14px] text-[#9ca3af]">
-                                    No dispute submitted yet.
+                                    No support review submitted yet.
                                 </div>
                             ) : !disputeJudgment ? (
                                 <div className="mt-2 text-[14px] text-[#9ca3af]">
-                                    Dispute submitted. Run the AI judge from the main workflow panel to get a verdict.
+                                    Support review submitted. Run AI support review from the main workflow panel to get a non-settling recommendation.
                                 </div>
                             ) : (
                                 <div className="mt-2 grid gap-3">
                                     <div>
                                         <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
-                                            Verdict
+                                            Recommendation
                                         </div>
                                         <div className="mt-1 text-[15px] font-semibold text-[#f8fafc]">
                                             {verdictLabel(disputeJudgment.verdict)}
@@ -1769,15 +1753,19 @@ export default function EscrowSimulator({
                                         </div>
                                     </div>
 
+                                    {disputeJudgment.verdict === "refund_client" && (
+                                        <div className="rounded-[10px] border border-[#3f2c11] bg-[#18120a] px-3 py-3 text-sm leading-7 text-[#facc15]">
+                                            This recommendation does not settle funds onchain. Release is the only executable beta settlement path.
+                                        </div>
+                                    )}
+
                                     {judgeResolution && (
                                         <div>
                                             <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
                                                 Final outcome
                                             </div>
                                             <div className="mt-1 text-[15px] font-semibold text-[#f8fafc]">
-                                                {judgeResolution === "judge_release"
-                                                    ? "Resolved by Judge: Release"
-                                                    : "Resolved by Judge: Refund"}
+                                                Resolved by Judge: Release
                                             </div>
                                         </div>
                                     )}
