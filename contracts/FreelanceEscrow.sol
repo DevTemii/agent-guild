@@ -2,6 +2,12 @@
 pragma solidity ^0.8.24;
 
 contract FreelanceEscrow {
+    event ProjectCreated(
+        uint256 indexed projectId,
+        address indexed client,
+        address indexed freelancer
+    );
+
     enum Status {
         Created,
         Funded,
@@ -32,6 +38,8 @@ contract FreelanceEscrow {
             amount: 0,
             status: Status.Created
         });
+
+        emit ProjectCreated(projectCount, msg.sender, _freelancer);
 
         return projectCount;
     }

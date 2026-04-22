@@ -4,7 +4,20 @@ export const AGENT_REGISTRY_ADDRESS =
 export const FREELANCE_ESCROW_ADDRESS =
     "0x6d347e56c59ea7080b62b9f94306ac15e1a443e5";
 
+export const FREELANCE_ESCROW_PROJECT_CREATED_EVENT =
+    "event ProjectCreated(uint256 indexed projectId, address indexed client, address indexed freelancer)" as const;
+
 export const FREELANCE_ESCROW_ABI = [
+    {
+        type: "event",
+        name: "ProjectCreated",
+        inputs: [
+            { name: "projectId", type: "uint256", indexed: true },
+            { name: "client", type: "address", indexed: true },
+            { name: "freelancer", type: "address", indexed: true },
+        ],
+        anonymous: false,
+    },
     {
         type: "function",
         name: "createProject",
