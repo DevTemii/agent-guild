@@ -3,12 +3,16 @@
 import Link from "next/link";
 import { use, useMemo } from "react";
 import { useReadContract } from "thirdweb/react";
-import { defineChain, getContract } from "thirdweb";
+import { getContract } from "thirdweb";
 import { client } from "@/lib/client";
 import {
   AGENT_REGISTRY_ABI,
   AGENT_REGISTRY_ADDRESS,
 } from "@/lib/contract";
+import {
+  agentGuildChain,
+  getExplorerAddressUrl,
+} from "@/lib/networkConfig";
 import { getReputationForWallet } from "@/lib/reputationStore";
 
 type Agent = {
@@ -21,17 +25,6 @@ type Agent = {
   availability: string;
 };
 
-const celoSepolia = defineChain({
-  id: 11142220,
-  name: "Celo Sepolia",
-  rpc: "https://forno.celo-sepolia.celo-testnet.org",
-  nativeCurrency: {
-    name: "CELO",
-    symbol: "CELO",
-    decimals: 18,
-  },
-});
-
 export default function AgentProfilePage({
   params,
 }: {
@@ -43,7 +36,7 @@ export default function AgentProfilePage({
   const contract = useMemo(() => {
     return getContract({
       client,
-      chain: celoSepolia,
+      chain: agentGuildChain,
       address: AGENT_REGISTRY_ADDRESS,
       abi: AGENT_REGISTRY_ABI as any,
     });
@@ -161,7 +154,7 @@ export default function AgentProfilePage({
                 </div>
                 <div className="flex flex-col gap-2">
                   <a
-                    href={`https://sepolia.celoscan.io/address/${agent.owner}`}
+                    href={getExplorerAddressUrl(agent.owner)}
                     target="_blank"
                     rel="noreferrer"
                     className="text-sm text-[#38bdf8] transition hover:text-[#0ea5e9]"
@@ -169,7 +162,7 @@ export default function AgentProfilePage({
                     View owner on Celoscan
                   </a>
                   <a
-                    href={`https://sepolia.celoscan.io/address/${AGENT_REGISTRY_ADDRESS}`}
+                    href={getExplorerAddressUrl(AGENT_REGISTRY_ADDRESS)}
                     target="_blank"
                     rel="noreferrer"
                     className="text-sm text-[#38bdf8] transition hover:text-[#0ea5e9]"

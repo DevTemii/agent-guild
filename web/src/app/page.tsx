@@ -2,19 +2,8 @@
 
 import Link from "next/link";
 import { ConnectButton, useActiveAccount } from "thirdweb/react";
-import { defineChain } from "thirdweb";
 import { client } from "@/lib/client";
-
-const celoSepolia = defineChain({
-  id: 11142220,
-  name: "Celo Sepolia",
-  rpc: "https://forno.celo-sepolia.celo-testnet.org",
-  nativeCurrency: {
-    name: "CELO",
-    symbol: "CELO",
-    decimals: 18,
-  },
-});
+import { agentGuildChain, agentGuildChainLabel } from "@/lib/networkConfig";
 
 const appSteps = [
   "Create or review a contract",
@@ -37,7 +26,7 @@ export default function Home() {
                 Mini app launcher
               </div>
             </div>
-            <ConnectButton client={client} chain={celoSepolia} />
+            <ConnectButton client={client} chain={agentGuildChain} />
           </div>
         </header>
 
@@ -91,7 +80,7 @@ export default function Home() {
                 : "Connect a wallet, then jump straight into the correct role app."}
             </div>
             <div className="mt-4 rounded-[16px] border border-[#4c1d24] bg-[#160b0d] px-4 py-4 text-sm leading-6 text-[#e6c7cb]">
-              Mainnet beta keeps release as the only onchain final settlement path. Support review remains recommendation-only.
+              {agentGuildChainLabel} keeps release as the only onchain final settlement path in beta mode. Support review remains recommendation-only.
             </div>
           </div>
         </section>

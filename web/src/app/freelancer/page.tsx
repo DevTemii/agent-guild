@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ConnectButton, useActiveAccount, useReadContract } from "thirdweb/react";
-import { defineChain, getContract, prepareContractCall, sendTransaction } from "thirdweb";
+import { getContract, prepareContractCall, sendTransaction } from "thirdweb";
 import EscrowSimulator from "@/components/EscrowSimulator";
 import {
   SectionNotice,
@@ -24,6 +24,7 @@ import {
 } from "@/components/workspace/WorkspacePrimitives";
 import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
+import { agentGuildChain } from "@/lib/networkConfig";
 import {
   formatDisplayBudget,
   formatSettlementAmountCelo,
@@ -52,13 +53,6 @@ type Agent = {
 type FreelancerView = "overview" | "inbox" | "active";
 type InboxFilter = "pending" | "approved" | "rejected";
 
-const celoSepolia = defineChain({
-  id: 11142220,
-  name: "Celo Sepolia",
-  rpc: "https://forno.celo-sepolia.celo-testnet.org",
-  nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
-});
-
 export default function FreelancerWorkspacePage() {
   const account = useActiveAccount();
   const connectedAddress = normalizeWallet(account?.address) || null;
@@ -80,7 +74,7 @@ export default function FreelancerWorkspacePage() {
     () =>
       getContract({
         client,
-        chain: celoSepolia,
+        chain: agentGuildChain,
         address: AGENT_REGISTRY_ADDRESS,
         abi: AGENT_REGISTRY_ABI,
       }),
@@ -296,11 +290,11 @@ export default function FreelancerWorkspacePage() {
       headerActions={
         <>
           <Link href="/client" className="rounded-[10px] border border-[#262626] px-4 py-2 text-sm font-medium text-[#f7f4ef] transition hover:border-[#3b3b3b]">Switch to Client</Link>
-          <ConnectButton client={client} chain={celoSepolia} />
+          <ConnectButton client={client} chain={agentGuildChain} />
         </>
       }
       metricStrip={<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><SummaryCard label="Pending" value={`${pendingContracts.length}`} /><SummaryCard label="Approved" value={`${unusedApprovedContracts.length}`} /><SummaryCard label="Active Links" value={`${linkedContracts.length}`} /><SummaryCard label="Earned" value={`${reputation?.totalEarned ?? 0} CELO`} /></div>}
-      focusArea={<SectionNotice eyebrow={nextAction.eyebrow} title={nextAction.title} description={nextAction.description} action={!connectedAddress ? <ConnectButton client={client} chain={celoSepolia} /> : nextAction.actionLabel ? <button type="button" onClick={nextAction.onAction} className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]">{nextAction.actionLabel}</button> : null} />}
+      focusArea={<SectionNotice eyebrow={nextAction.eyebrow} title={nextAction.title} description={nextAction.description} action={!connectedAddress ? <ConnectButton client={client} chain={agentGuildChain} /> : nextAction.actionLabel ? <button type="button" onClick={nextAction.onAction} className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]">{nextAction.actionLabel}</button> : null} />}
       mainArea={
         <>
           {activeView === "overview" ? (
@@ -480,7 +474,7 @@ function WalletSignInPanel({
       <div className="mt-3 text-[20px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{title}</div>
       <p className="mt-3 max-w-[620px] text-sm leading-7 text-[#e6c7cb]">{description}</p>
       <div className="mt-5">
-        <ConnectButton client={client} chain={celoSepolia} />
+        <ConnectButton client={client} chain={agentGuildChain} />
       </div>
     </div>
   );

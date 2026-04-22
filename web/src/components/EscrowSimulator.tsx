@@ -9,7 +9,6 @@ import {
 } from "@/lib/budget";
 import { useActiveAccount, useReadContract } from "thirdweb/react";
 import {
-    defineChain,
     getContract,
     parseEventLogs,
     prepareContractCall,
@@ -24,6 +23,7 @@ import {
     FREELANCE_ESCROW_ADDRESS,
     FREELANCE_ESCROW_PROJECT_CREATED_EVENT,
 } from "@/lib/contract";
+import { agentGuildChain, agentGuildChainLabel } from "@/lib/networkConfig";
 import {
     getReputationForWallet,
     setReputationForWallet,
@@ -48,17 +48,6 @@ const SUBMISSION_STORAGE_KEY_PREFIX = "agent-guild-submission";
 const DISPUTE_STORAGE_KEY_PREFIX = "agent-guild-dispute";
 const JUDGMENT_STORAGE_KEY_PREFIX = "agent-guild-dispute-judgment";
 const RESOLUTION_STORAGE_KEY_PREFIX = "agent-guild-dispute-resolution";
-
-const celoSepolia = defineChain({
-    id: 11142220,
-    name: "Celo Sepolia",
-    rpc: "https://forno.celo-sepolia.celo-testnet.org",
-    nativeCurrency: {
-        name: "CELO",
-        symbol: "CELO",
-        decimals: 18,
-    },
-});
 
 const projectCreatedEvent = prepareEvent({
     signature: FREELANCE_ESCROW_PROJECT_CREATED_EVENT,
@@ -236,7 +225,7 @@ export default function EscrowSimulator({
     const escrowContract = useMemo(() => {
         return getContract({
             client,
-            chain: celoSepolia,
+            chain: agentGuildChain,
             address: FREELANCE_ESCROW_ADDRESS,
             abi: FREELANCE_ESCROW_ABI as any,
         });
@@ -651,7 +640,7 @@ export default function EscrowSimulator({
 
             const receipt = await waitForReceipt({
                 client,
-                chain: celoSepolia,
+                chain: agentGuildChain,
                 transactionHash: transactionResult.transactionHash,
             });
             const createdProjectId = resolveCreatedProjectIdFromReceipt({
@@ -827,7 +816,7 @@ export default function EscrowSimulator({
             });
             await waitForReceipt({
                 client,
-                chain: celoSepolia,
+                chain: agentGuildChain,
                 transactionHash: transactionResult.transactionHash,
             });
             submittedOnchain = true;
@@ -1407,7 +1396,7 @@ export default function EscrowSimulator({
                 <p className="mt-3 text-[15px] leading-7 text-[#9ca3af]">
                     {isFreelancerWorkspace
                         ? "Pick a project from your assigned list, submit work when funded, and monitor whether payment has been released."
-                        : "Create a real escrow project, deposit CELO, review delivery, and release funds on Celo Sepolia."}
+                        : `Create a real escrow project, deposit CELO, review delivery, and release funds on ${agentGuildChainLabel}.`}
                 </p>
             </div>
 

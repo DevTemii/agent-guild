@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ConnectButton, useActiveAccount, useReadContract } from "thirdweb/react";
-import { defineChain, getContract } from "thirdweb";
+import { getContract } from "thirdweb";
 import EscrowSimulator from "@/components/EscrowSimulator";
 import {
   SectionNotice,
@@ -25,6 +25,7 @@ import {
 } from "@/components/workspace/WorkspacePrimitives";
 import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
+import { agentGuildChain } from "@/lib/networkConfig";
 import {
   createDraftContract,
   getContractsForClient,
@@ -63,13 +64,6 @@ type ContractFilter = "draft" | "sent" | "approved" | "rejected";
 const PROFILE_STORAGE_KEY = "agent-guild-client-profile";
 const CONTRACT_STORAGE_KEY = "agent-guild-generated-contract";
 
-const celoSepolia = defineChain({
-  id: 11142220,
-  name: "Celo Sepolia",
-  rpc: "https://forno.celo-sepolia.celo-testnet.org",
-  nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
-});
-
 export default function ClientWorkspacePage() {
   const account = useActiveAccount();
   const connectedAddress = normalizeWallet(account?.address) || null;
@@ -98,7 +92,7 @@ export default function ClientWorkspacePage() {
     () =>
       getContract({
         client,
-        chain: celoSepolia,
+        chain: agentGuildChain,
         address: AGENT_REGISTRY_ADDRESS,
         abi: AGENT_REGISTRY_ABI,
       }),
@@ -393,7 +387,7 @@ export default function ClientWorkspacePage() {
       headerActions={
         <>
           <Link href="/freelancer" className="rounded-[10px] border border-[#262626] px-4 py-2 text-sm font-medium text-[#f7f4ef] transition hover:border-[#3b3b3b]">Switch to Freelancer</Link>
-          <ConnectButton client={client} chain={celoSepolia} />
+          <ConnectButton client={client} chain={agentGuildChain} />
         </>
       }
       metricStrip={<div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-3"><SummaryCard label="Drafts" value={`${draftContracts.length}`} /><SummaryCard label="Sent" value={`${sentContracts.length}`} /><SummaryCard label="Escrow Ready" value={`${unusedApprovedContracts.length}`} /></div>}
