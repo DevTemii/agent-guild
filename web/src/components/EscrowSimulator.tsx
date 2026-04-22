@@ -31,17 +31,20 @@ import {
 import {
     appendNotifications,
     getNotificationsForWallet,
+    getProjectSubmission,
     getProductContractById,
     getProductContractByLinkedProjectId,
     getWorkflowRefreshEventName,
     linkProductContractToProject,
     normalizeWallet,
     ProductContract,
+    saveProjectSubmission,
     updateProductContractSettlementAmount,
 } from "@/lib/workflowStore";
 
 const ESCROW_STORAGE_KEY = "agent-guild-active-escrow";
 const CONTRACT_STORAGE_KEY = "agent-guild-generated-contract";
+const SUBMISSION_STORAGE_KEY_PREFIX = "agent-guild-submission";
 const DISPUTE_STORAGE_KEY_PREFIX = "agent-guild-dispute";
 const JUDGMENT_STORAGE_KEY_PREFIX = "agent-guild-dispute-judgment";
 const RESOLUTION_STORAGE_KEY_PREFIX = "agent-guild-dispute-resolution";
@@ -87,6 +90,10 @@ function normalizeProjectId(value: number | null | undefined) {
     }
 
     return value;
+}
+
+function getSubmissionStorageKey(projectId: number) {
+    return `${SUBMISSION_STORAGE_KEY_PREFIX}-${projectId}`;
 }
 
 function resolveCreatedProjectIdFromReceipt({
@@ -290,16 +297,71 @@ export default function EscrowSimulator({
             setEscrowState("idle");
             return;
         }
+        let cancelled = false;
 
-        const savedSubmission = localStorage.getItem(
-            `agent-guild-submission-${projectId}`
-        );
-
-        if (savedSubmission) {
-            setSubmittedWorkLink(savedSubmission);
-        } else {
+        const syncSubmission = async () => {
+            setSubmissionLink("");
             setSubmittedWorkLink("");
-        }
+
+            try {
+                const sharedSubmission = await getProjectSubmission(projectId, account);
+                if (cancelled) {
+                    return;
+                }
+
+                if (sharedSubmission?.deliveryUrl) {
+                    localStorage.setItem(
+                        getSubmissionStorageKey(projectId),
+                        sharedSubmission.deliveryUrl
+                    );
+                    setSubmittedWorkLink(sharedSubmission.deliveryUrl);
+                    return;
+                }
+            } catch (error) {
+                console.error("Failed to load shared submission metadata", error);
+            }
+
+            const legacySubmission =
+                localStorage.getItem(getSubmissionStorageKey(projectId))?.trim() ?? "";
+
+            if (
+                legacySubmission &&
+                account &&
+                connectedAddress &&
+                connectedAddress === effectiveFreelancerWallet &&
+                effectiveClientWallet &&
+                effectiveFreelancerWallet
+            ) {
+                try {
+                    const importedSubmission = await saveProjectSubmission(
+                        {
+                            projectId,
+                            deliveryUrl: legacySubmission,
+                            clientWallet: effectiveClientWallet,
+                            freelancerWallet: effectiveFreelancerWallet,
+                        },
+                        account
+                    );
+
+                    if (cancelled) {
+                        return;
+                    }
+
+                    if (importedSubmission?.deliveryUrl) {
+                        setSubmittedWorkLink(importedSubmission.deliveryUrl);
+                        return;
+                    }
+                } catch (error) {
+                    console.error("Failed to import legacy submission metadata", error);
+                }
+            }
+
+            if (!cancelled && legacySubmission) {
+                setSubmissionLink((currentValue) => currentValue || legacySubmission);
+            }
+        };
+
+        void syncSubmission();
 
         const savedDispute = localStorage.getItem(
             `${DISPUTE_STORAGE_KEY_PREFIX}-${projectId}`
@@ -355,7 +417,18 @@ export default function EscrowSimulator({
                 console.error("Failed to restore escrow state", err);
             }
         }
-    }, [projectId]);
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        account,
+        approvedContract?.clientWallet,
+        approvedContract?.freelancerWallet,
+        clientWallet,
+        connectedAddress,
+        freelancerAddress,
+        projectId,
+    ]);
 
     const { data: projectCountData, refetch: refetchProjectCount } = useReadContract({
         contract: escrowContract,
@@ -736,6 +809,8 @@ export default function EscrowSimulator({
             return;
         }
 
+        let submittedOnchain = false;
+
         try {
             setBusy(true);
             setStatus("Submitting work to escrow contract...");
@@ -746,27 +821,108 @@ export default function EscrowSimulator({
                 params: [BigInt(projectId)],
             });
 
-            await sendTransaction({
+            const transactionResult = await sendTransaction({
                 transaction: tx,
                 account,
             });
-
-            localStorage.setItem(
-                `agent-guild-submission-${projectId}`,
-                submissionLink.trim()
-            );
-            setSubmittedWorkLink(submissionLink.trim());
+            await waitForReceipt({
+                client,
+                chain: celoSepolia,
+                transactionHash: transactionResult.transactionHash,
+            });
+            submittedOnchain = true;
 
             await refetchProjectData();
             setEscrowState("submitted");
+
+            const syncedSubmission = await saveProjectSubmission(
+                {
+                    projectId,
+                    deliveryUrl: submissionLink.trim(),
+                    clientWallet: effectiveClientWallet,
+                    freelancerWallet: effectiveFreelancerWallet,
+                    txHash: transactionResult.transactionHash,
+                },
+                account
+            );
+
+            const sharedDeliveryUrl =
+                syncedSubmission?.deliveryUrl ?? submissionLink.trim();
+            localStorage.setItem(
+                getSubmissionStorageKey(projectId),
+                sharedDeliveryUrl
+            );
+            setSubmittedWorkLink(sharedDeliveryUrl);
             setStatus("Work submitted successfully.");
             pushNotification(
-                `Work submitted for Project #${projectId}. Client can now review and release payment.`
+                `Work submitted for Project #${projectId}. Client can now review the shared delivery and release payment.`
             );
             await refreshEscrowUi();
         } catch (error) {
             console.error(error);
-            setStatus("Submit work failed.");
+            if (submittedOnchain) {
+                setStatus(
+                    "Work reached escrow, but the delivery link did not sync. Use Sync Delivery Link so the client can review it."
+                );
+            } else {
+                setStatus("Submit work failed.");
+            }
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function syncSubmittedDelivery() {
+        if (!account) {
+            setStatus("Connect your wallet first.");
+            return;
+        }
+
+        if (projectId === null) {
+            setStatus("Select a project first.");
+            return;
+        }
+
+        if (!isFreelancer) {
+            setStatus("Only the assigned freelancer can sync delivery metadata.");
+            return;
+        }
+
+        if (!submissionLink.trim()) {
+            setStatus("Add the delivery link you want the client to review.");
+            return;
+        }
+
+        try {
+            setBusy(true);
+            setStatus("Syncing delivery link for the client...");
+
+            const syncedSubmission = await saveProjectSubmission(
+                {
+                    projectId,
+                    deliveryUrl: submissionLink.trim(),
+                    clientWallet: effectiveClientWallet,
+                    freelancerWallet: effectiveFreelancerWallet,
+                },
+                account
+            );
+
+            if (!syncedSubmission?.deliveryUrl) {
+                throw new Error("Shared delivery metadata could not be saved.");
+            }
+
+            localStorage.setItem(
+                getSubmissionStorageKey(projectId),
+                syncedSubmission.deliveryUrl
+            );
+            setSubmittedWorkLink(syncedSubmission.deliveryUrl);
+            setStatus("Delivery link synced. The client can now review this project.");
+            pushNotification(
+                `Delivery metadata synced for Project #${projectId}.`
+            );
+        } catch (error) {
+            console.error(error);
+            setStatus("Delivery link sync failed.");
         } finally {
             setBusy(false);
         }
@@ -1117,6 +1273,11 @@ export default function EscrowSimulator({
     const hasSubmittedDispute = !!savedDisputeReason.trim();
     const canResolveFromJudgment =
         isReviewStage && isClient && !!disputeJudgment && !judgeResolution;
+    const needsSubmissionSync =
+        projectId !== null &&
+        escrowState === "submitted" &&
+        isFreelancer &&
+        !submittedWorkLink.trim();
     const roleExplainer =
         actualRole === "client"
             ? "This wallet controls client-side actions for the current contract or project."
@@ -1141,7 +1302,7 @@ export default function EscrowSimulator({
             : projectId === null && approvedContract
                 ? "This wallet is ready to create escrow for the approved contract."
                 : projectId === null
-                    ? "Select an approved contract or project to determine the next client action."
+                        ? "Select an approved contract or project to determine the next client action."
                     : judgeResolution === "judge_release"
                         ? "Client resolution is complete. Funds were released in favor of the judge verdict."
                         : disputeJudgment?.verdict === "refund_client" && escrowState === "submitted"
@@ -1162,7 +1323,7 @@ export default function EscrowSimulator({
                         ? "Select a project to see whether the freelancer stage is unlocked."
                         : escrowState === "created"
                             ? "Freelancer actions unlock after the client funds escrow."
-                            : escrowState === "submitted"
+                            : escrowState === "submitted" && !needsSubmissionSync
                                 ? "Work has already been submitted. The freelancer is now waiting for client review."
                                 : escrowState === "released"
                                     ? "The project is already resolved and no further freelancer action is available."
@@ -1597,10 +1758,13 @@ export default function EscrowSimulator({
                             Freelancer permissions
                         </div>
                         <div className="mt-3 text-[14px] leading-7 text-[#9ca3af]">
-                            Submit delivery only when this wallet is the assigned freelancer and the project reaches the funded stage.
+                            Submit delivery when this wallet is the assigned freelancer, then keep the shared delivery link synced so the client can review it from any device.
                         </div>
 
-                        {!freelancerActionBlockedReason && projectId !== null && escrowState === "funded" && isFreelancer ? (
+                        {!freelancerActionBlockedReason &&
+                        projectId !== null &&
+                        (escrowState === "funded" || needsSubmissionSync) &&
+                        isFreelancer ? (
                             <div className="mt-4 grid gap-3">
                                 <input
                                     value={submissionLink}
@@ -1610,11 +1774,11 @@ export default function EscrowSimulator({
                                 />
 
                                 <button
-                                    onClick={submitWork}
+                                    onClick={needsSubmissionSync ? syncSubmittedDelivery : submitWork}
                                     disabled={busy}
                                     className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
                                 >
-                                    Submit Work
+                                    {needsSubmissionSync ? "Sync Delivery Link" : "Submit Work"}
                                 </button>
                             </div>
                         ) : (
