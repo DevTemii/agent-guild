@@ -1066,6 +1066,16 @@ export default function EscrowSimulator({
         freelancerName ||
         approvedContract?.freelancerName ||
         "Pending";
+    const sourceContractMarkerLabel =
+        projectId === null
+            ? "Current escrow source contract"
+            : "Escrow source contract";
+    const sourceContractMarkerCopy =
+        projectId === null
+            ? "Selected approved contract. Pre-create escrow details come only from this agreement."
+            : activeProjectContract
+                ? "Project-linked contract. Active project state is now the source of truth."
+                : "Contract context is being restored from the active project.";
     const primaryColumnClass = isFreelancerWorkspace
         ? "order-2 lg:order-2"
         : "order-2 lg:order-1";
@@ -1308,10 +1318,13 @@ export default function EscrowSimulator({
                         {effectiveEscrowContract && (
                             <div className="mt-6 rounded-[16px] border border-[#4c1d24] bg-[#160b0d] p-4">
                                 <div className="text-[12px] uppercase tracking-[0.12em] text-[#f2b6be]">
-                                    Escrow source contract
+                                    {sourceContractMarkerLabel}
                                 </div>
                                 <div className="mt-2 text-[18px] font-semibold tracking-[-0.02em] text-[#f8fafc]">
                                     Contract {effectiveEscrowContract.id.slice(0, 8)}
+                                </div>
+                                <div className="mt-2 text-[13px] leading-6 text-[#f6c8ce]">
+                                    {sourceContractMarkerCopy}
                                 </div>
                                 <div className="mt-4 grid gap-3 sm:grid-cols-4">
                                     <MiniStateCard label="Client" value={effectiveEscrowContract.clientName} />
