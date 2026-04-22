@@ -872,7 +872,7 @@ function TalentCard({
           <div className="mt-6 grid grid-cols-2 gap-3">
             <MetricMini label="Guild Score" value={`${reputation.guildScore}/100`} />
             <MetricMini label="Completed" value={`${reputation.completedContracts}`} />
-            <MetricMini label="Earned" value={`$${reputation.totalEarned}`} />
+            <MetricMini label="Earned" value={`${reputation.totalEarned} CELO`} />
             <MetricMini label="Credit" value={reputation.creditUnlocked ? `$${reputation.creditAmount}` : "Locked"} />
           </div>
           <div className="mt-6 border-t border-white/6 pt-4 text-[12px] text-[#71717a]">

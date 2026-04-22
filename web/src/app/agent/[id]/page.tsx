@@ -220,7 +220,7 @@ export default function AgentProfilePage({
             />
             <MetricCard
               label="Total Earned"
-              value={`$${reputation.totalEarned}`}
+              value={`${reputation.totalEarned} CELO`}
             />
             <MetricCard
               label="Credit Status"
