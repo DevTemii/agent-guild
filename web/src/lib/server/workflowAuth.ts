@@ -1,20 +1,13 @@
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { verifySignature } from "thirdweb/auth";
-import { defineChain } from "thirdweb";
 import { client } from "@/lib/client";
+import { agentGuildChain } from "@/lib/networkConfig";
 import { normalizeWallet } from "@/lib/workflowTypes";
 
 const WORKFLOW_SESSION_COOKIE = "agent-guild-workflow-session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-const celoSepolia = defineChain({
-  id: 11142220,
-  name: "Celo Sepolia",
-  rpc: "https://forno.celo-sepolia.celo-testnet.org",
-  nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
-});
 
 type WorkflowChallengePayload = {
   wallet: string;
@@ -125,7 +118,7 @@ export async function verifyWorkflowChallengeSignature({
     message: buildWorkflowChallengeMessage(payload),
     signature,
     client,
-    chain: celoSepolia,
+    chain: agentGuildChain,
   });
 }
 

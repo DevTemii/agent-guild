@@ -1,5 +1,6 @@
 import { createThirdwebClient } from "thirdweb";
+import { requirePublicEnv } from "./runtimeConfig";
 
 export const client = createThirdwebClient({
-    clientId: process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID || "test-client-id",
+    clientId: requirePublicEnv("NEXT_PUBLIC_THIRDWEB_CLIENT_ID"),
 });
