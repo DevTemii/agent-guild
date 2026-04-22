@@ -10,27 +10,27 @@ import { WorkspacePanel } from "./WorkspaceShell";
 
 export function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[16px] border border-[#1d1d1d] bg-[#0d0d0d] p-4">
-      <div className="text-[26px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{value}</div>
-      <div className="mt-2 text-[11px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
+    <div className="rounded-[14px] border border-[#1d1d1d] bg-[#0d0d0d] p-3.5">
+      <div className="text-[22px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{value}</div>
+      <div className="mt-1.5 text-[10px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
     </div>
   );
 }
 
 export function DetailCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[16px] border border-[#1d1d1d] bg-[#090909] p-4">
-      <div className="text-[12px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
-      <div className="mt-2 break-words text-[14px] leading-7 text-[#d4d4d8]">{value}</div>
+    <div className="rounded-[14px] border border-[#1d1d1d] bg-[#090909] p-3.5">
+      <div className="text-[11px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
+      <div className="mt-2 break-words text-[14px] leading-6 text-[#d4d4d8]">{value}</div>
     </div>
   );
 }
 
 export function MetadataPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[12px] border border-[#1d1d1d] bg-[#0d0d0d] px-3 py-3">
+    <div className="rounded-[12px] border border-[#1d1d1d] bg-[#0d0d0d] px-3 py-2.5">
       <div className="text-[10px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
-      <div className="mt-2 break-words text-[13px] font-medium text-[#f7f4ef]">{value}</div>
+      <div className="mt-1.5 break-words text-[13px] font-medium text-[#f7f4ef]">{value}</div>
     </div>
   );
 }
@@ -49,7 +49,7 @@ export function NotificationList({
   return (
     <div className="grid gap-2">
       {notifications.slice(0, 4).map((note, index) => (
-        <div key={index} className="rounded-[12px] border border-[#1d1d1d] bg-[#090909] px-4 py-3 text-sm text-[#d4d4d8]">
+        <div key={index} className="rounded-[12px] border border-[#1d1d1d] bg-[#090909] px-3 py-3 text-sm leading-6 text-[#d4d4d8]">
           {note}
         </div>
       ))}
@@ -121,9 +121,8 @@ export function ContractCardList({
               <StatusBadge status={contract.status} />
             </div>
 
-            <div className="mt-3 text-sm leading-7 text-[#d4d4d8]">{contract.summary}</div>
-
-            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+            <div className="mt-3 text-sm leading-6 text-[#d4d4d8]">{contract.summary}</div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-4">
               <MetadataPill
                 label="Contract value"
                 value={formatDisplayBudget(contract.displayBudget)}
@@ -146,15 +145,15 @@ export function ContractCardList({
             </div>
 
             {isEscrowLinked ? (
-              <div className="mt-4 rounded-[12px] border border-[#1f3b28] bg-[#0d1912] px-3 py-3 text-xs text-[#9be2b0]">
+              <div className="mt-3 rounded-[12px] border border-[#1f3b28] bg-[#0d1912] px-3 py-3 text-xs leading-5 text-[#9be2b0]">
                 Linked project state: Escrow created for Project #{linkedProjectId}.
               </div>
             ) : null}
 
-            {footer ? <div className="mt-4">{footer(contract)}</div> : null}
+            {footer ? <div className="mt-3">{footer(contract)}</div> : null}
 
             {actionLabel && onAction && !isEscrowLinked ? (
-              <div className="mt-4">
+              <div className="mt-3">
                 <button
                   type="button"
                   onClick={(event) => {
@@ -249,7 +248,7 @@ export function PipelineRow({
 
 export function EmptyState({ copy }: { copy: string }) {
   return (
-    <div className="rounded-[14px] border border-dashed border-[#242424] bg-[#090909] px-4 py-6 text-sm leading-7 text-[#a1a1aa]">
+    <div className="rounded-[14px] border border-dashed border-[#242424] bg-[#090909] px-4 py-5 text-sm leading-6 text-[#a1a1aa]">
       {copy}
     </div>
   );
@@ -265,7 +264,7 @@ export function SetupGate({ copy }: { copy: string }) {
 
 export function InlineNotice({ message }: { message: string }) {
   return (
-    <div className="rounded-[12px] border border-[#1d1d1d] bg-[#090909] px-4 py-3 text-sm text-[#d4d4d8]">
+    <div className="rounded-[12px] border border-[#1d1d1d] bg-[#090909] px-4 py-3 text-sm leading-6 text-[#d4d4d8]">
       {message}
     </div>
   );
