@@ -419,7 +419,7 @@ export default function FreelancerWorkspacePage() {
                 <ContractCardList
                   contracts={[...linkedContracts, ...rejectedContracts]}
                   variant="freelancer"
-                  emptyState="No historical work records yet."
+                  emptyState="No historical work records are associated with this wallet yet."
                   nextActionLabel={(contract) =>
                     contract.linkedProjectId ? `Linked to Project #${contract.linkedProjectId}` : contract.status === "rejected" ? "Archived" : "Stored"
                   }
