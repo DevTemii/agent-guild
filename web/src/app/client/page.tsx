@@ -26,7 +26,6 @@ import {
 import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
 import {
-  appendNotifications,
   createDraftContract,
   getContractsForClient,
   getNotificationsForWallet,
@@ -34,6 +33,7 @@ import {
   normalizeWallet,
   ProductContract,
   sendProductContract,
+  syncWorkflowState,
 } from "@/lib/workflowStore";
 import {
   buildDisplayBudget,
@@ -57,7 +57,7 @@ type ClientProfile = {
   operatingFocus: string;
 };
 
-type ClientView = "overview" | "contracts" | "active" | "history";
+type ClientView = "overview" | "contracts" | "active";
 type ContractFilter = "draft" | "sent" | "approved" | "rejected";
 
 const PROFILE_STORAGE_KEY = "agent-guild-client-profile";
@@ -150,7 +150,9 @@ export default function ClientWorkspacePage() {
       return;
     }
 
-    const syncWorkflow = () => {
+    const syncWorkflow = async () => {
+      await syncWorkflowState(account);
+
       const nextContracts = getContractsForClient(connectedAddress);
       setContracts(nextContracts);
       const availableApprovedContracts = nextContracts.filter(
@@ -163,14 +165,14 @@ export default function ClientWorkspacePage() {
       setNotifications(getNotificationsForWallet(connectedAddress));
     };
 
-    syncWorkflow();
+    void syncWorkflow();
     window.addEventListener("storage", syncWorkflow);
     window.addEventListener(getWorkflowRefreshEventName(), syncWorkflow);
     return () => {
       window.removeEventListener("storage", syncWorkflow);
       window.removeEventListener(getWorkflowRefreshEventName(), syncWorkflow);
     };
-  }, [connectedAddress]);
+  }, [account, connectedAddress]);
 
   function saveClientProfile() {
     if (!companyName.trim() || !contactName.trim()) {
@@ -220,7 +222,7 @@ export default function ClientWorkspacePage() {
       const result = await res.json();
       if (!res.ok) throw new Error(result?.error || result?.message || "Failed to generate contract.");
       localStorage.setItem(CONTRACT_STORAGE_KEY, JSON.stringify(result));
-      const draft = createDraftContract({
+      const draft = await createDraftContract({
         clientWallet: connectedAddress,
         clientName,
         freelancerWallet,
@@ -230,9 +232,10 @@ export default function ClientWorkspacePage() {
         settlementAmountCelo: null,
         summary: result.summary,
         milestones: result.milestones,
-      });
-      appendNotifications([{ wallet: connectedAddress, message: `Contract draft created for ${draft.freelancerName}.` }]);
+      }, account);
+      await syncWorkflowState(account);
       setContracts(getContractsForClient(connectedAddress));
+      setNotifications(getNotificationsForWallet(connectedAddress));
       setContractStatus("AI contract generated and saved as draft.");
       setContractFilter("draft");
       openClientView("contracts");
@@ -244,14 +247,15 @@ export default function ClientWorkspacePage() {
     }
   }
 
-  function sendContract(contractId: string) {
-    const next = sendProductContract(contractId);
+  async function sendContract(contractId: string) {
+    const next = await sendProductContract(contractId, account);
     if (!next) {
       setContractStatus("Unable to send this contract. Confirm the freelancer wallet is saved correctly.");
       return;
     }
-    appendNotifications([{ wallet: connectedAddress, message: `Contract sent to ${next.freelancerName} for approval.` }]);
+    await syncWorkflowState(account);
     setContracts(getContractsForClient(connectedAddress));
+    setNotifications(getNotificationsForWallet(connectedAddress));
     setContractStatus(`Contract sent to ${next.freelancerName}.`);
     setContractFilter("sent");
   }
@@ -263,7 +267,6 @@ export default function ClientWorkspacePage() {
   const rejectedContracts = sortedContracts.filter((contract) => contract.status === "rejected");
   const unusedApprovedContracts = approvedContracts.filter((contract) => !contract.linkedProjectId);
   const linkedContracts = approvedContracts.filter((contract) => (contract.linkedProjectId ?? 0) > 0);
-  const historyContracts = [...linkedContracts, ...rejectedContracts].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
   const selectedApprovedContract =
     approvedContracts.find((contract) => contract.id === selectedApprovedContractId && !contract.linkedProjectId) ?? null;
   const filteredContracts =
@@ -377,7 +380,6 @@ export default function ClientWorkspacePage() {
     { id: "overview", label: "Now", badge: savedProfile ? undefined : "Setup", hint: "Immediate actions and setup." },
     { id: "contracts", label: "Contracts", badge: `${contracts.length}`, hint: "Create and send agreements." },
     { id: "active", label: "Escrow", badge: `${linkedContracts.length}`, hint: "Fund, review, and release." },
-    { id: "history", label: "History", badge: `${historyContracts.length}`, hint: "Linked and archived work." },
   ];
 
   return (
@@ -394,7 +396,7 @@ export default function ClientWorkspacePage() {
           <ConnectButton client={client} chain={celoSepolia} />
         </>
       }
-      metricStrip={<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><SummaryCard label="Drafts" value={`${draftContracts.length}`} /><SummaryCard label="Sent" value={`${sentContracts.length}`} /><SummaryCard label="Escrow Ready" value={`${unusedApprovedContracts.length}`} /><SummaryCard label="History" value={`${historyContracts.length}`} /></div>}
+      metricStrip={<div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-3"><SummaryCard label="Drafts" value={`${draftContracts.length}`} /><SummaryCard label="Sent" value={`${sentContracts.length}`} /><SummaryCard label="Escrow Ready" value={`${unusedApprovedContracts.length}`} /></div>}
       focusArea={<SectionNotice eyebrow={nextAction.eyebrow} title={nextAction.title} description={nextAction.description} action={nextAction.actionLabel ? <button type="button" onClick={nextAction.onAction} className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]">{nextAction.actionLabel}</button> : null} />}
       mainArea={
         <>
@@ -498,10 +500,9 @@ export default function ClientWorkspacePage() {
               </div>
             ) : <SetupGate copy="Create your client workspace in Now before managing active projects." />
           ) : null}
-          {activeView === "history" ? <div className="grid gap-6"><WorkspacePanel title="Escrow-linked records" subtitle="Approved contracts move here once they have already been used to create a project."><ContractCardList contracts={linkedContracts} variant="client" emptyState="No escrow-linked records are associated with this wallet yet." nextActionLabel={(contract) => contract.linkedProjectId ? `Linked to Project #${contract.linkedProjectId}` : "Stored"} /></WorkspacePanel><WorkspacePanel title="Archived decisions" subtitle="Rejected contracts stay visible here so the deal history remains audit-friendly."><ContractCardList contracts={rejectedContracts} variant="client" emptyState="No archived contract decisions are associated with this wallet yet." nextActionLabel={() => "Archived"} /></WorkspacePanel></div> : null}
         </>
       }
-      supportArea={<><WorkspacePanel title="Notifications" subtitle="Recent workflow updates for this connected wallet."><NotificationList notifications={notifications} emptyCopy={connectedAddress ? "No notifications for this wallet yet." : "Connect a wallet to see wallet-scoped notifications."} /></WorkspacePanel><WorkspacePanel title="Workspace profile" subtitle="Client identity and operating context.">{savedProfile ? <div className="grid gap-3"><DetailCard label="Company" value={savedProfile.companyName} /><DetailCard label="Primary contact" value={savedProfile.contactName} /><DetailCard label="Operating focus" value={savedProfile.operatingFocus} />{connectedAddress ? <DetailCard label="Connected wallet" value={shortAddress(connectedAddress)} /> : null}</div> : <EmptyState copy="No client profile saved yet. Finish setup from Now." />}</WorkspacePanel><WorkspacePanel title="Current selection" subtitle="Keep the current contract and freelancer context visible.">{selectedApprovedContract ? <div className="grid gap-3"><DetailCard label="Approved contract" value={selectedApprovedContract.id.slice(0, 8)} /><DetailCard label="Freelancer" value={selectedApprovedContract.freelancerName} /><DetailCard label="Contract value" value={formatDisplayBudget(selectedApprovedContract.displayBudget)} /><DetailCard label="Settlement amount" value={formatSettlementAmountCelo(selectedApprovedContract.settlementAmountCelo)} /></div> : selectedFreelancer ? <div className="grid gap-3"><DetailCard label="Selected freelancer" value={selectedFreelancer.name} /><DetailCard label="Skill" value={selectedFreelancer.skill} /><DetailCard label="Wallet" value={shortAddress(selectedFreelancer.owner)} /></div> : <EmptyState copy="No active selection yet. Pick a freelancer or approved contract to keep context here." />}</WorkspacePanel></>}
+      supportArea={<><WorkspacePanel title="Notifications" subtitle="Recent workflow updates for this connected wallet."><NotificationList notifications={notifications} emptyCopy={connectedAddress ? "No notifications for this wallet yet." : "Connect a wallet to see wallet-scoped notifications."} /></WorkspacePanel><WorkspacePanel title="Workspace profile" subtitle="Client identity and operating context.">{savedProfile ? <div className="grid gap-3"><DetailCard label="Company" value={savedProfile.companyName} /><DetailCard label="Primary contact" value={savedProfile.contactName} /><DetailCard label="Operating focus" value={savedProfile.operatingFocus} />{connectedAddress ? <DetailCard label="Connected wallet" value={shortAddress(connectedAddress)} /> : null}</div> : <EmptyState copy="No client profile saved yet. Finish setup from Now." />}</WorkspacePanel><WorkspacePanel title="Current selection" subtitle="Keep the current contract and freelancer context visible.">{selectedApprovedContract ? <div className="grid gap-3"><DetailCard label="Approved contract" value={selectedApprovedContract.id.slice(0, 8)} /><DetailCard label="Freelancer" value={selectedApprovedContract.freelancerName} /><DetailCard label="Contract value" value={formatDisplayBudget(selectedApprovedContract.displayBudget)} /><DetailCard label="Settlement amount" value={formatSettlementAmountCelo(selectedApprovedContract.settlementAmountCelo)} /></div> : selectedFreelancer ? <div className="grid gap-3"><DetailCard label="Selected freelancer" value={selectedFreelancer.name} /><DetailCard label="Skill" value={selectedFreelancer.skill} /><DetailCard label="Wallet" value={shortAddress(selectedFreelancer.owner)} /></div> : <EmptyState copy="No active selection yet. Pick a freelancer or approved contract to keep context here." />}</WorkspacePanel><WorkspacePanel title="History" subtitle="Linked and archived records stay secondary during the beta loop."><div className="grid gap-3"><DetailCard label="Escrow-linked records" value={`${linkedContracts.length}`} /><DetailCard label="Archived decisions" value={`${rejectedContracts.length}`} /></div></WorkspacePanel></>}
     />
   );
 }

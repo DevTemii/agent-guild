@@ -601,19 +601,22 @@ export default function EscrowSimulator({
             setSubmissionLink("");
             setSubmittedWorkLink("");
             const contractWithSettlement =
-                updateProductContractSettlementAmount(
+                await updateProductContractSettlementAmount(
                     selectedSourceContract.id,
-                        normalizedSettlementAmount
-                    );
+                    normalizedSettlementAmount,
+                    account
+                );
             const linkedContract =
                 contractWithSettlement
-                    ? linkProductContractToProject(
+                    ? await linkProductContractToProject(
                         contractWithSettlement.id,
-                        createdProjectId
+                        createdProjectId,
+                        account
                     )
-                    : linkProductContractToProject(
+                    : await linkProductContractToProject(
                         selectedSourceContract.id,
-                        createdProjectId
+                        createdProjectId,
+                        account
                     );
 
             if (linkedContract) {

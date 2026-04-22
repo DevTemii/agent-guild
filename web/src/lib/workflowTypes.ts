@@ -1,0 +1,105 @@
+import { buildDisplayBudget, type DisplayBudget } from "./budget";
+
+export type ContractStatus = "draft" | "sent" | "approved" | "rejected";
+
+export type ContractMilestone = {
+  title: string;
+  amount: number;
+};
+
+export type ProductContract = {
+  id: string;
+  clientWallet: string;
+  clientName: string;
+  freelancerWallet: string;
+  freelancerName: string;
+  linkedProjectId?: number | null;
+  projectBrief: string;
+  displayBudget: DisplayBudget;
+  settlementAmountCelo: string | null;
+  summary: string;
+  milestones: ContractMilestone[];
+  status: ContractStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LegacyProductContract = Omit<
+  ProductContract,
+  "displayBudget" | "settlementAmountCelo"
+> & {
+  budget?: number;
+  displayBudget?: DisplayBudget;
+  settlementAmountCelo?: string | null;
+};
+
+export type WorkflowNotification = {
+  id: string;
+  wallet: string;
+  message: string;
+  createdAt: string;
+};
+
+export function nowIso() {
+  return new Date().toISOString();
+}
+
+export function normalizeWallet(wallet?: string | null) {
+  return wallet?.trim().toLowerCase() ?? "";
+}
+
+export function normalizeLinkedProjectId(projectId?: number | null) {
+  if (typeof projectId !== "number" || !Number.isInteger(projectId) || projectId < 1) {
+    return null;
+  }
+
+  return projectId;
+}
+
+export function normalizeSettlementAmountCelo(settlementAmountCelo?: string | null) {
+  const normalized = settlementAmountCelo?.trim();
+  return normalized ? normalized : null;
+}
+
+export function normalizeDisplayBudget(contract: LegacyProductContract) {
+  if (contract.displayBudget) {
+    return {
+      amount: contract.displayBudget.amount,
+      currency: "USD" as const,
+      label:
+        contract.displayBudget.label ||
+        buildDisplayBudget(contract.displayBudget.amount).label,
+    };
+  }
+
+  return buildDisplayBudget(contract.budget ?? 0);
+}
+
+export function normalizeContract(contract: LegacyProductContract): ProductContract {
+  return {
+    ...contract,
+    clientWallet: normalizeWallet(contract.clientWallet),
+    freelancerWallet: normalizeWallet(contract.freelancerWallet),
+    linkedProjectId: normalizeLinkedProjectId(contract.linkedProjectId),
+    displayBudget: normalizeDisplayBudget(contract),
+    settlementAmountCelo: normalizeSettlementAmountCelo(
+      contract.settlementAmountCelo
+    ),
+  };
+}
+
+export function normalizeNotification(
+  notification: Omit<WorkflowNotification, "wallet"> & {
+    wallet?: string | null;
+  }
+): WorkflowNotification | null {
+  const wallet = normalizeWallet(notification.wallet);
+  if (!wallet) {
+    return null;
+  }
+
+  return {
+    ...notification,
+    wallet,
+  };
+}

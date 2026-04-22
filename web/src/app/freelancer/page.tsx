@@ -30,12 +30,12 @@ import {
 } from "@/lib/budget";
 import { getReputationForWallet } from "@/lib/reputationStore";
 import {
-  appendNotifications,
   getContractsForFreelancer,
   getNotificationsForWallet,
   getWorkflowRefreshEventName,
   normalizeWallet,
   ProductContract,
+  syncWorkflowState,
   updateProductContractStatus,
 } from "@/lib/workflowStore";
 
@@ -49,7 +49,7 @@ type Agent = {
   availability: string;
 };
 
-type FreelancerView = "overview" | "inbox" | "active" | "earnings";
+type FreelancerView = "overview" | "inbox" | "active";
 type InboxFilter = "pending" | "approved" | "rejected";
 
 const celoSepolia = defineChain({
@@ -90,12 +90,13 @@ export default function FreelancerWorkspacePage() {
   const { data, refetch } = useReadContract({ contract, method: "getAgents", params: [] });
 
   useEffect(() => {
-    const syncWorkflow = () => {
+    const syncWorkflow = async () => {
       if (!connectedAddress) {
         setNotifications([]);
         setContracts([]);
         return;
       }
+      await syncWorkflowState(account);
       const nextContracts = getContractsForFreelancer(connectedAddress);
       const nextNotifications = getNotificationsForWallet(connectedAddress);
 
@@ -103,14 +104,14 @@ export default function FreelancerWorkspacePage() {
       setNotifications(nextNotifications);
     };
 
-    syncWorkflow();
+    void syncWorkflow();
     window.addEventListener("storage", syncWorkflow);
     window.addEventListener(getWorkflowRefreshEventName(), syncWorkflow);
     return () => {
       window.removeEventListener("storage", syncWorkflow);
       window.removeEventListener(getWorkflowRefreshEventName(), syncWorkflow);
     };
-  }, [connectedAddress]);
+  }, [account, connectedAddress]);
 
   const allAgents = (data as Agent[] | undefined) || [];
   const uniqueAgents = allAgents.filter((agent, index, arr) => {
@@ -147,25 +148,21 @@ export default function FreelancerWorkspacePage() {
     setActiveView(recommendedView);
   }, [hasManualViewSelection, recommendedView]);
 
-  function approveContract(contractId: string) {
-    const next = updateProductContractStatus(contractId, "approved");
+  async function approveContract(contractId: string) {
+    const next = await updateProductContractStatus(contractId, "approved", account);
     if (!next) return;
-    appendNotifications([
-      { wallet: next.freelancerWallet, message: `You approved ${next.clientName}'s contract and unlocked escrow setup.` },
-      { wallet: next.clientWallet, message: `${next.freelancerName} approved your contract. Escrow can now be created.` },
-    ]);
+    await syncWorkflowState(account);
     if (connectedAddress) setContracts(getContractsForFreelancer(connectedAddress));
+    if (connectedAddress) setNotifications(getNotificationsForWallet(connectedAddress));
     setInboxFilter("approved");
   }
 
-  function rejectContract(contractId: string) {
-    const next = updateProductContractStatus(contractId, "rejected");
+  async function rejectContract(contractId: string) {
+    const next = await updateProductContractStatus(contractId, "rejected", account);
     if (!next) return;
-    appendNotifications([
-      { wallet: next.freelancerWallet, message: `You rejected ${next.clientName}'s contract.` },
-      { wallet: next.clientWallet, message: `${next.freelancerName} rejected your contract.` },
-    ]);
+    await syncWorkflowState(account);
     if (connectedAddress) setContracts(getContractsForFreelancer(connectedAddress));
+    if (connectedAddress) setNotifications(getNotificationsForWallet(connectedAddress));
     setInboxFilter("rejected");
   }
 
@@ -286,7 +283,6 @@ export default function FreelancerWorkspacePage() {
     { id: "overview", label: "Now", badge: myProfile ? undefined : "Setup", hint: "Immediate actions and setup." },
     { id: "inbox", label: "Inbox", badge: `${pendingContracts.length}`, hint: "Review incoming contracts and decide." },
     { id: "active", label: "Active", badge: `${linkedContracts.length}`, hint: "Track funded work and submit delivery." },
-    { id: "earnings", label: "Earnings", badge: `${reputation?.completedContracts ?? 0}`, hint: "Review earnings, reputation, and stored work history." },
   ];
 
   return (
@@ -417,35 +413,6 @@ export default function FreelancerWorkspacePage() {
             </div>
             )
           ) : null}
-          {activeView === "earnings" ? (
-            !connectedAddress ? (
-              <WalletSignInPanel
-                title="Sign in to view earnings and history"
-                description="Reputation, payout history, and completed work are all attached to the connected freelancer wallet."
-              />
-            ) : (
-            <div className="grid gap-6">
-              <WorkspacePanel title="Earnings and reputation" subtitle="Reputation is part of the product, not a separate afterthought.">
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <SummaryCard label="Guild Score" value={`${reputation?.guildScore ?? 0}/100`} />
-                  <SummaryCard label="Completed Contracts" value={`${reputation?.completedContracts ?? 0}`} />
-                  <SummaryCard label="Total Earned" value={`${reputation?.totalEarned ?? 0} CELO`} />
-                  <SummaryCard label="Credit Status" value={reputation?.creditUnlocked ? `$${reputation.creditAmount} unlocked` : "Locked"} />
-                </div>
-              </WorkspacePanel>
-              <WorkspacePanel title="Work history" subtitle="Keep contract outcomes and project links visible in one archive.">
-                <ContractCardList
-                  contracts={[...linkedContracts, ...rejectedContracts]}
-                  variant="freelancer"
-                  emptyState="No historical work records are associated with this wallet yet."
-                  nextActionLabel={(contract) =>
-                    contract.linkedProjectId ? `Linked to Project #${contract.linkedProjectId}` : contract.status === "rejected" ? "Archived" : "Stored"
-                  }
-                />
-              </WorkspacePanel>
-            </div>
-            )
-          ) : null}
         </>
       }
       supportArea={
@@ -482,6 +449,13 @@ export default function FreelancerWorkspacePage() {
                 <DetailCard label="Guild score" value={`${reputation?.guildScore ?? 0}/100`} />
               </div>
             )}
+          </WorkspacePanel>
+          <WorkspacePanel title="Earnings and history" subtitle="Completed work stays secondary while beta focuses on the live loop.">
+            <div className="grid gap-3">
+              <DetailCard label="Total earned" value={`${reputation?.totalEarned ?? 0} CELO`} />
+              <DetailCard label="Completed contracts" value={`${reputation?.completedContracts ?? 0}`} />
+              <DetailCard label="Archived records" value={`${linkedContracts.length + rejectedContracts.length}`} />
+            </div>
           </WorkspacePanel>
         </>
       }
