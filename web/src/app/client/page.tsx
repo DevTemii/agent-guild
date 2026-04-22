@@ -90,7 +90,8 @@ export default function ClientWorkspacePage() {
   const [contracts, setContracts] = useState<ProductContract[]>([]);
   const [selectedApprovedContractId, setSelectedApprovedContractId] = useState<string | null>(null);
   const [escrowSelectionNonce, setEscrowSelectionNonce] = useState(0);
-  const [activeView, setActiveView] = useState<ClientView>("overview");
+  const [activeView, setActiveView] = useState<ClientView>("contracts");
+  const [hasManualViewSelection, setHasManualViewSelection] = useState(false);
   const [contractFilter, setContractFilter] = useState<ContractFilter>("draft");
 
   const registryContract = useMemo(
@@ -234,7 +235,7 @@ export default function ClientWorkspacePage() {
       setContracts(getContractsForClient(connectedAddress));
       setContractStatus("AI contract generated and saved as draft.");
       setContractFilter("draft");
-      setActiveView("contracts");
+      openClientView("contracts");
     } catch (error) {
       console.error(error);
       setContractStatus(error instanceof Error ? error.message : "AI contract generation failed.");
@@ -277,14 +278,30 @@ export default function ClientWorkspacePage() {
   function selectApprovedContractForEscrow(contractId: string, shouldFocusEscrow = false) {
     const nextContract = unusedApprovedContracts.find((contract) => contract.id === contractId) ?? null;
     if (!nextContract) {
-      if (shouldFocusEscrow) setActiveView("active");
+      if (shouldFocusEscrow) openClientView("active");
       return;
     }
 
     setSelectedApprovedContractId(nextContract.id);
     setEscrowSelectionNonce((current) => current + 1);
-    if (shouldFocusEscrow) setActiveView("active");
+    if (shouldFocusEscrow) openClientView("active");
   }
+
+  function openClientView(view: ClientView) {
+    setHasManualViewSelection(true);
+    setActiveView(view);
+  }
+
+  const recommendedView = useMemo<ClientView>(() => {
+    if (!connectedAddress || !savedProfile) return "overview";
+    if (unusedApprovedContracts.length > 0 || linkedContracts.length > 0) return "active";
+    return "contracts";
+  }, [connectedAddress, savedProfile, unusedApprovedContracts.length, linkedContracts.length]);
+
+  useEffect(() => {
+    if (hasManualViewSelection) return;
+    setActiveView(recommendedView);
+  }, [hasManualViewSelection, recommendedView]);
 
   const nextAction = useMemo(() => {
     if (!connectedAddress) {
@@ -299,8 +316,8 @@ export default function ClientWorkspacePage() {
     if (!savedProfile) {
       return {
         eyebrow: "Setup",
-        title: "Create your client workspace before starting the next engagement.",
-        description: "Save company identity once, then the rest of the dashboard can stay focused on agreements and execution.",
+        title: "Finish setup, then start creating agreements from here.",
+        description: "Save your client identity once so contract drafts, escrow actions, and wallet-scoped activity stay tied to the same operator.",
         actionLabel: undefined,
         onAction: undefined,
       };
@@ -309,9 +326,9 @@ export default function ClientWorkspacePage() {
       return {
         eyebrow: "Next action",
         title: "Move approved work into escrow.",
-        description: "An approved contract is ready. Create escrow next so funding, delivery, and review stay attached to the same agreement.",
-        actionLabel: "Open Active Projects",
-        onAction: () => setActiveView("active"),
+        description: "An approved contract is ready right now. Open escrow next so funding, delivery, and release stay attached to the same agreement.",
+        actionLabel: "Open Escrow",
+        onAction: () => openClientView("active"),
       };
     }
     if (draftContracts.length > 0) {
@@ -321,7 +338,7 @@ export default function ClientWorkspacePage() {
         description: "The agreement is written. Send it to the freelancer so approval can happen before escrow begins.",
         actionLabel: "Review Drafts",
         onAction: () => {
-          setActiveView("contracts");
+          openClientView("contracts");
           setContractFilter("draft");
         },
       };
@@ -333,7 +350,7 @@ export default function ClientWorkspacePage() {
         description: "Sent contracts are waiting on an approval or rejection before they can become active projects.",
         actionLabel: "Open Sent Contracts",
         onAction: () => {
-          setActiveView("contracts");
+          openClientView("contracts");
           setContractFilter("sent");
         },
       };
@@ -342,39 +359,38 @@ export default function ClientWorkspacePage() {
       return {
         eyebrow: "Active work",
         title: "A linked project is already in motion.",
-        description: "Use Active Projects to fund escrow, review delivery, or resolve the current project without reopening every section.",
-        actionLabel: "Open Active Projects",
-        onAction: () => setActiveView("active"),
+        description: "Use escrow now to fund, review delivery, and release funds without reopening every section.",
+        actionLabel: "Open Escrow",
+        onAction: () => openClientView("active"),
       };
     }
     return {
       eyebrow: "Ready",
       title: "Create the next agreement.",
-      description: "Start in Contracts to choose a freelancer, generate the agreement, and begin the next work cycle from a clean operating state.",
+      description: "Start in Contracts to pick a freelancer, write the brief, and create the next draft from a clean operating state.",
       actionLabel: "Open Contracts",
-      onAction: () => setActiveView("contracts"),
+      onAction: () => openClientView("contracts"),
     };
   }, [connectedAddress, savedProfile, unusedApprovedContracts.length, draftContracts.length, sentContracts.length, linkedContracts.length]);
 
   const navItems: WorkspaceNavItem[] = [
-    { id: "overview", label: "Overview", badge: savedProfile ? undefined : "Setup", hint: "Current state and recent activity." },
-    { id: "contracts", label: "Contracts", badge: `${contracts.length}`, hint: "Draft, send, and track approvals." },
-    { id: "active", label: "Active Projects", badge: `${linkedContracts.length}`, hint: "Run escrow and review flow." },
-    { id: "history", label: "History", badge: `${historyContracts.length}`, hint: "Review linked and archived work." },
+    { id: "overview", label: "Now", badge: savedProfile ? undefined : "Setup", hint: "Immediate actions and setup." },
+    { id: "contracts", label: "Contracts", badge: `${contracts.length}`, hint: "Create and send agreements." },
+    { id: "active", label: "Escrow", badge: `${linkedContracts.length}`, hint: "Fund, review, and release." },
+    { id: "history", label: "History", badge: `${historyContracts.length}`, hint: "Linked and archived work." },
   ];
 
   return (
     <WorkspaceShell
       workspaceLabel="Client workspace"
-      title="Operate agreements, escrow, and delivery from one dashboard."
-      description="The client dashboard keeps only the current workflow state in front of you: draft the next agreement, move approved work into escrow, and resolve projects without carrying the whole system on one long page."
+      title="Client dashboard for create, send, and fund."
+      description="This route is the client mini app: generate agreements, move approved work into escrow, and handle release from a compact mobile-first dashboard."
       navItems={navItems}
       activeItem={activeView}
-      onItemChange={(id) => setActiveView(id as ClientView)}
+      onItemChange={(id) => openClientView(id as ClientView)}
       headerActions={
         <>
-          <Link href="/" className="rounded-[10px] border border-[#262626] px-4 py-2 text-sm font-medium text-[#f7f4ef] transition hover:border-[#3b3b3b]">Back to Home</Link>
-          <Link href="/freelancer" className="rounded-[10px] border border-[#262626] px-4 py-2 text-sm font-medium text-[#f7f4ef] transition hover:border-[#3b3b3b]">Freelancer Workspace</Link>
+          <Link href="/freelancer" className="rounded-[10px] border border-[#262626] px-4 py-2 text-sm font-medium text-[#f7f4ef] transition hover:border-[#3b3b3b]">Switch to Freelancer</Link>
           <ConnectButton client={client} chain={celoSepolia} />
         </>
       }
@@ -394,15 +410,46 @@ export default function ClientWorkspacePage() {
                     {onboardingStatus ? <InlineNotice message={onboardingStatus} /> : null}
                   </div>
                 ) : (
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <SummaryCard label="Contract Drafts" value={`${draftContracts.length}`} />
-                    <SummaryCard label="Awaiting Approval" value={`${sentContracts.length}`} />
-                    <SummaryCard label="Escrow Ready" value={`${unusedApprovedContracts.length}`} />
-                    <SummaryCard label="Active Project Links" value={`${linkedContracts.length}`} />
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <SummaryCard label="Drafts" value={`${draftContracts.length}`} />
+                    <SummaryCard label="Awaiting approval" value={`${sentContracts.length}`} />
+                    <SummaryCard label="Escrow ready" value={`${unusedApprovedContracts.length}`} />
+                    <SummaryCard label="Live projects" value={`${linkedContracts.length}`} />
                   </div>
                 )}
               </WorkspacePanel>
-              {savedProfile ? <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]"><WorkspacePanel title="Recent workflow" subtitle="The latest contract and project signals live here first."><ContractCardList contracts={sortedContracts.slice(0, 3)} variant="client" emptyState="No contracts yet. Generate the first agreement in Contracts." nextActionLabel={(contract) => contract.status === "draft" ? "Ready to send" : contract.status === "sent" ? "Waiting for freelancer approval" : contract.linkedProjectId ? `Linked to Project #${contract.linkedProjectId}` : "Escrow unlocked"} /></WorkspacePanel><WorkspacePanel title="Pipeline snapshot" subtitle="Keep the current deal flow visible without opening every section."><div className="grid gap-3"><PipelineRow label="Drafts" value={`${draftContracts.length}`} tone="neutral" /><PipelineRow label="Sent for approval" value={`${sentContracts.length}`} tone="amber" /><PipelineRow label="Approved and ready" value={`${unusedApprovedContracts.length}`} tone="red" /><PipelineRow label="Linked to projects" value={`${linkedContracts.length}`} tone="green" /></div></WorkspacePanel></div> : null}
+              {savedProfile ? (
+                <div className="grid gap-6 xl:grid-cols-[1fr_0.92fr]">
+                  <WorkspacePanel
+                    title="Quick actions"
+                    subtitle="Keep one next step visible first, then jump straight into the matching route."
+                  >
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <button type="button" onClick={() => openClientView("contracts")} className="rounded-[14px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 text-left transition hover:border-[#323232]">
+                        <div className="text-sm font-semibold text-[#f7f4ef]">Create or send</div>
+                        <div className="mt-2 text-sm leading-6 text-[#a1a1aa]">Write the next agreement and move drafts out for approval.</div>
+                      </button>
+                      <button type="button" onClick={() => openClientView("active")} className="rounded-[14px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 text-left transition hover:border-[#323232]">
+                        <div className="text-sm font-semibold text-[#f7f4ef]">Fund or review escrow</div>
+                        <div className="mt-2 text-sm leading-6 text-[#a1a1aa]">Open the escrow lane to fund, review delivery, or release funds.</div>
+                      </button>
+                    </div>
+                  </WorkspacePanel>
+                  <WorkspacePanel title="Workflow snapshot" subtitle="Compact counters for the current deal pipeline.">
+                    <div className="grid gap-3">
+                      <PipelineRow label="Drafts" value={`${draftContracts.length}`} tone="neutral" />
+                      <PipelineRow label="Sent for approval" value={`${sentContracts.length}`} tone="amber" />
+                      <PipelineRow label="Escrow ready" value={`${unusedApprovedContracts.length}`} tone="red" />
+                      <PipelineRow label="Live projects" value={`${linkedContracts.length}`} tone="green" />
+                    </div>
+                  </WorkspacePanel>
+                </div>
+              ) : null}
+              {savedProfile ? (
+                <WorkspacePanel title="Recent workflow" subtitle="Only the latest contracts stay visible here so the mobile dashboard stays short.">
+                  <ContractCardList contracts={sortedContracts.slice(0, 2)} variant="client" emptyState="No contracts yet. Generate the first agreement in Contracts." nextActionLabel={(contract) => contract.status === "draft" ? "Ready to send" : contract.status === "sent" ? "Waiting for approval" : contract.linkedProjectId ? `Project #${contract.linkedProjectId}` : "Escrow ready"} />
+                </WorkspacePanel>
+              ) : null}
             </div>
           ) : null}
           {activeView === "contracts" ? (
@@ -441,7 +488,7 @@ export default function ClientWorkspacePage() {
                   <ContractCardList contracts={filteredContracts} variant="client" emptyState={contractFilter === "draft" ? "No drafts yet." : contractFilter === "sent" ? "No sent contracts yet." : contractFilter === "approved" ? "No approved contracts ready for escrow." : "No rejected contracts yet."} selectedId={selectedApprovedContractId} selectable={contractFilter === "approved"} onSelect={(id) => selectApprovedContractForEscrow(id)} actionLabel={contractFilter === "draft" ? "Send To Freelancer" : contractFilter === "approved" ? "Create Escrow For This Contract" : undefined} onAction={(id) => contractFilter === "draft" ? sendContract(id) : selectApprovedContractForEscrow(id, true)} nextActionLabel={(contract) => contract.linkedProjectId ? `Linked to Project #${contract.linkedProjectId}` : contract.status === "draft" ? "Ready to send" : contract.status === "sent" ? "Waiting for freelancer approval" : contract.status === "approved" ? "Escrow unlocked" : "Needs revision"} />
                 </WorkspacePanel>
               </div>
-            ) : <SetupGate copy="Create your client workspace in Overview before drafting and sending contracts." />
+            ) : <SetupGate copy="Create your client workspace in Now before drafting and sending contracts." />
           ) : null}
           {activeView === "active" ? (
             savedProfile ? (
@@ -449,12 +496,12 @@ export default function ClientWorkspacePage() {
                 {selectedApprovedContract ? <WorkspacePanel title="Escrow source" subtitle="The selected approved contract is now the source of truth for pre-create escrow details."><div className="grid gap-3 sm:grid-cols-4"><MetadataPill label="Client" value={selectedApprovedContract.clientName} /><MetadataPill label="Freelancer" value={selectedApprovedContract.freelancerName} /><MetadataPill label="Contract value" value={formatDisplayBudget(selectedApprovedContract.displayBudget)} /><MetadataPill label="Settlement amount" value={formatSettlementAmountCelo(selectedApprovedContract.settlementAmountCelo)} /></div><div className="mt-4 rounded-[16px] border border-[#1f1f1f] bg-[#090909] px-4 py-4 text-sm leading-7 text-[#d4d4d8]">{selectedApprovedContract.summary}</div></WorkspacePanel> : linkedContracts.length > 0 ? <WorkspacePanel title="Active project links" subtitle="Approved contracts that already produced an escrow project stay here for quick reference."><ContractCardList contracts={linkedContracts.slice(0, 3)} variant="client" emptyState="No linked projects are associated with this wallet yet." nextActionLabel={(contract) => contract.linkedProjectId ? `Linked to Project #${contract.linkedProjectId}` : "Project linked"} /></WorkspacePanel> : <SetupGate copy="No approved contract is selected yet. Approve a contract in the Contracts tab to unlock escrow creation." />}
                 <div id="escrow-workspace"><EscrowSimulator selectedRole="client" approvedContract={selectedApprovedContract} escrowSelectionNonce={escrowSelectionNonce} /></div>
               </div>
-            ) : <SetupGate copy="Create your client workspace in Overview before managing active projects." />
+            ) : <SetupGate copy="Create your client workspace in Now before managing active projects." />
           ) : null}
           {activeView === "history" ? <div className="grid gap-6"><WorkspacePanel title="Escrow-linked records" subtitle="Approved contracts move here once they have already been used to create a project."><ContractCardList contracts={linkedContracts} variant="client" emptyState="No escrow-linked records are associated with this wallet yet." nextActionLabel={(contract) => contract.linkedProjectId ? `Linked to Project #${contract.linkedProjectId}` : "Stored"} /></WorkspacePanel><WorkspacePanel title="Archived decisions" subtitle="Rejected contracts stay visible here so the deal history remains audit-friendly."><ContractCardList contracts={rejectedContracts} variant="client" emptyState="No archived contract decisions are associated with this wallet yet." nextActionLabel={() => "Archived"} /></WorkspacePanel></div> : null}
         </>
       }
-      supportArea={<><WorkspacePanel title="Notifications" subtitle="Recent workflow updates for this connected wallet."><NotificationList notifications={notifications} emptyCopy={connectedAddress ? "No notifications for this wallet yet." : "Connect a wallet to see wallet-scoped notifications."} /></WorkspacePanel><WorkspacePanel title="Workspace profile" subtitle="Client identity and operating context.">{savedProfile ? <div className="grid gap-3"><DetailCard label="Company" value={savedProfile.companyName} /><DetailCard label="Primary contact" value={savedProfile.contactName} /><DetailCard label="Operating focus" value={savedProfile.operatingFocus} />{connectedAddress ? <DetailCard label="Connected wallet" value={shortAddress(connectedAddress)} /> : null}</div> : <EmptyState copy="No client profile saved yet. Finish setup from Overview." />}</WorkspacePanel><WorkspacePanel title="Current selection" subtitle="Keep the current contract and freelancer context visible.">{selectedApprovedContract ? <div className="grid gap-3"><DetailCard label="Approved contract" value={selectedApprovedContract.id.slice(0, 8)} /><DetailCard label="Freelancer" value={selectedApprovedContract.freelancerName} /><DetailCard label="Contract value" value={formatDisplayBudget(selectedApprovedContract.displayBudget)} /><DetailCard label="Settlement amount" value={formatSettlementAmountCelo(selectedApprovedContract.settlementAmountCelo)} /></div> : selectedFreelancer ? <div className="grid gap-3"><DetailCard label="Selected freelancer" value={selectedFreelancer.name} /><DetailCard label="Skill" value={selectedFreelancer.skill} /><DetailCard label="Wallet" value={shortAddress(selectedFreelancer.owner)} /></div> : <EmptyState copy="No active selection yet. Pick a freelancer or approved contract to keep context here." />}</WorkspacePanel></>}
+      supportArea={<><WorkspacePanel title="Notifications" subtitle="Recent workflow updates for this connected wallet."><NotificationList notifications={notifications} emptyCopy={connectedAddress ? "No notifications for this wallet yet." : "Connect a wallet to see wallet-scoped notifications."} /></WorkspacePanel><WorkspacePanel title="Workspace profile" subtitle="Client identity and operating context.">{savedProfile ? <div className="grid gap-3"><DetailCard label="Company" value={savedProfile.companyName} /><DetailCard label="Primary contact" value={savedProfile.contactName} /><DetailCard label="Operating focus" value={savedProfile.operatingFocus} />{connectedAddress ? <DetailCard label="Connected wallet" value={shortAddress(connectedAddress)} /> : null}</div> : <EmptyState copy="No client profile saved yet. Finish setup from Now." />}</WorkspacePanel><WorkspacePanel title="Current selection" subtitle="Keep the current contract and freelancer context visible.">{selectedApprovedContract ? <div className="grid gap-3"><DetailCard label="Approved contract" value={selectedApprovedContract.id.slice(0, 8)} /><DetailCard label="Freelancer" value={selectedApprovedContract.freelancerName} /><DetailCard label="Contract value" value={formatDisplayBudget(selectedApprovedContract.displayBudget)} /><DetailCard label="Settlement amount" value={formatSettlementAmountCelo(selectedApprovedContract.settlementAmountCelo)} /></div> : selectedFreelancer ? <div className="grid gap-3"><DetailCard label="Selected freelancer" value={selectedFreelancer.name} /><DetailCard label="Skill" value={selectedFreelancer.skill} /><DetailCard label="Wallet" value={shortAddress(selectedFreelancer.owner)} /></div> : <EmptyState copy="No active selection yet. Pick a freelancer or approved contract to keep context here." />}</WorkspacePanel></>}
     />
   );
 }

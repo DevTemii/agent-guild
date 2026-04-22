@@ -72,7 +72,8 @@ export default function FreelancerWorkspacePage() {
   const [profileStatus, setProfileStatus] = useState("");
   const [notifications, setNotifications] = useState<string[]>([]);
   const [contracts, setContracts] = useState<ProductContract[]>([]);
-  const [activeView, setActiveView] = useState<FreelancerView>("overview");
+  const [activeView, setActiveView] = useState<FreelancerView>("inbox");
+  const [hasManualViewSelection, setHasManualViewSelection] = useState(false);
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("pending");
 
   const contract = useMemo(
@@ -127,6 +128,24 @@ export default function FreelancerWorkspacePage() {
   const currentTask = pendingContracts[0] ?? linkedContracts[0] ?? approvedContracts[0] ?? null;
   const inboxContracts =
     inboxFilter === "pending" ? pendingContracts : inboxFilter === "approved" ? unusedApprovedContracts : rejectedContracts;
+
+  function openFreelancerView(view: FreelancerView) {
+    setHasManualViewSelection(true);
+    setActiveView(view);
+  }
+
+  const recommendedView = useMemo<FreelancerView>(() => {
+    if (!connectedAddress) return "overview";
+    if (pendingContracts.length > 0) return "inbox";
+    if (linkedContracts.length > 0 || unusedApprovedContracts.length > 0) return "active";
+    if (!myProfile) return "overview";
+    return "inbox";
+  }, [connectedAddress, pendingContracts.length, linkedContracts.length, unusedApprovedContracts.length, myProfile]);
+
+  useEffect(() => {
+    if (hasManualViewSelection) return;
+    setActiveView(recommendedView);
+  }, [hasManualViewSelection, recommendedView]);
 
   function approveContract(contractId: string) {
     const next = updateProductContractStatus(contractId, "approved");
@@ -222,7 +241,7 @@ export default function FreelancerWorkspacePage() {
         description: "Approve or reject the pending contract before work can move into escrow.",
         actionLabel: "Open Inbox",
         onAction: () => {
-          setActiveView("inbox");
+          openFreelancerView("inbox");
           setInboxFilter("pending");
         },
       };
@@ -231,9 +250,9 @@ export default function FreelancerWorkspacePage() {
       return {
         eyebrow: "Active work",
         title: "A linked project needs delivery attention.",
-        description: "Open Active Work to monitor funded scope, submit work, and track the current project state.",
-        actionLabel: "Open Active Work",
-        onAction: () => setActiveView("active"),
+        description: "Open Active to monitor funded scope, submit work, and track the current project state.",
+        actionLabel: "Open Active",
+        onAction: () => openFreelancerView("active"),
       };
     }
     if (!myProfile) {
@@ -250,8 +269,8 @@ export default function FreelancerWorkspacePage() {
         eyebrow: "Waiting",
         title: "Approved work is waiting for client escrow setup.",
         description: "The contract is approved. The next change will come when the client creates and funds the matching project.",
-        actionLabel: "Open Active Work",
-        onAction: () => setActiveView("active"),
+        actionLabel: "Open Active",
+        onAction: () => openFreelancerView("active"),
       };
     }
     return {
@@ -259,29 +278,28 @@ export default function FreelancerWorkspacePage() {
       title: "Keep your profile and inbox ready for the next opportunity.",
       description: "This workspace stays focused on incoming contracts, active delivery, and the reputation you build after outcomes resolve.",
       actionLabel: "Open Inbox",
-      onAction: () => setActiveView("inbox"),
+      onAction: () => openFreelancerView("inbox"),
     };
   }, [connectedAddress, pendingContracts.length, linkedContracts.length, myProfile, unusedApprovedContracts.length]);
 
   const navItems: WorkspaceNavItem[] = [
-    { id: "overview", label: "Overview", badge: myProfile ? undefined : "Setup", hint: "Current task, notifications, and profile status." },
+    { id: "overview", label: "Now", badge: myProfile ? undefined : "Setup", hint: "Immediate actions and setup." },
     { id: "inbox", label: "Inbox", badge: `${pendingContracts.length}`, hint: "Review incoming contracts and decide." },
-    { id: "active", label: "Active Work", badge: `${linkedContracts.length}`, hint: "Track funded work and submit delivery." },
-    { id: "earnings", label: "Earnings / History", badge: `${reputation?.completedContracts ?? 0}`, hint: "Review earnings, reputation, and stored work history." },
+    { id: "active", label: "Active", badge: `${linkedContracts.length}`, hint: "Track funded work and submit delivery." },
+    { id: "earnings", label: "Earnings", badge: `${reputation?.completedContracts ?? 0}`, hint: "Review earnings, reputation, and stored work history." },
   ];
 
   return (
     <WorkspaceShell
       workspaceLabel="Freelancer workspace"
-      title="Track incoming work, active delivery, and reputation from one dashboard."
-      description="The freelancer dashboard keeps your contract inbox, current project state, and earnings history in focused panels instead of one long scrolling page."
+      title="Freelancer dashboard for review and submit."
+      description="This route is the freelancer mini app: review contracts, track active delivery, and build reputation from a compact mobile-first workspace."
       navItems={navItems}
       activeItem={activeView}
-      onItemChange={(id) => setActiveView(id as FreelancerView)}
+      onItemChange={(id) => openFreelancerView(id as FreelancerView)}
       headerActions={
         <>
-          <Link href="/" className="rounded-[10px] border border-[#262626] px-4 py-2 text-sm font-medium text-[#f7f4ef] transition hover:border-[#3b3b3b]">Back to Home</Link>
-          <Link href="/client" className="rounded-[10px] border border-[#262626] px-4 py-2 text-sm font-medium text-[#f7f4ef] transition hover:border-[#3b3b3b]">Client Workspace</Link>
+          <Link href="/client" className="rounded-[10px] border border-[#262626] px-4 py-2 text-sm font-medium text-[#f7f4ef] transition hover:border-[#3b3b3b]">Switch to Client</Link>
           <ConnectButton client={client} chain={celoSepolia} />
         </>
       }
@@ -394,7 +412,7 @@ export default function FreelancerWorkspacePage() {
               />
             ) : (
             <div className="grid gap-6">
-              {!myProfile ? <WorkspacePanel title="Profile note" subtitle="Wallet permissions still govern active work, but your public freelancer profile is not complete yet."><EmptyState copy="You can still inspect project state for this wallet. Finish profile setup in Overview to appear in the public talent registry." /></WorkspacePanel> : null}
+              {!myProfile ? <WorkspacePanel title="Profile note" subtitle="Wallet permissions still govern active work, but your public freelancer profile is not complete yet."><EmptyState copy="You can still inspect project state for this wallet. Finish profile setup in Now to appear in the public talent registry." /></WorkspacePanel> : null}
               <div id="freelancer-active-work"><EscrowSimulator selectedRole="freelancer" /></div>
             </div>
             )
