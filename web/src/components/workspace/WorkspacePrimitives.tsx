@@ -2,6 +2,10 @@
 
 import { ReactNode } from "react";
 import { ProductContract } from "@/lib/workflowStore";
+import {
+  formatDisplayBudget,
+  formatSettlementAmountCelo,
+} from "@/lib/budget";
 import { WorkspacePanel } from "./WorkspaceShell";
 
 export function SummaryCard({ label, value }: { label: string; value: string }) {
@@ -118,8 +122,15 @@ export function ContractCardList({
 
             <div className="mt-3 text-sm leading-7 text-[#d4d4d8]">{contract.summary}</div>
 
-            <div className="mt-4 grid gap-2 sm:grid-cols-3">
-              <MetadataPill label="Budget" value={`$${contract.budget}`} />
+            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+              <MetadataPill
+                label="Contract value"
+                value={formatDisplayBudget(contract.displayBudget)}
+              />
+              <MetadataPill
+                label="Settlement amount"
+                value={formatSettlementAmountCelo(contract.settlementAmountCelo)}
+              />
               <MetadataPill label="Milestones" value={`${contract.milestones.length}`} />
               <MetadataPill
                 label="Next"

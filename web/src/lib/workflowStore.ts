@@ -1,3 +1,5 @@
+import { buildDisplayBudget, type DisplayBudget } from "./budget";
+
 export type ContractStatus = "draft" | "sent" | "approved" | "rejected";
 
 export type ContractMilestone = {
@@ -13,12 +15,19 @@ export type ProductContract = {
   freelancerName: string;
   linkedProjectId?: number | null;
   projectBrief: string;
-  budget: number;
+  displayBudget: DisplayBudget;
+  settlementAmountCelo: string | null;
   summary: string;
   milestones: ContractMilestone[];
   status: ContractStatus;
   createdAt: string;
   updatedAt: string;
+};
+
+type LegacyProductContract = Omit<ProductContract, "displayBudget" | "settlementAmountCelo"> & {
+  budget?: number;
+  displayBudget?: DisplayBudget;
+  settlementAmountCelo?: string | null;
 };
 
 const CONTRACTS_STORAGE_KEY = "agent-guild-product-contracts";
@@ -39,12 +48,35 @@ function normalizeLinkedProjectId(projectId?: number | null) {
   return projectId;
 }
 
-function normalizeContract(contract: ProductContract): ProductContract {
+function normalizeSettlementAmountCelo(settlementAmountCelo?: string | null) {
+  const normalized = settlementAmountCelo?.trim();
+  return normalized ? normalized : null;
+}
+
+function normalizeDisplayBudget(contract: LegacyProductContract) {
+  if (contract.displayBudget) {
+    return {
+      amount: contract.displayBudget.amount,
+      currency: "USD" as const,
+      label:
+        contract.displayBudget.label ||
+        buildDisplayBudget(contract.displayBudget.amount).label,
+    };
+  }
+
+  return buildDisplayBudget(contract.budget ?? 0);
+}
+
+function normalizeContract(contract: LegacyProductContract): ProductContract {
   return {
     ...contract,
     clientWallet: normalizeWallet(contract.clientWallet),
     freelancerWallet: normalizeWallet(contract.freelancerWallet),
     linkedProjectId: normalizeLinkedProjectId(contract.linkedProjectId),
+    displayBudget: normalizeDisplayBudget(contract),
+    settlementAmountCelo: normalizeSettlementAmountCelo(
+      contract.settlementAmountCelo
+    ),
   };
 }
 
@@ -85,7 +117,9 @@ export function getWorkflowRefreshEventName() {
 }
 
 export function getProductContracts() {
-  return readJson<ProductContract[]>(CONTRACTS_STORAGE_KEY, []);
+  return readJson<LegacyProductContract[]>(CONTRACTS_STORAGE_KEY, []).map(
+    normalizeContract
+  );
 }
 
 export function getProductContractById(id: string) {
@@ -129,6 +163,24 @@ export function updateProductContractStatus(id: string, status: ContractStatus) 
       ? normalizeContract({ ...contract, status, updatedAt: nowIso() })
       : normalizeContract(contract)
   );
+  saveProductContracts(nextContracts);
+  return nextContracts.find((contract) => contract.id === id) ?? null;
+}
+
+export function updateProductContractSettlementAmount(
+  id: string,
+  settlementAmountCelo: string
+) {
+  const nextContracts = getProductContracts().map((contract) =>
+    contract.id === id
+      ? normalizeContract({
+          ...contract,
+          settlementAmountCelo,
+          updatedAt: nowIso(),
+        })
+      : normalizeContract(contract)
+  );
+
   saveProductContracts(nextContracts);
   return nextContracts.find((contract) => contract.id === id) ?? null;
 }

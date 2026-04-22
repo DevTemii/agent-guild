@@ -24,6 +24,10 @@ import {
 } from "@/components/workspace/WorkspacePrimitives";
 import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
+import {
+  formatDisplayBudget,
+  formatSettlementAmountCelo,
+} from "@/lib/budget";
 import { getReputationForWallet } from "@/lib/reputationStore";
 import {
   appendNotificationForWallet,
@@ -287,7 +291,7 @@ export default function FreelancerWorkspacePage() {
           <ConnectButton client={client} chain={celoSepolia} />
         </>
       }
-      metricStrip={<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><SummaryCard label="Pending" value={`${pendingContracts.length}`} /><SummaryCard label="Approved" value={`${approvedContracts.length}`} /><SummaryCard label="Active Links" value={`${linkedContracts.length}`} /><SummaryCard label="Earned" value={`$${reputation?.totalEarned ?? 0}`} /></div>}
+      metricStrip={<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><SummaryCard label="Pending" value={`${pendingContracts.length}`} /><SummaryCard label="Approved" value={`${approvedContracts.length}`} /><SummaryCard label="Active Links" value={`${linkedContracts.length}`} /><SummaryCard label="Earned" value={`${reputation?.totalEarned ?? 0} CELO`} /></div>}
       focusArea={<SectionNotice eyebrow={nextAction.eyebrow} title={nextAction.title} description={nextAction.description} action={!connectedAddress ? <ConnectButton client={client} chain={celoSepolia} /> : nextAction.actionLabel ? <button type="button" onClick={nextAction.onAction} className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]">{nextAction.actionLabel}</button> : null} />}
       mainArea={
         <>
@@ -413,7 +417,7 @@ export default function FreelancerWorkspacePage() {
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <SummaryCard label="Guild Score" value={`${reputation?.guildScore ?? 0}/100`} />
                   <SummaryCard label="Completed Contracts" value={`${reputation?.completedContracts ?? 0}`} />
-                  <SummaryCard label="Total Earned" value={`$${reputation?.totalEarned ?? 0}`} />
+                  <SummaryCard label="Total Earned" value={`${reputation?.totalEarned ?? 0} CELO`} />
                   <SummaryCard label="Credit Status" value={reputation?.creditUnlocked ? `$${reputation.creditAmount} unlocked` : "Locked"} />
                 </div>
               </WorkspacePanel>
@@ -454,13 +458,14 @@ export default function FreelancerWorkspacePage() {
             {currentTask ? (
               <div className="grid gap-3">
                 <DetailCard label="Client" value={currentTask.clientName} />
-                <DetailCard label="Budget" value={`$${currentTask.budget}`} />
+                <DetailCard label="Contract value" value={formatDisplayBudget(currentTask.displayBudget)} />
+                <DetailCard label="Settlement amount" value={formatSettlementAmountCelo(currentTask.settlementAmountCelo)} />
                 <DetailCard label="Status" value={currentTask.status} />
                 {currentTask.linkedProjectId ? <DetailCard label="Project" value={`#${currentTask.linkedProjectId}`} /> : null}
               </div>
             ) : (
               <div className="grid gap-3">
-                <DetailCard label="Total earned" value={`$${reputation?.totalEarned ?? 0}`} />
+                <DetailCard label="Total earned" value={`${reputation?.totalEarned ?? 0} CELO`} />
                 <DetailCard label="Completed" value={`${reputation?.completedContracts ?? 0}`} />
                 <DetailCard label="Guild score" value={`${reputation?.guildScore ?? 0}/100`} />
               </div>

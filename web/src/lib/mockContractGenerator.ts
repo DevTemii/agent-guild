@@ -1,7 +1,13 @@
+import { buildDisplayBudget } from "./budget";
+
 export type GeneratedContract = {
   clientName: string;
   projectDescription: string;
-  budget: number;
+  displayBudget: {
+    amount: number;
+    currency: "USD";
+    label: string;
+  };
   summary: string;
   milestones: {
     title: string;
@@ -12,16 +18,16 @@ export type GeneratedContract = {
 export function generateMockContract(
   clientName: string,
   projectDescription: string,
-  budget: number
+  displayBudgetAmountUsd: number
 ): GeneratedContract {
-  const milestone1 = Math.floor(budget * 0.3);
-  const milestone2 = Math.floor(budget * 0.3);
-  const milestone3 = budget - milestone1 - milestone2;
+  const milestone1 = Math.floor(displayBudgetAmountUsd * 0.3);
+  const milestone2 = Math.floor(displayBudgetAmountUsd * 0.3);
+  const milestone3 = displayBudgetAmountUsd - milestone1 - milestone2;
 
   return {
     clientName,
     projectDescription,
-    budget,
+    displayBudget: buildDisplayBudget(displayBudgetAmountUsd),
     summary: `Freelancer will complete the project for ${clientName}. The work includes: ${projectDescription}. Payment will be split across 3 milestones based on delivery progress.`,
     milestones: [
       {

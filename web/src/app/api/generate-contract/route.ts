@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
+import { buildDisplayBudget } from "@/lib/budget";
 
 type ContractResponse = {
     clientName: string;
     projectDescription: string;
-    budget: number;
+    displayBudget: {
+        amount: number;
+        currency: "USD";
+        label: string;
+    };
     summary: string;
     milestones: {
         title: string;
@@ -14,16 +19,16 @@ type ContractResponse = {
 function fallbackContract(
     clientName: string,
     projectDescription: string,
-    budget: number
+    displayBudgetAmountUsd: number
 ): ContractResponse {
-    const part1 = Math.floor(budget * 0.3);
-    const part2 = Math.floor(budget * 0.4);
-    const part3 = budget - part1 - part2;
+    const part1 = Math.floor(displayBudgetAmountUsd * 0.3);
+    const part2 = Math.floor(displayBudgetAmountUsd * 0.4);
+    const part3 = displayBudgetAmountUsd - part1 - part2;
 
     return {
         clientName,
         projectDescription,
-        budget,
+        displayBudget: buildDisplayBudget(displayBudgetAmountUsd),
         summary:
             "This freelance engagement is structured into three milestones covering planning, execution, and final delivery.",
         milestones: [
@@ -46,9 +51,9 @@ export async function POST(request: Request) {
         const body = await request.json();
         const clientName = body.clientName;
         const projectDescription = body.projectDescription;
-        const budget = Number(body.budget);
+        const displayBudgetAmountUsd = Number(body.displayBudgetAmountUsd);
 
-        if (!clientName || !projectDescription || !budget) {
+        if (!clientName || !projectDescription || !displayBudgetAmountUsd) {
             return NextResponse.json(
                 { error: "Missing required fields." },
                 { status: 400 }
@@ -58,7 +63,13 @@ export async function POST(request: Request) {
         const groqKey = process.env.GROQ_API_KEY;
 
         if (!groqKey) {
-            return NextResponse.json(fallbackContract(clientName, projectDescription, budget));
+            return NextResponse.json(
+                fallbackContract(
+                    clientName,
+                    projectDescription,
+                    displayBudgetAmountUsd
+                )
+            );
         }
 
         const prompt = `
@@ -66,7 +77,11 @@ Return ONLY valid JSON in this exact format:
 {
   "clientName": "string",
   "projectDescription": "string",
-  "budget": number,
+  "displayBudget": {
+    "amount": number,
+    "currency": "USD",
+    "label": "string"
+  },
   "summary": "string",
   "milestones": [
     { "title": "string", "amount": number },
@@ -76,7 +91,9 @@ Return ONLY valid JSON in this exact format:
 }
 
 Rules:
-- milestone amounts must add up exactly to the total budget
+- displayBudget.currency must always be "USD"
+- displayBudget.label must be a concise USD label for the contract value
+- milestone amounts must add up exactly to displayBudget.amount
 - keep summary concise and professional
 - output raw JSON only
 - no markdown
@@ -85,7 +102,7 @@ Rules:
 Inputs:
 Client name: ${clientName}
 Project description: ${projectDescription}
-Budget: ${budget} USD
+Contract value: ${displayBudgetAmountUsd} USD
 `;
 
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -110,13 +127,25 @@ Budget: ${budget} USD
 
         if (!response.ok) {
             console.error("Groq API error:", data);
-            return NextResponse.json(fallbackContract(clientName, projectDescription, budget));
+            return NextResponse.json(
+                fallbackContract(
+                    clientName,
+                    projectDescription,
+                    displayBudgetAmountUsd
+                )
+            );
         }
 
         let text = data?.choices?.[0]?.message?.content?.trim();
 
         if (!text) {
-            return NextResponse.json(fallbackContract(clientName, projectDescription, budget));
+            return NextResponse.json(
+                fallbackContract(
+                    clientName,
+                    projectDescription,
+                    displayBudgetAmountUsd
+                )
+            );
         }
 
         if (text.startsWith("```")) {
@@ -125,10 +154,24 @@ Budget: ${budget} USD
 
         try {
             const parsed = JSON.parse(text);
+            if (
+                !parsed?.displayBudget ||
+                typeof parsed.displayBudget.amount !== "number" ||
+                parsed.displayBudget.currency !== "USD" ||
+                typeof parsed.displayBudget.label !== "string"
+            ) {
+                throw new Error("Invalid display budget response shape");
+            }
             return NextResponse.json(parsed);
-        } catch (err) {
+        } catch {
             console.error("Invalid JSON from Groq:", text);
-            return NextResponse.json(fallbackContract(clientName, projectDescription, budget));
+            return NextResponse.json(
+                fallbackContract(
+                    clientName,
+                    projectDescription,
+                    displayBudgetAmountUsd
+                )
+            );
         }
     } catch (error) {
         console.error("Route error:", error);

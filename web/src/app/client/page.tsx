@@ -34,6 +34,11 @@ import {
   ProductContract,
   sendProductContract,
 } from "@/lib/workflowStore";
+import {
+  buildDisplayBudget,
+  formatDisplayBudget,
+  formatSettlementAmountCelo,
+} from "@/lib/budget";
 
 type Agent = {
   owner: string;
@@ -74,7 +79,7 @@ export default function ClientWorkspacePage() {
   const [onboardingStatus, setOnboardingStatus] = useState("");
   const [clientName, setClientName] = useState("");
   const [projectBrief, setProjectBrief] = useState("");
-  const [budget, setBudget] = useState("");
+  const [displayBudgetAmountUsd, setDisplayBudgetAmountUsd] = useState("");
   const [generatingContract, setGeneratingContract] = useState(false);
   const [contractStatus, setContractStatus] = useState("");
   const [notifications, setNotifications] = useState<string[]>([]);
@@ -182,8 +187,8 @@ export default function ClientWorkspacePage() {
   }
 
   async function handleGenerateContract() {
-    if (!clientName || !projectBrief || !budget) {
-      setContractStatus("Fill client name, project brief, and budget to generate contract.");
+    if (!clientName || !projectBrief || !displayBudgetAmountUsd) {
+      setContractStatus("Fill client name, project brief, and contract value to generate contract.");
       return;
     }
     if (!connectedAddress) {
@@ -203,7 +208,11 @@ export default function ClientWorkspacePage() {
       const res = await fetch("/api/generate-contract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientName, projectDescription: projectBrief, budget: Number(budget) }),
+        body: JSON.stringify({
+          clientName,
+          projectDescription: projectBrief,
+          displayBudgetAmountUsd: Number(displayBudgetAmountUsd),
+        }),
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result?.error || result?.message || "Failed to generate contract.");
@@ -214,7 +223,8 @@ export default function ClientWorkspacePage() {
         freelancerWallet,
         freelancerName,
         projectBrief,
-        budget: Number(budget),
+        displayBudget: buildDisplayBudget(Number(displayBudgetAmountUsd)),
+        settlementAmountCelo: null,
         summary: result.summary,
         milestones: result.milestones,
       });
@@ -395,7 +405,7 @@ export default function ClientWorkspacePage() {
                     <div className="grid gap-3">
                       <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Client name" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
                       <textarea value={projectBrief} onChange={(e) => setProjectBrief(e.target.value)} rows={5} placeholder="Project description" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
-                      <input value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Budget in USD" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
+                      <input value={displayBudgetAmountUsd} onChange={(e) => setDisplayBudgetAmountUsd(e.target.value)} placeholder="Contract value (USD)" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
                       <button type="button" onClick={handleGenerateContract} className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]">{generatingContract ? "Generating..." : "Generate And Save Draft"}</button>
                       {contractStatus ? <InlineNotice message={contractStatus} /> : null}
                     </div>
@@ -428,7 +438,7 @@ export default function ClientWorkspacePage() {
           {activeView === "active" ? (
             savedProfile ? (
               <div className="grid gap-6">
-                {selectedApprovedContract ? <WorkspacePanel title="Escrow source" subtitle="The selected approved contract is now the source of truth for pre-create escrow details."><div className="grid gap-3 sm:grid-cols-3"><MetadataPill label="Client" value={selectedApprovedContract.clientName} /><MetadataPill label="Freelancer" value={selectedApprovedContract.freelancerName} /><MetadataPill label="Budget" value={`$${selectedApprovedContract.budget}`} /></div><div className="mt-4 rounded-[16px] border border-[#1f1f1f] bg-[#090909] px-4 py-4 text-sm leading-7 text-[#d4d4d8]">{selectedApprovedContract.summary}</div></WorkspacePanel> : linkedContracts.length > 0 ? <WorkspacePanel title="Active project links" subtitle="Approved contracts that already produced an escrow project stay here for quick reference."><ContractCardList contracts={linkedContracts.slice(0, 3)} variant="client" emptyState="No active project links yet." nextActionLabel={(contract) => contract.linkedProjectId ? `Project #${contract.linkedProjectId}` : "Project linked"} /></WorkspacePanel> : <SetupGate copy="No approved contract is selected yet. Approve a contract in the Contracts tab to unlock escrow creation." />}
+                {selectedApprovedContract ? <WorkspacePanel title="Escrow source" subtitle="The selected approved contract is now the source of truth for pre-create escrow details."><div className="grid gap-3 sm:grid-cols-4"><MetadataPill label="Client" value={selectedApprovedContract.clientName} /><MetadataPill label="Freelancer" value={selectedApprovedContract.freelancerName} /><MetadataPill label="Contract value" value={formatDisplayBudget(selectedApprovedContract.displayBudget)} /><MetadataPill label="Settlement amount" value={formatSettlementAmountCelo(selectedApprovedContract.settlementAmountCelo)} /></div><div className="mt-4 rounded-[16px] border border-[#1f1f1f] bg-[#090909] px-4 py-4 text-sm leading-7 text-[#d4d4d8]">{selectedApprovedContract.summary}</div></WorkspacePanel> : linkedContracts.length > 0 ? <WorkspacePanel title="Active project links" subtitle="Approved contracts that already produced an escrow project stay here for quick reference."><ContractCardList contracts={linkedContracts.slice(0, 3)} variant="client" emptyState="No active project links yet." nextActionLabel={(contract) => contract.linkedProjectId ? `Project #${contract.linkedProjectId}` : "Project linked"} /></WorkspacePanel> : <SetupGate copy="No approved contract is selected yet. Approve a contract in the Contracts tab to unlock escrow creation." />}
                 <div id="escrow-workspace"><EscrowSimulator selectedRole="client" approvedContract={selectedApprovedContract} escrowSelectionNonce={escrowSelectionNonce} /></div>
               </div>
             ) : <SetupGate copy="Create your client workspace in Overview before managing active projects." />
@@ -436,7 +446,7 @@ export default function ClientWorkspacePage() {
           {activeView === "history" ? <div className="grid gap-6"><WorkspacePanel title="Escrow-linked records" subtitle="Approved contracts move here once they have already been used to create a project."><ContractCardList contracts={linkedContracts} variant="client" emptyState="No escrow-linked records yet." nextActionLabel={(contract) => contract.linkedProjectId ? `Project #${contract.linkedProjectId}` : "Stored"} /></WorkspacePanel><WorkspacePanel title="Archived decisions" subtitle="Rejected contracts stay visible here so the deal history remains audit-friendly."><ContractCardList contracts={rejectedContracts} variant="client" emptyState="No archived contract decisions yet." nextActionLabel={() => "Archived"} /></WorkspacePanel></div> : null}
         </>
       }
-      supportArea={<><WorkspacePanel title="Notifications" subtitle="Recent workflow updates for this connected wallet."><NotificationList notifications={notifications} emptyCopy="No notifications yet. Contract and project activity will appear here." /></WorkspacePanel><WorkspacePanel title="Workspace profile" subtitle="Client identity and operating context.">{savedProfile ? <div className="grid gap-3"><DetailCard label="Company" value={savedProfile.companyName} /><DetailCard label="Primary contact" value={savedProfile.contactName} /><DetailCard label="Operating focus" value={savedProfile.operatingFocus} />{connectedAddress ? <DetailCard label="Connected wallet" value={shortAddress(connectedAddress)} /> : null}</div> : <EmptyState copy="No client profile saved yet. Finish setup from Overview." />}</WorkspacePanel><WorkspacePanel title="Current selection" subtitle="Keep the current contract and freelancer context visible.">{selectedApprovedContract ? <div className="grid gap-3"><DetailCard label="Approved contract" value={selectedApprovedContract.id.slice(0, 8)} /><DetailCard label="Freelancer" value={selectedApprovedContract.freelancerName} /><DetailCard label="Budget" value={`$${selectedApprovedContract.budget}`} /></div> : selectedFreelancer ? <div className="grid gap-3"><DetailCard label="Selected freelancer" value={selectedFreelancer.name} /><DetailCard label="Skill" value={selectedFreelancer.skill} /><DetailCard label="Wallet" value={shortAddress(selectedFreelancer.owner)} /></div> : <EmptyState copy="No active selection yet. Pick a freelancer or approved contract to keep context here." />}</WorkspacePanel></>}
+      supportArea={<><WorkspacePanel title="Notifications" subtitle="Recent workflow updates for this connected wallet."><NotificationList notifications={notifications} emptyCopy="No notifications yet. Contract and project activity will appear here." /></WorkspacePanel><WorkspacePanel title="Workspace profile" subtitle="Client identity and operating context.">{savedProfile ? <div className="grid gap-3"><DetailCard label="Company" value={savedProfile.companyName} /><DetailCard label="Primary contact" value={savedProfile.contactName} /><DetailCard label="Operating focus" value={savedProfile.operatingFocus} />{connectedAddress ? <DetailCard label="Connected wallet" value={shortAddress(connectedAddress)} /> : null}</div> : <EmptyState copy="No client profile saved yet. Finish setup from Overview." />}</WorkspacePanel><WorkspacePanel title="Current selection" subtitle="Keep the current contract and freelancer context visible.">{selectedApprovedContract ? <div className="grid gap-3"><DetailCard label="Approved contract" value={selectedApprovedContract.id.slice(0, 8)} /><DetailCard label="Freelancer" value={selectedApprovedContract.freelancerName} /><DetailCard label="Contract value" value={formatDisplayBudget(selectedApprovedContract.displayBudget)} /><DetailCard label="Settlement amount" value={formatSettlementAmountCelo(selectedApprovedContract.settlementAmountCelo)} /></div> : selectedFreelancer ? <div className="grid gap-3"><DetailCard label="Selected freelancer" value={selectedFreelancer.name} /><DetailCard label="Skill" value={selectedFreelancer.skill} /><DetailCard label="Wallet" value={shortAddress(selectedFreelancer.owner)} /></div> : <EmptyState copy="No active selection yet. Pick a freelancer or approved contract to keep context here." />}</WorkspacePanel></>}
     />
   );
 }
