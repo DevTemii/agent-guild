@@ -25,6 +25,7 @@ import {
 } from "@/components/workspace/WorkspacePrimitives";
 import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
+import { getContractCacheKey, getWalletCacheKey } from "@/lib/cacheKeys";
 import { agentGuildChain } from "@/lib/networkConfig";
 import {
   createDraftContract,
@@ -61,8 +62,8 @@ type ClientProfile = {
 type ClientView = "overview" | "contracts" | "active";
 type ContractFilter = "draft" | "sent" | "approved" | "rejected";
 
-const PROFILE_STORAGE_KEY = "agent-guild-client-profile";
-const CONTRACT_STORAGE_KEY = "agent-guild-generated-contract";
+const PROFILE_STORAGE_KEY_PREFIX = "agent-guild-client-profile";
+const GENERATED_CONTRACT_STORAGE_KEY_PREFIX = "agent-guild-generated-contract";
 
 export default function ClientWorkspacePage() {
   const account = useActiveAccount();
@@ -118,8 +119,23 @@ export default function ClientWorkspacePage() {
     availableTalent.find((agent) => normalizeWallet(agent.owner) === normalizeWallet(selectedFreelancerWallet)) ?? null;
 
   useEffect(() => {
-    const savedProfileRaw = localStorage.getItem(PROFILE_STORAGE_KEY);
+    setSavedProfile(null);
+    setCompanyName("");
+    setContactName("");
+    setOperatingFocus("");
+    setClientName("");
+
+    const profileStorageKey = getWalletCacheKey(
+      PROFILE_STORAGE_KEY_PREFIX,
+      connectedAddress
+    );
+    if (!profileStorageKey) {
+      return;
+    }
+
+    const savedProfileRaw = localStorage.getItem(profileStorageKey);
     if (!savedProfileRaw) return;
+
     try {
       const parsed = JSON.parse(savedProfileRaw) as ClientProfile;
       setSavedProfile(parsed);
@@ -130,7 +146,7 @@ export default function ClientWorkspacePage() {
     } catch (error) {
       console.error("Failed to restore client profile", error);
     }
-  }, []);
+  }, [connectedAddress]);
 
   useEffect(() => {
     if (selectedFreelancer) setCustomFreelancerWallet("");
@@ -169,6 +185,16 @@ export default function ClientWorkspacePage() {
   }, [account, connectedAddress]);
 
   function saveClientProfile() {
+    const profileStorageKey = getWalletCacheKey(
+      PROFILE_STORAGE_KEY_PREFIX,
+      connectedAddress
+    );
+
+    if (!profileStorageKey) {
+      setOnboardingStatus("Connect your wallet before saving a client profile.");
+      return;
+    }
+
     if (!companyName.trim() || !contactName.trim()) {
       setOnboardingStatus("Add company name and contact name to continue.");
       return;
@@ -178,7 +204,7 @@ export default function ClientWorkspacePage() {
       contactName: contactName.trim(),
       operatingFocus: operatingFocus.trim() || "AI operations",
     };
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(nextProfile));
+    localStorage.setItem(profileStorageKey, JSON.stringify(nextProfile));
     setSavedProfile(nextProfile);
     setClientName(nextProfile.companyName);
     setOnboardingStatus("Client workspace created.");
@@ -215,7 +241,6 @@ export default function ClientWorkspacePage() {
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result?.error || result?.message || "Failed to generate contract.");
-      localStorage.setItem(CONTRACT_STORAGE_KEY, JSON.stringify(result));
       const draft = await createDraftContract({
         clientWallet: connectedAddress,
         clientName,
@@ -227,6 +252,16 @@ export default function ClientWorkspacePage() {
         summary: result.summary,
         milestones: result.milestones,
       }, account);
+      const generatedContractStorageKey = getContractCacheKey(
+        GENERATED_CONTRACT_STORAGE_KEY_PREFIX,
+        {
+          wallet: connectedAddress,
+          contractId: draft.id,
+        }
+      );
+      if (generatedContractStorageKey) {
+        localStorage.setItem(generatedContractStorageKey, JSON.stringify(result));
+      }
       await syncWorkflowState(account);
       setContracts(getContractsForClient(connectedAddress));
       setNotifications(getNotificationsForWallet(connectedAddress));
