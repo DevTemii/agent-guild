@@ -74,6 +74,12 @@ type DisputeJudgment = {
 
 type JudgeResolution = "judge_release";
 type ProjectPermissionRole = "client" | "freelancer" | "viewer" | "disconnected";
+type OnchainProjectResult = readonly [
+    client: string,
+    freelancer: string,
+    amount: bigint,
+    status: number
+];
 
 const BETA_DISPUTE_SUPPORT_COPY =
     "Mainnet beta uses support review only for disputes. Release is the only onchain final settlement right now.";
@@ -384,7 +390,7 @@ export default function EscrowSimulator({
             client,
             chain: agentGuildChain,
             address: FREELANCE_ESCROW_ADDRESS,
-            abi: FREELANCE_ESCROW_ABI as any,
+            abi: FREELANCE_ESCROW_ABI,
         });
     }, []);
 
@@ -587,18 +593,18 @@ export default function EscrowSimulator({
 
     const { data: projectData, refetch: refetchProjectData } = useReadContract({
         contract: escrowContract,
-        method:
-            "function getProject(uint256 _projectId) view returns (address client, address freelancer, uint256 amount, uint8 status)",
+        method: "getProject",
         params: projectId !== null ? [BigInt(projectId)] : [BigInt(1)],
         queryOptions: {
             enabled: projectId !== null,
         },
     });
+    const onchainProjectData = projectData as OnchainProjectResult | undefined;
 
     const onchainClient =
-        projectData ? String((projectData as any)[0]).toLowerCase() : "";
+        onchainProjectData ? String(onchainProjectData[0]).toLowerCase() : "";
     const onchainFreelancer =
-        projectData ? String((projectData as any)[1]).toLowerCase() : "";
+        onchainProjectData ? String(onchainProjectData[1]).toLowerCase() : "";
     const fallbackClientWallet = projectId !== null
         ? (clientWallet || approvedContract?.clientWallet.toLowerCase() || "")
         : approvedContract?.clientWallet.toLowerCase() || "";
@@ -628,11 +634,11 @@ export default function EscrowSimulator({
     );
 
     useEffect(() => {
-        if (!projectData) return;
+        if (!onchainProjectData) return;
 
-        const nextClient = String((projectData as any)[0]).toLowerCase();
-        const nextFreelancer = String((projectData as any)[1]).toLowerCase();
-        const statusCode = Number((projectData as any)[3]);
+        const nextClient = String(onchainProjectData[0]).toLowerCase();
+        const nextFreelancer = String(onchainProjectData[1]).toLowerCase();
+        const statusCode = Number(onchainProjectData[3]);
 
         if (
             connectedAddress &&
@@ -677,7 +683,7 @@ export default function EscrowSimulator({
     }, [
         approvedContract,
         connectedAddress,
-        projectData,
+        onchainProjectData,
         projectId,
         settlementAmountCelo,
         sourceContractId,
@@ -727,15 +733,14 @@ export default function EscrowSimulator({
                 const id = indexedProject.projectId;
                 const result = await readContract({
                     contract: escrowContract,
-                    method:
-                        "function getProject(uint256 _projectId) view returns (address client, address freelancer, uint256 amount, uint8 status)",
+                    method: "getProject",
                     params: [BigInt(id)],
-                });
+                }) as OnchainProjectResult;
 
-                const client = String((result as any)[0]).toLowerCase();
-                const freelancer = String((result as any)[1]).toLowerCase();
-                const amount = (result as any)[2] as bigint;
-                const status = Number((result as any)[3]);
+                const client = String(result[0]).toLowerCase();
+                const freelancer = String(result[1]).toLowerCase();
+                const amount = result[2];
+                const status = Number(result[3]);
 
                 if (
                     client === connectedAddress ||
@@ -835,7 +840,7 @@ export default function EscrowSimulator({
 
             const tx = prepareContractCall({
                 contract: escrowContract,
-                method: "function createProject(address _freelancer) returns (uint256)",
+                method: "createProject",
                 params: [freelancerAddress as `0x${string}`],
             });
 
@@ -946,7 +951,7 @@ export default function EscrowSimulator({
 
             const tx = prepareContractCall({
                 contract: escrowContract,
-                method: "function deposit(uint256 _projectId)",
+                method: "deposit",
                 params: [BigInt(projectId)],
                 value: parseSettlementAmountCeloToWei(
                     effectiveSettlementAmountCelo
@@ -1007,7 +1012,7 @@ export default function EscrowSimulator({
 
             const tx = prepareContractCall({
                 contract: escrowContract,
-                method: "function submitWork(uint256 _projectId)",
+                method: "submitWork",
                 params: [BigInt(projectId)],
             });
 
@@ -1151,7 +1156,7 @@ export default function EscrowSimulator({
 
             const tx = prepareContractCall({
                 contract: escrowContract,
-                method: "function approveAndRelease(uint256 _projectId)",
+                method: "approveAndRelease",
                 params: [BigInt(projectId)],
             });
 
@@ -1349,9 +1354,11 @@ export default function EscrowSimulator({
             pushNotification(
                 `AI support review completed for Project #${projectId}.`
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(error);
-            setStatus(error?.message || "AI support review failed.");
+            setStatus(
+                error instanceof Error ? error.message : "AI support review failed."
+            );
         } finally {
             setJudgingDispute(false);
         }
@@ -1371,7 +1378,6 @@ export default function EscrowSimulator({
         return "Do Not Release Onchain";
     }
 
-    const isClientWorkspace = selectedRole === "client";
     const isFreelancerWorkspace = selectedRole === "freelancer";
     const preCreateSourceContract = projectId === null ? approvedContract : null;
     const activeProjectContract =

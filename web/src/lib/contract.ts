@@ -60,7 +60,7 @@ export const FREELANCE_ESCROW_ABI = [
             { name: "status", type: "uint8" },
         ],
     },
-];
+] as const;
 
 
 

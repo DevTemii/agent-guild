@@ -25,6 +25,8 @@ type Agent = {
   availability: string;
 };
 
+type AgentRegistryReadResult = readonly Agent[];
+
 export default function AgentProfilePage({
   params,
 }: {
@@ -38,18 +40,17 @@ export default function AgentProfilePage({
       client,
       chain: agentGuildChain,
       address: AGENT_REGISTRY_ADDRESS,
-      abi: AGENT_REGISTRY_ABI as any,
+      abi: AGENT_REGISTRY_ABI,
     });
   }, []);
 
   const { data, isLoading } = useReadContract({
     contract,
-    method:
-      "function getAgents() view returns ((address owner,string name,string description,string skill,uint256 hourlyRate,string location,string availability)[])",
+    method: "getAgents",
     params: [],
   });
 
-  const agents = (data as Agent[] | undefined) || [];
+  const agents = (data as AgentRegistryReadResult | undefined) || [];
   const agent = agents[id];
 
   if (isLoading) {
