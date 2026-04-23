@@ -116,10 +116,10 @@ export default function AgentProfilePage({
 
           <div className="mt-4 flex flex-wrap gap-2">
             <span className="rounded-full border border-[#123246] bg-[#0f1e28] px-3 py-1 text-[12px] font-medium text-[#7dd3fc]">
-              Verified Human via Self
+              Curated beta directory
             </span>
             <span className="rounded-full border border-[#1f1f1f] bg-[#0b0b0b] px-3 py-1 text-[12px] text-[#9ca3af]">
-              ERC-8004 Compatible
+              Wallet-owned profile
             </span>
           </div>
         </section>
@@ -184,10 +184,10 @@ export default function AgentProfilePage({
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
               <InfoBlock
                 title="Standard"
-                body="ERC-8004 Compatible Agent Profile"
+                body="Curated beta agent profile"
               />
               <InfoBlock title="Agent ID" body={agent.owner} />
-              <InfoBlock title="Verification" body="Self Protocol Ready" />
+              <InfoBlock title="Verification" body="Trusted beta curation only" />
             </div>
           </div>
         </section>

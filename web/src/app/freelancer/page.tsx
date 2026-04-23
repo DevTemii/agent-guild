@@ -82,6 +82,14 @@ export default function FreelancerWorkspacePage() {
   );
 
   const { data, refetch } = useReadContract({ contract, method: "getAgents", params: [] });
+  const { data: betaAccessData } = useReadContract({
+    contract,
+    method: "betaAllowed",
+    params: [connectedAddress as `0x${string}`],
+    queryOptions: {
+      enabled: !!connectedAddress,
+    },
+  });
 
   useEffect(() => {
     const syncWorkflow = async () => {
@@ -113,6 +121,7 @@ export default function FreelancerWorkspacePage() {
     return index === arr.findIndex((item) => normalizeWallet(item.owner) === owner);
   });
   const myProfile = uniqueAgents.find((agent) => normalizeWallet(agent.owner) === connectedAddress) || null;
+  const isAllowlistedForBeta = Boolean(betaAccessData);
   const reputation = connectedAddress ? getReputationForWallet(connectedAddress) : null;
   const sortedContracts = [...contracts].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
   const pendingContracts = sortedContracts.filter((entry) => entry.status === "sent");
@@ -167,6 +176,10 @@ export default function FreelancerWorkspacePage() {
     }
     if (!name || !skill || !hourlyRate) {
       setProfileStatus("Fill name, skill, and hourly rate.");
+      return;
+    }
+    if (!isAllowlistedForBeta) {
+      setProfileStatus("This wallet is not allowlisted for the curated beta directory yet.");
       return;
     }
 
@@ -250,7 +263,9 @@ export default function FreelancerWorkspacePage() {
       return {
         eyebrow: "Setup",
         title: "Create your freelancer profile to complete the workspace.",
-        description: "Wallet activity is already tracked here, but a public profile is what makes you discoverable in the registry.",
+        description: isAllowlistedForBeta
+          ? "This wallet can publish one curated beta profile for client discovery."
+          : "This wallet can review work, but curated beta profile creation is limited to allowlisted wallets.",
         actionLabel: undefined,
         onAction: undefined,
       };
@@ -271,7 +286,7 @@ export default function FreelancerWorkspacePage() {
       actionLabel: "Open Inbox",
       onAction: () => openFreelancerView("inbox"),
     };
-  }, [connectedAddress, pendingContracts.length, linkedContracts.length, myProfile, unusedApprovedContracts.length]);
+  }, [connectedAddress, isAllowlistedForBeta, pendingContracts.length, linkedContracts.length, myProfile, unusedApprovedContracts.length]);
 
   const navItems: WorkspaceNavItem[] = [
     { id: "overview", label: "Now", badge: myProfile ? undefined : "Setup", hint: "Immediate actions and setup." },
@@ -299,7 +314,7 @@ export default function FreelancerWorkspacePage() {
         <>
           {activeView === "overview" ? (
             <div className="grid gap-6">
-              <WorkspacePanel title={!myProfile ? "Complete freelancer setup" : "Current operating state"} subtitle={!myProfile ? "Create your onchain freelancer profile here. Wallet activity remains visible even before public profile setup is complete." : "Your profile, active contracts, and delivery state now live in focused dashboard views."}>
+              <WorkspacePanel title={!myProfile ? "Complete freelancer setup" : "Current operating state"} subtitle={!myProfile ? "The beta registry is curated. Only allowlisted wallets can publish one discoverable profile, while wallet activity remains visible either way." : "Your profile, active contracts, and delivery state now live in focused dashboard views."}>
                 {!connectedAddress ? (
                   <WalletSignInPanel
                     title="Sign in as freelancer"
@@ -313,6 +328,11 @@ export default function FreelancerWorkspacePage() {
                     <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} placeholder="Short bio (optional)" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
                     <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Location (optional)" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
                     <input value={availability} onChange={(e) => setAvailability(e.target.value)} placeholder="Availability (optional)" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
+                    <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] px-4 py-3 text-sm text-[#d1d5db]">
+                      {isAllowlistedForBeta
+                        ? "This wallet is allowlisted for the curated beta directory and can publish one profile."
+                        : "This wallet is not allowlisted for profile creation in the curated beta directory yet."}
+                    </div>
                     <div className="flex flex-wrap gap-3">
                       <button type="button" onClick={createAgent} disabled={creating} className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30] disabled:opacity-60">{creating ? "Creating..." : "Create Profile"}</button>
                       <button type="button" onClick={() => refetch()} className="rounded-[12px] border border-[#262626] px-5 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#3b3b3b]">Refresh</button>
@@ -402,7 +422,7 @@ export default function FreelancerWorkspacePage() {
               />
             ) : (
             <div className="grid gap-6">
-              {!myProfile ? <WorkspacePanel title="Profile note" subtitle="Wallet permissions still govern active work, but your public freelancer profile is not complete yet."><EmptyState copy="You can still inspect project state for this wallet. Finish profile setup in Now to appear in the public talent registry." /></WorkspacePanel> : null}
+              {!myProfile ? <WorkspacePanel title="Profile note" subtitle="Wallet permissions still govern active work, but beta discovery only includes curated allowlisted profiles."><EmptyState copy={isAllowlistedForBeta ? "You can still inspect project state for this wallet. Finish profile setup in Now to appear in the curated beta directory." : "You can still inspect project state for this wallet. Profile publishing is currently limited to allowlisted beta participants."} /></WorkspacePanel> : null}
               <div id="freelancer-active-work"><EscrowSimulator selectedRole="freelancer" /></div>
             </div>
             )
@@ -424,7 +444,7 @@ export default function FreelancerWorkspacePage() {
                 {connectedAddress ? <DetailCard label="Connected wallet" value={shortAddress(connectedAddress)} /> : null}
               </div>
             ) : (
-              <EmptyState copy="No public freelancer profile yet. Wallet activity and inbox state still remain visible." />
+              <EmptyState copy="No curated beta freelancer profile yet. Wallet activity and inbox state still remain visible." />
             )}
           </WorkspacePanel>
           <WorkspacePanel title="Current snapshot" subtitle="Keep the current contract and earnings context visible.">
