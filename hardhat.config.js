@@ -16,8 +16,16 @@ function resolveDeployAccounts() {
 function ensureDeployEnv(networkName) {
   const selectedNetwork = readOptionalEnv("HARDHAT_NETWORK");
 
-  if (selectedNetwork === networkName && !readOptionalEnv("PRIVATE_KEY")) {
+  if (selectedNetwork !== networkName) {
+    return;
+  }
+
+  if (!readOptionalEnv("PRIVATE_KEY")) {
     throw new Error(`PRIVATE_KEY is required when deploying to ${networkName}.`);
+  }
+
+  if (networkName === "celoMainnet" && !readOptionalEnv("CELO_MAINNET_RPC_URL")) {
+    throw new Error("CELO_MAINNET_RPC_URL is required when deploying to celoMainnet.");
   }
 }
 

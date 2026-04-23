@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "compile": "hardhat compile",
-    "deploy": "hardhat run scripts/deploy-viem.ts --network sepolia"
+    "deploy": "hardhat run scripts/deploy-viem.ts --network celoMainnet"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-viem": "^3.0.0",
