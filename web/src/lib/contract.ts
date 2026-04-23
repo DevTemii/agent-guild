@@ -66,6 +66,11 @@ export const FREELANCE_ESCROW_ABI = [
 
 export const AGENT_REGISTRY_ABI = [
     {
+        inputs: [],
+        stateMutability: "nonpayable",
+        type: "constructor",
+    },
+    {
         inputs: [
             { internalType: "string", name: "_name", type: "string" },
             { internalType: "string", name: "_description", type: "string" },
@@ -77,6 +82,15 @@ export const AGENT_REGISTRY_ABI = [
         name: "registerAgent",
         outputs: [],
         stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            { internalType: "address", name: "", type: "address" },
+        ],
+        name: "betaAllowed",
+        outputs: [{ internalType: "bool", name: "", type: "bool" }],
+        stateMutability: "view",
         type: "function",
     },
     {
@@ -99,6 +113,32 @@ export const AGENT_REGISTRY_ABI = [
             },
         ],
         stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            { internalType: "address", name: "", type: "address" },
+        ],
+        name: "hasRegisteredProfile",
+        outputs: [{ internalType: "bool", name: "", type: "bool" }],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [],
+        name: "owner",
+        outputs: [{ internalType: "address", name: "", type: "address" }],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            { internalType: "address", name: "wallet", type: "address" },
+            { internalType: "bool", name: "allowed", type: "bool" },
+        ],
+        name: "setBetaAccess",
+        outputs: [],
+        stateMutability: "nonpayable",
         type: "function",
     },
 ] as const;
