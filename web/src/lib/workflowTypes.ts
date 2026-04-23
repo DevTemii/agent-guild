@@ -50,6 +50,15 @@ export type ProjectSubmission = {
   txHash: string | null;
 };
 
+export type WorkflowProjectIndexEntry = {
+  projectId: number;
+  contractId: string | null;
+  clientWallet: string;
+  freelancerWallet: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export function nowIso() {
   return new Date().toISOString();
 }
@@ -140,5 +149,31 @@ export function normalizeProjectSubmission(
     submittedAt: submission.submittedAt || nowIso(),
     updatedAt: submission.updatedAt || nowIso(),
     txHash: submission.txHash?.trim() || null,
+  };
+}
+
+export function normalizeWorkflowProjectIndexEntry(
+  entry: Partial<WorkflowProjectIndexEntry> & {
+    projectId?: number | null;
+    contractId?: string | null;
+    clientWallet?: string | null;
+    freelancerWallet?: string | null;
+  }
+): WorkflowProjectIndexEntry | null {
+  const projectId = normalizeLinkedProjectId(entry.projectId);
+  const clientWallet = normalizeWallet(entry.clientWallet);
+  const freelancerWallet = normalizeWallet(entry.freelancerWallet);
+
+  if (!projectId || !clientWallet || !freelancerWallet) {
+    return null;
+  }
+
+  return {
+    projectId,
+    contractId: entry.contractId?.trim() || null,
+    clientWallet,
+    freelancerWallet,
+    createdAt: entry.createdAt || nowIso(),
+    updatedAt: entry.updatedAt || nowIso(),
   };
 }

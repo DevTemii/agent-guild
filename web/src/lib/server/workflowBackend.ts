@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   type ContractStatus,
+  type WorkflowProjectIndexEntry,
   type ProjectSubmission,
   type ProductContract,
   type WorkflowNotification,
@@ -9,6 +10,7 @@ import {
   normalizeLinkedProjectId,
   normalizeNotification,
   normalizeProjectSubmission,
+  normalizeWorkflowProjectIndexEntry,
   normalizeSettlementAmountCelo,
   normalizeWallet,
   nowIso,
@@ -18,6 +20,7 @@ type WorkflowDatabase = {
   contracts: ProductContract[];
   notifications: WorkflowNotification[];
   submissions: ProjectSubmission[];
+  projects: WorkflowProjectIndexEntry[];
 };
 
 type WorkflowDraftInput = Omit<
@@ -47,12 +50,16 @@ async function readWorkflowDatabase(): Promise<WorkflowDatabase> {
       submissions: (parsed.submissions ?? [])
         .map((entry) => normalizeProjectSubmission(entry))
         .filter((entry): entry is ProjectSubmission => entry !== null),
+      projects: (parsed.projects ?? [])
+        .map((entry) => normalizeWorkflowProjectIndexEntry(entry))
+        .filter((entry): entry is WorkflowProjectIndexEntry => entry !== null),
     };
   } catch {
     return {
       contracts: [],
       notifications: [],
       submissions: [],
+      projects: [],
     };
   }
 }
@@ -153,9 +160,56 @@ function touchContract(contract: ProductContract) {
   contract.updatedAt = nowIso();
 }
 
+function upsertProjectIndexEntry(
+  database: WorkflowDatabase,
+  input: {
+    projectId: number;
+    contractId?: string | null;
+    clientWallet: string;
+    freelancerWallet: string;
+  }
+) {
+  const nextEntry = normalizeWorkflowProjectIndexEntry({
+    projectId: input.projectId,
+    contractId: input.contractId ?? null,
+    clientWallet: input.clientWallet,
+    freelancerWallet: input.freelancerWallet,
+    createdAt:
+      database.projects.find((entry) => entry.projectId === input.projectId)?.createdAt ??
+      nowIso(),
+    updatedAt: nowIso(),
+  });
+
+  if (!nextEntry) {
+    return;
+  }
+
+  database.projects = [
+    nextEntry,
+    ...database.projects.filter((entry) => entry.projectId !== nextEntry.projectId),
+  ];
+}
+
+function repairProjectIndex(database: WorkflowDatabase) {
+  for (const contract of database.contracts) {
+    const linkedProjectId = normalizeLinkedProjectId(contract.linkedProjectId);
+    if (!linkedProjectId) {
+      continue;
+    }
+
+    upsertProjectIndexEntry(database, {
+      projectId: linkedProjectId,
+      contractId: contract.id,
+      clientWallet: contract.clientWallet,
+      freelancerWallet: contract.freelancerWallet,
+    });
+  }
+}
+
 export async function listWorkflowStateForWallet(wallet: string) {
   const normalizedWallet = normalizeWallet(wallet);
   const database = await readWorkflowDatabase();
+  repairProjectIndex(database);
 
   return {
     contracts: database.contracts
@@ -165,6 +219,20 @@ export async function listWorkflowStateForWallet(wallet: string) {
       .filter((notification) => notification.wallet === normalizedWallet)
       .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
   };
+}
+
+export async function listWorkflowProjectsForWallet(wallet: string) {
+  const normalizedWallet = normalizeWallet(wallet);
+  const database = await readWorkflowDatabase();
+  repairProjectIndex(database);
+
+  return database.projects
+    .filter(
+      (entry) =>
+        entry.clientWallet === normalizedWallet ||
+        entry.freelancerWallet === normalizedWallet
+    )
+    .sort((a, b) => b.projectId - a.projectId);
 }
 
 export async function createWorkflowDraft(wallet: string, input: WorkflowDraftInput) {
@@ -311,6 +379,12 @@ export async function linkWorkflowContractToProject(
 
     contract.linkedProjectId = normalizedProjectId;
     touchContract(contract);
+    upsertProjectIndexEntry(database, {
+      projectId: normalizedProjectId,
+      contractId: contract.id,
+      clientWallet: contract.clientWallet,
+      freelancerWallet: contract.freelancerWallet,
+    });
 
     appendNotifications(database, [
       {
@@ -348,6 +422,15 @@ export async function importLegacyWorkflowForWallet(
       }
 
       database.contracts.unshift(contract);
+      const linkedProjectId = normalizeLinkedProjectId(contract.linkedProjectId);
+      if (linkedProjectId) {
+        upsertProjectIndexEntry(database, {
+          projectId: linkedProjectId,
+          contractId: contract.id,
+          clientWallet: contract.clientWallet,
+          freelancerWallet: contract.freelancerWallet,
+        });
+      }
     }
 
     const notifications = (input.notifications ?? [])

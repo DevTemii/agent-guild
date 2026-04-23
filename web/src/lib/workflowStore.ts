@@ -6,10 +6,12 @@ import {
   type ContractStatus,
   type ProjectSubmission,
   type ProductContract,
+  type WorkflowProjectIndexEntry,
   type WorkflowNotification,
   normalizeContract,
   normalizeNotification,
   normalizeProjectSubmission,
+  normalizeWorkflowProjectIndexEntry,
   normalizeWallet,
 } from "./workflowTypes";
 
@@ -19,6 +21,7 @@ export type {
   LegacyProductContract,
   ProjectSubmission,
   ProductContract,
+  WorkflowProjectIndexEntry,
   WorkflowNotification,
 } from "./workflowTypes";
 export { normalizeWallet } from "./workflowTypes";
@@ -27,15 +30,21 @@ const LEGACY_CONTRACTS_STORAGE_KEY = "agent-guild-product-contracts";
 const LEGACY_NOTIFICATION_STORAGE_KEY_PREFIX = "agent-guild-notifications";
 const CONTRACT_CACHE_STORAGE_KEY_PREFIX = "agent-guild-contract-cache";
 const NOTIFICATION_CACHE_STORAGE_KEY_PREFIX = "agent-guild-notification-cache";
+const PROJECT_INDEX_CACHE_STORAGE_KEY_PREFIX = "agent-guild-project-index-cache";
 const MIGRATION_MARKER_STORAGE_KEY_PREFIX = "agent-guild-workflow-migrated";
 const WORKFLOW_REFRESH_EVENT = "agent-guild:workflow-refresh";
 
 const cachedContractsByWallet = new Map<string, ProductContract[]>();
 const cachedNotificationsByWallet = new Map<string, string[]>();
+const cachedProjectsByWallet = new Map<string, WorkflowProjectIndexEntry[]>();
 
 type WorkflowSnapshot = {
   contracts: ProductContract[];
   notifications: string[];
+};
+
+type WorkflowProjectSnapshot = {
+  projects: WorkflowProjectIndexEntry[];
 };
 
 function getWalletScopedStorageKey(prefix: string, wallet?: string | null) {
@@ -97,6 +106,26 @@ function setCachedNotifications(wallet: string, notifications: string[]) {
   return nextNotifications;
 }
 
+function setCachedProjects(wallet: string, projects: WorkflowProjectIndexEntry[]) {
+  const normalizedWallet = normalizeWallet(wallet);
+  if (!normalizedWallet) return [];
+
+  const nextProjects = projects
+    .map((entry) => normalizeWorkflowProjectIndexEntry(entry))
+    .filter((entry): entry is WorkflowProjectIndexEntry => entry !== null);
+
+  cachedProjectsByWallet.set(normalizedWallet, nextProjects);
+  const storageKey = getWalletScopedStorageKey(
+    PROJECT_INDEX_CACHE_STORAGE_KEY_PREFIX,
+    normalizedWallet
+  );
+  if (storageKey) {
+    writeJson(storageKey, nextProjects);
+  }
+
+  return nextProjects;
+}
+
 function getCachedContractsForWallet(wallet?: string | null) {
   const normalizedWallet = normalizeWallet(wallet);
   if (!normalizedWallet) return [];
@@ -135,6 +164,28 @@ function getCachedNotificationsForWallet(wallet?: string | null) {
   const storedNotifications = readJson<string[]>(storageKey, []);
   cachedNotificationsByWallet.set(normalizedWallet, storedNotifications);
   return storedNotifications;
+}
+
+function getCachedProjectsForWallet(wallet?: string | null) {
+  const normalizedWallet = normalizeWallet(wallet);
+  if (!normalizedWallet) return [];
+
+  const memoryProjects = cachedProjectsByWallet.get(normalizedWallet);
+  if (memoryProjects) {
+    return memoryProjects;
+  }
+
+  const storageKey = getWalletScopedStorageKey(
+    PROJECT_INDEX_CACHE_STORAGE_KEY_PREFIX,
+    normalizedWallet
+  );
+  if (!storageKey) return [];
+
+  const storedProjects = readJson<WorkflowProjectIndexEntry[]>(storageKey, [])
+    .map((entry) => normalizeWorkflowProjectIndexEntry(entry))
+    .filter((entry): entry is WorkflowProjectIndexEntry => entry !== null);
+  cachedProjectsByWallet.set(normalizedWallet, storedProjects);
+  return storedProjects;
 }
 
 function hydrateWorkflowSnapshot(wallet: string, snapshot: WorkflowSnapshot) {
@@ -328,6 +379,55 @@ async function refreshWorkflowSnapshot(account?: Account | null) {
   }
 }
 
+async function fetchWorkflowProjects(account?: Account | null) {
+  if (!account) {
+    return {
+      projects: [],
+    } satisfies WorkflowProjectSnapshot;
+  }
+
+  await ensureBackendWorkflowSession(account);
+  await importLegacyWorkflowIfNeeded(account);
+
+  const response = await fetch("/api/workflow/projects", {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response, "Failed to load workflow projects."));
+  }
+
+  const payload = (await response.json()) as {
+    projects: WorkflowProjectIndexEntry[];
+  };
+
+  return {
+    projects: (payload.projects ?? [])
+      .map((entry) => normalizeWorkflowProjectIndexEntry(entry))
+      .filter((entry): entry is WorkflowProjectIndexEntry => entry !== null),
+  } satisfies WorkflowProjectSnapshot;
+}
+
+async function refreshWorkflowProjects(account?: Account | null) {
+  if (!account) {
+    return {
+      projects: [],
+    } satisfies WorkflowProjectSnapshot;
+  }
+
+  try {
+    const snapshot = await fetchWorkflowProjects(account);
+    setCachedProjects(account.address, snapshot.projects);
+    emitWorkflowRefresh();
+    return snapshot;
+  } catch (error) {
+    console.error("Failed to refresh workflow projects", error);
+    return {
+      projects: getCachedProjectsForWallet(account.address),
+    } satisfies WorkflowProjectSnapshot;
+  }
+}
+
 async function postWorkflowMutation<T>(
   account: Account | null | undefined,
   input: {
@@ -364,6 +464,10 @@ export function getWorkflowRefreshEventName() {
 
 export async function syncWorkflowState(account?: Account | null) {
   return refreshWorkflowSnapshot(account);
+}
+
+export async function syncWorkflowProjects(account?: Account | null) {
+  return refreshWorkflowProjects(account);
 }
 
 export function getProductContracts(wallet?: string | null) {
@@ -562,6 +666,10 @@ export function getPendingContractsForFreelancer(wallet?: string | null) {
 
 export function getNotificationsForWallet(wallet?: string | null) {
   return getCachedNotificationsForWallet(wallet);
+}
+
+export function getIndexedProjectsForWallet(wallet?: string | null) {
+  return getCachedProjectsForWallet(wallet);
 }
 
 export function saveNotificationsForWallet(wallet: string, notifications: string[]) {
