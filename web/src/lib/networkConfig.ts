@@ -40,6 +40,12 @@ function resolveAgentGuildNetworkKey() {
     );
   }
 
+  if (process.env.NODE_ENV === "production" && value !== "celo-mainnet") {
+    throw new Error(
+      "Production Agent Guild builds must target Celo Mainnet with NEXT_PUBLIC_AGENT_GUILD_NETWORK=celo-mainnet."
+    );
+  }
+
   return value as AgentGuildNetworkKey;
 }
 
