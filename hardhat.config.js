@@ -4,6 +4,26 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+function readOptionalEnv(name) {
+  return process.env[name]?.trim();
+}
+
+function resolveDeployAccounts() {
+  const privateKey = readOptionalEnv("PRIVATE_KEY");
+  return privateKey ? [privateKey] : [];
+}
+
+function ensureDeployEnv(networkName) {
+  const selectedNetwork = readOptionalEnv("HARDHAT_NETWORK");
+
+  if (selectedNetwork === networkName && !readOptionalEnv("PRIVATE_KEY")) {
+    throw new Error(`PRIVATE_KEY is required when deploying to ${networkName}.`);
+  }
+}
+
+ensureDeployEnv("celoMainnet");
+ensureDeployEnv("celoSepolia");
+
 export default defineConfig({
   plugins: [hardhatViem],
   solidity: {
@@ -13,13 +33,28 @@ export default defineConfig({
       },
     },
   },
+  paths: {
+    sources: "./contracts",
+    tests: "./test",
+    cache: "./cache",
+    artifacts: "./artifacts",
+  },
   networks: {
-    sepolia: {
+    celoMainnet: {
       type: "http",
       chainType: "l1",
-      url: "https://forno.celo-sepolia.celo-testnet.org",
+      url: readOptionalEnv("CELO_MAINNET_RPC_URL") || "https://forno.celo.org",
+      chainId: 42220,
+      accounts: resolveDeployAccounts(),
+    },
+    celoSepolia: {
+      type: "http",
+      chainType: "l1",
+      url:
+        readOptionalEnv("CELO_SEPOLIA_RPC_URL") ||
+        "https://forno.celo-sepolia.celo-testnet.org",
       chainId: 11142220,
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      accounts: resolveDeployAccounts(),
     },
   },
 });
