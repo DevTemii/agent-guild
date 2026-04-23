@@ -35,6 +35,7 @@ import {
 import {
     appendNotifications,
     getNotificationsForWallet,
+    getIndexedProjectsForWallet,
     getProjectSubmission,
     getProductContractById,
     getProductContractByLinkedProjectId,
@@ -43,6 +44,7 @@ import {
     normalizeWallet,
     ProductContract,
     saveProjectSubmission,
+    syncWorkflowProjects,
     updateProductContractSettlementAmount,
 } from "@/lib/workflowStore";
 
@@ -583,12 +585,6 @@ export default function EscrowSimulator({
         projectId,
     ]);
 
-    const { data: projectCountData, refetch: refetchProjectCount } = useReadContract({
-        contract: escrowContract,
-        method: "function projectCount() view returns (uint256)",
-        params: [],
-    });
-
     const { data: projectData, refetch: refetchProjectData } = useReadContract({
         contract: escrowContract,
         method:
@@ -696,16 +692,8 @@ export default function EscrowSimulator({
         );
     }
 
-    async function loadMyProjects(projectCountOverride?: number) {
+    async function loadMyProjects() {
         if (!connectedAddress) {
-            setMyProjects([]);
-            setProjectsLoaded(true);
-            return;
-        }
-
-        const total = projectCountOverride ?? Number(projectCountData ?? BigInt(0));
-
-        if (!total || total < 1) {
             setMyProjects([]);
             setProjectsLoaded(true);
             return;
@@ -713,6 +701,19 @@ export default function EscrowSimulator({
 
         try {
             setLoadingProjects(true);
+            const indexedProjects = (
+                await syncWorkflowProjects(account)
+            ).projects;
+            const cachedProjects =
+                indexedProjects.length > 0
+                    ? indexedProjects
+                    : getIndexedProjectsForWallet(connectedAddress);
+
+            if (cachedProjects.length === 0) {
+                setMyProjects([]);
+                setProjectsLoaded(true);
+                return;
+            }
 
             const discovered: Array<{
                 projectId: number;
@@ -722,7 +723,8 @@ export default function EscrowSimulator({
                 status: number;
             }> = [];
 
-            for (let id = 1; id <= total; id++) {
+            for (const indexedProject of cachedProjects) {
+                const id = indexedProject.projectId;
                 const result = await readContract({
                     contract: escrowContract,
                     method:
@@ -768,13 +770,9 @@ export default function EscrowSimulator({
         }
 
         loadMyProjects();
-    }, [connectedAddress, projectCountData]);
+    }, [connectedAddress]);
 
     async function refreshEscrowUi(nextProjectId?: number) {
-        const latestProjectCount = await refetchProjectCount();
-        const latestKnownCount = normalizeProjectId(
-            Number(latestProjectCount?.data ?? projectCountData ?? BigInt(0))
-        );
         const targetProjectId = normalizeProjectId(
             nextProjectId ?? projectId
         );
@@ -787,7 +785,7 @@ export default function EscrowSimulator({
             await refetchProjectData();
         }
 
-        await loadMyProjects(latestKnownCount ?? undefined);
+        await loadMyProjects();
         window.dispatchEvent(new Event("agent-guild:refresh"));
     }
 
