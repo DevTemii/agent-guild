@@ -27,7 +27,7 @@ import {
     getProjectCacheKey,
     getWalletCacheKey,
 } from "@/lib/cacheKeys";
-import { agentGuildChain, agentGuildChainLabel } from "@/lib/networkConfig";
+import { agentGuildChain, agentGuildChainId, agentGuildChainLabel } from "@/lib/networkConfig";
 import {
     getReputationForWallet,
     setReputationForWallet,
@@ -75,6 +75,19 @@ type ProjectPermissionRole = "client" | "freelancer" | "viewer" | "disconnected"
 
 const BETA_DISPUTE_SUPPORT_COPY =
     "Mainnet beta uses support review only for disputes. Release is the only onchain final settlement right now.";
+const ACTIVE_ESCROW_CACHE_SCHEMA_VERSION = 1;
+
+type ActiveEscrowCacheEntry = {
+    schemaVersion: number;
+    chainId: number;
+    wallet: string;
+    projectId: number;
+    sourceContractId: string | null;
+    settlementAmountCelo: string;
+    role: EscrowSimulatorProps["selectedRole"];
+    clientWallet: string;
+    freelancerWallet: string;
+};
 
 function normalizeProjectId(value: number | null | undefined) {
     if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
@@ -82,6 +95,35 @@ function normalizeProjectId(value: number | null | undefined) {
     }
 
     return value;
+}
+
+function buildActiveEscrowCacheEntry(input: {
+    wallet?: string | null;
+    projectId: number;
+    sourceContractId?: string | null;
+    settlementAmountCelo?: string | null;
+    role: EscrowSimulatorProps["selectedRole"];
+    clientWallet?: string | null;
+    freelancerWallet?: string | null;
+}) {
+    const wallet = normalizeWallet(input.wallet);
+    const projectId = normalizeProjectId(input.projectId);
+
+    if (!wallet || projectId === null) {
+        return null;
+    }
+
+    return {
+        schemaVersion: ACTIVE_ESCROW_CACHE_SCHEMA_VERSION,
+        chainId: agentGuildChainId,
+        wallet,
+        projectId,
+        sourceContractId: input.sourceContractId?.trim() || null,
+        settlementAmountCelo: input.settlementAmountCelo?.trim() || "",
+        role: input.role,
+        clientWallet: normalizeWallet(input.clientWallet) || "",
+        freelancerWallet: normalizeWallet(input.freelancerWallet) || "",
+    } satisfies ActiveEscrowCacheEntry;
 }
 
 function resolveCreatedProjectIdFromReceipt({
@@ -167,6 +209,88 @@ export default function EscrowSimulator({
     );
     const [judgeResolution, setJudgeResolution] = useState<JudgeResolution | null>(null);
 
+    function clearActiveEscrowCache() {
+        if (activeEscrowStorageKey) {
+            localStorage.removeItem(activeEscrowStorageKey);
+        }
+    }
+
+    function readActiveEscrowCache() {
+        if (!activeEscrowStorageKey || !connectedAddress) {
+            return null;
+        }
+
+        const savedEscrow = localStorage.getItem(activeEscrowStorageKey);
+        if (!savedEscrow) {
+            return null;
+        }
+
+        try {
+            const raw = JSON.parse(savedEscrow) as Partial<ActiveEscrowCacheEntry> & {
+                projectId?: number | string | null;
+                chainId?: number | string | null;
+            };
+            const projectId = normalizeProjectId(Number(raw.projectId));
+            const wallet = normalizeWallet(raw.wallet) || connectedAddress;
+            const chainId = Number(raw.chainId ?? agentGuildChainId);
+
+            if (
+                projectId === null ||
+                wallet !== connectedAddress ||
+                chainId !== agentGuildChainId
+            ) {
+                clearActiveEscrowCache();
+                return null;
+            }
+
+            return buildActiveEscrowCacheEntry({
+                wallet,
+                projectId,
+                sourceContractId: raw.sourceContractId,
+                settlementAmountCelo: raw.settlementAmountCelo,
+                role:
+                    raw.role === "client" || raw.role === "freelancer"
+                        ? raw.role
+                        : selectedRole,
+                clientWallet: raw.clientWallet,
+                freelancerWallet: raw.freelancerWallet,
+            });
+        } catch (err) {
+            console.error("Failed to restore escrow state", err);
+            clearActiveEscrowCache();
+            return null;
+        }
+    }
+
+    function persistActiveEscrowCache(input: {
+        projectId: number;
+        sourceContractId?: string | null;
+        settlementAmountCelo?: string | null;
+        clientWallet?: string | null;
+        freelancerWallet?: string | null;
+    }) {
+        if (!activeEscrowStorageKey) {
+            return;
+        }
+
+        const entry = buildActiveEscrowCacheEntry({
+            wallet: connectedAddress,
+            projectId: input.projectId,
+            sourceContractId: input.sourceContractId,
+            settlementAmountCelo: input.settlementAmountCelo,
+            role: selectedRole,
+            clientWallet: input.clientWallet,
+            freelancerWallet: input.freelancerWallet,
+        });
+
+        if (!entry) {
+            clearActiveEscrowCache();
+            return;
+        }
+
+        localStorage.setItem(activeEscrowStorageKey, JSON.stringify(entry));
+    }
+
     function getSubmissionStorageKey(projectId: number) {
         return getProjectCacheKey(SUBMISSION_STORAGE_KEY_PREFIX, {
             wallet: connectedAddress,
@@ -235,9 +359,7 @@ export default function EscrowSimulator({
     useEffect(() => {
         if (escrowSelectionNonce === 0) return;
 
-        if (activeEscrowStorageKey) {
-            localStorage.removeItem(activeEscrowStorageKey);
-        }
+        clearActiveEscrowCache();
         setProjectId(null);
         setEscrowState("idle");
         setStatus("");
@@ -269,33 +391,19 @@ export default function EscrowSimulator({
         setEscrowState("idle");
         setSubmissionLink("");
         setSubmittedWorkLink("");
+        setStatus("");
 
-        if (!activeEscrowStorageKey) {
+        if (!activeEscrowStorageKey || !connectedAddress) {
             return;
         }
 
-        const savedEscrow = localStorage.getItem(activeEscrowStorageKey);
-        if (savedEscrow) {
-            try {
-                const data = JSON.parse(savedEscrow);
-                const restoredProjectId = normalizeProjectId(Number(data.projectId));
-                if (restoredProjectId === null) {
-                    localStorage.removeItem(activeEscrowStorageKey);
-                    return;
-                }
-
-                setProjectId(restoredProjectId);
-                setClientName(data.clientName ?? "");
-                setClientWallet(data.clientWallet?.toLowerCase() ?? "");
-                setFreelancerName(data.freelancerName ?? "");
-                setFreelancerAddress(data.freelancerAddress ?? "");
-                setSettlementAmountCelo(data.settlementAmountCelo ?? "");
-                setSourceContractId(data.sourceContractId ?? null);
-            } catch (err) {
-                console.error("Failed to restore escrow state", err);
-            }
+        const restoredEscrow = readActiveEscrowCache();
+        if (restoredEscrow) {
+            setProjectId(restoredEscrow.projectId);
+            setSettlementAmountCelo(restoredEscrow.settlementAmountCelo);
+            setSourceContractId(restoredEscrow.sourceContractId);
         }
-    }, [activeEscrowStorageKey]);
+    }, [activeEscrowStorageKey, connectedAddress]);
 
     useEffect(() => {
         const syncNotifications = () => {
@@ -530,10 +638,54 @@ export default function EscrowSimulator({
         const nextFreelancer = String((projectData as any)[1]).toLowerCase();
         const statusCode = Number((projectData as any)[3]);
 
+        if (
+            connectedAddress &&
+            projectId !== null &&
+            connectedAddress !== nextClient &&
+            connectedAddress !== nextFreelancer
+        ) {
+            clearActiveEscrowCache();
+            setProjectId(null);
+            setEscrowState("idle");
+            setSubmissionLink("");
+            setSubmittedWorkLink("");
+            setShowDisputeForm(false);
+            setDisputeReason("");
+            setSavedDisputeReason("");
+            setDisputeJudgment(null);
+            setJudgeResolution(null);
+            setStatus("Previous escrow session was cleared because it did not match this wallet.");
+            clearDraftEscrowContractContext();
+
+            if (approvedContract) {
+                applyApprovedContractContext(approvedContract);
+            }
+            return;
+        }
+
         setClientWallet(nextClient);
         setFreelancerAddress(nextFreelancer);
         setEscrowState(getEscrowStateFromStatusCode(statusCode));
-    }, [projectData]);
+
+        if (projectId === null) {
+            return;
+        }
+
+        persistActiveEscrowCache({
+            projectId,
+            sourceContractId,
+            settlementAmountCelo,
+            clientWallet: nextClient,
+            freelancerWallet: nextFreelancer,
+        });
+    }, [
+        approvedContract,
+        connectedAddress,
+        projectData,
+        projectId,
+        settlementAmountCelo,
+        sourceContractId,
+    ]);
 
     function pushNotification(message: string, wallets: string[] = participantWallets) {
         appendNotifications(
@@ -741,20 +893,13 @@ export default function EscrowSimulator({
                 applyApprovedContractContext(linkedContract);
             }
 
-            if (activeEscrowStorageKey) {
-                localStorage.setItem(
-                    activeEscrowStorageKey,
-                    JSON.stringify({
-                        projectId: createdProjectId,
-                        clientName: selectedSourceContract.clientName,
-                        clientWallet: connectedAddress ?? "",
-                        freelancerName: selectedSourceContract.freelancerName,
-                        freelancerAddress: selectedSourceContract.freelancerWallet.toLowerCase(),
-                        settlementAmountCelo: normalizedSettlementAmount,
-                        sourceContractId: linkedContract?.id ?? selectedSourceContract.id,
-                    })
-                );
-            }
+            persistActiveEscrowCache({
+                projectId: createdProjectId,
+                sourceContractId: linkedContract?.id ?? selectedSourceContract.id,
+                settlementAmountCelo: normalizedSettlementAmount,
+                clientWallet: connectedAddress ?? selectedSourceContract.clientWallet,
+                freelancerWallet: selectedSourceContract.freelancerWallet,
+            });
 
             const message = `Escrow created for ${selectedSourceContract.freelancerName}. Client should fund ${normalizedSettlementAmount} CELO into Project #${createdProjectId}.`;
             setStatus(`Escrow project created onchain. Project ID: ${createdProjectId}`);
@@ -1420,31 +1565,21 @@ export default function EscrowSimulator({
 
         setSettlementAmountCelo(contractSettlementAmount);
 
-        if (!activeEscrowStorageKey) return;
-
-        const savedEscrow = localStorage.getItem(activeEscrowStorageKey);
-        if (!savedEscrow) return;
-
-        try {
-            const data = JSON.parse(savedEscrow);
-            if (
-                data.sourceContractId !== effectiveEscrowContract.id &&
-                normalizeProjectId(Number(data.projectId)) !== projectId
-            ) {
-                return;
-            }
-
-            localStorage.setItem(
-                activeEscrowStorageKey,
-                JSON.stringify({
-                    ...data,
-                    settlementAmountCelo: contractSettlementAmount,
-                })
-            );
-        } catch (error) {
-            console.error("Failed to sync escrow settlement amount", error);
-        }
-    }, [activeEscrowStorageKey, effectiveEscrowContract?.id, effectiveEscrowContract?.settlementAmountCelo, settlementAmountCelo, projectId]);
+        persistActiveEscrowCache({
+            projectId,
+            sourceContractId: effectiveEscrowContract.id,
+            settlementAmountCelo: contractSettlementAmount,
+            clientWallet: effectiveClientWallet,
+            freelancerWallet: effectiveFreelancerWallet,
+        });
+    }, [
+        effectiveClientWallet,
+        effectiveEscrowContract?.id,
+        effectiveEscrowContract?.settlementAmountCelo,
+        effectiveFreelancerWallet,
+        projectId,
+        settlementAmountCelo,
+    ]);
 
     return (
         <section className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
