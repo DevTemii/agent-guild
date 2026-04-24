@@ -1,7 +1,12 @@
 import { network } from "hardhat";
 
 async function main() {
-    const { viem } = await network.connect("sepolia");
+    const { viem } = await network.connect("celoMainnet");
+
+    const [walletClient] = await viem.getWalletClients();
+    const deployerAddress = walletClient.account.address;
+
+    console.log("Deploying FreelanceEscrow from:", deployerAddress);
 
     const escrow = await viem.deployContract("FreelanceEscrow");
 
