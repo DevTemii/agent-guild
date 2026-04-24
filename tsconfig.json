@@ -1,5 +1,8 @@
 {
   "compilerOptions": {
+    "types": [
+      "node"
+    ],
     "lib": [
       "es2023"
     ],
@@ -12,6 +15,7 @@
     "outDir": "dist"
   },
   "include": [
+    "hardhat.d.ts",
     "hardhat.config.ts",
     "scripts/**/*.ts",
     "contracts/**/*.sol",
