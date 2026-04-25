@@ -1,14 +1,15 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
-import { ConnectButton, useActiveAccount } from "thirdweb/react";
+import type { ReactNode } from "react";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useActiveAccount } from "thirdweb/react";
 import { ConfigErrorPanel } from "@/components/ConfigErrorScreen";
+import { MiniPayWalletSheet } from "@/components/wallet/MiniPayWalletSheet";
 import { client } from "@/lib/client";
-import { agentGuildChain } from "@/lib/networkConfig";
 import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 
-const SPLASH_STORAGE_KEY = "agent-guild-minipay-splash";
+type Role = "client" | "freelancer";
 
 export default function Home() {
   if (!agentGuildRuntimeConfig.valid || !client) {
@@ -19,183 +20,127 @@ export default function Home() {
 }
 
 function ConfiguredHomeEntry() {
-  const thirdwebClient = client!;
+  const router = useRouter();
   const account = useActiveAccount();
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const connectedAddress = account?.address ?? null;
-  const [showRoleScreen, setShowRoleScreen] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
+
+  const continueLabel = useMemo(() => {
+    if (!selectedRole) {
+      return undefined;
     }
 
-    return window.localStorage.getItem(SPLASH_STORAGE_KEY) === "role";
-  });
+    return selectedRole === "client" ? "Continue as Client" : "Continue as Freelancer";
+  }, [selectedRole]);
 
-  function continueToRoleSelection() {
-    window.localStorage.setItem(SPLASH_STORAGE_KEY, "role");
-    setShowRoleScreen(true);
+  function openRole(role: Role) {
+    setSelectedRole(role);
+  }
+
+  function handleContinue() {
+    if (!selectedRole || !connectedAddress) {
+      return;
+    }
+
+    router.push(selectedRole === "client" ? "/client" : "/freelancer");
   }
 
   return (
-    <EntryLayout
-      showRoleScreen={showRoleScreen}
-      onContinue={continueToRoleSelection}
-      roleContent={
-        <>
-          <div className="mt-6">
-            <ConnectButton client={thirdwebClient} chain={agentGuildChain} />
-          </div>
-
-          <div className="mt-4 rounded-[18px] border border-[#1e1e1e] bg-[#090909] px-4 py-4 text-sm leading-6 text-[#d4d4d8]">
-            {connectedAddress
-              ? `Connected wallet: ${shortAddress(connectedAddress)}`
-              : "Connect your wallet to continue into the app flow."}
-          </div>
-
-          <div className="mt-auto space-y-3">
-            <RoleButton
-              href="/client"
-              title="Continue as Client"
-              description="Create contracts, fund escrow, and release payout."
-              disabled={!connectedAddress}
-            />
-            <RoleButton
-              href="/freelancer"
-              title="Continue as Freelancer"
-              description="Review contracts, submit work, and track release."
-              disabled={!connectedAddress}
-            />
-          </div>
-        </>
-      }
-    />
+    <>
+      <EntryScreen onSelectRole={openRole} />
+      <MiniPayWalletSheet
+        open={selectedRole !== null}
+        onClose={() => setSelectedRole(null)}
+        continueLabel={continueLabel}
+        onContinue={handleContinue}
+      />
+    </>
   );
 }
 
 function ConfigAwareHomeEntry() {
-  const [showRoleScreen, setShowRoleScreen] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return window.localStorage.getItem(SPLASH_STORAGE_KEY) === "role";
-  });
-
-  function continueToRoleSelection() {
-    window.localStorage.setItem(SPLASH_STORAGE_KEY, "role");
-    setShowRoleScreen(true);
-  }
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
 
   return (
-    <EntryLayout
-      showRoleScreen={showRoleScreen}
-      onContinue={continueToRoleSelection}
-      roleContent={
-        <div className="mt-6">
+    <>
+      <EntryScreen onSelectRole={(role) => setSelectedRole(role)} />
+
+      {selectedRole ? (
+        <StaticSheet onClose={() => setSelectedRole(null)}>
           <ConfigErrorPanel
             title="Agent Guild needs runtime setup before wallet actions can load."
             description="The splash screen is still available, but wallet connection and contract actions stay disabled until the public app configuration is fixed."
             errors={agentGuildRuntimeConfig.errors}
           />
-        </div>
-      }
-    />
+        </StaticSheet>
+      ) : null}
+    </>
   );
 }
 
-function EntryLayout({
-  showRoleScreen,
-  onContinue,
-  roleContent,
+function EntryScreen({
+  onSelectRole,
 }: {
-  showRoleScreen: boolean;
-  onContinue: () => void;
-  roleContent: React.ReactNode;
+  onSelectRole: (role: Role) => void;
 }) {
   return (
-    <main className="min-h-screen bg-[#070707] px-4 py-5 text-[#f7f4ef]">
-      <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] max-w-[420px] flex-col">
-        {!showRoleScreen ? (
-          <section className="flex flex-1 flex-col justify-between rounded-[28px] border border-[#181818] bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.18),transparent_32%),linear-gradient(180deg,#101010_0%,#090909_100%)] px-5 py-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-            <div>
-              <div className="inline-flex rounded-full border border-[#3f2025] bg-[#150b0d] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f2b6be]">
-                Agent Guild
-              </div>
-              <div className="mt-10">
-                <div className="text-[34px] font-semibold tracking-[-0.06em] text-[#f7f4ef]">
-                  Agent Guild
-                </div>
-                <p className="mt-4 max-w-[290px] text-[15px] leading-7 text-[#c8c8d0]">
-                  Contracts, escrow, and payout in one flow.
-                </p>
-              </div>
-            </div>
+    <main className="min-h-screen overflow-hidden bg-[#050505] px-4 py-5 text-[#f7f4ef]">
+      <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] max-w-[390px] flex-col justify-between rounded-[32px] border border-[#1b1b1b] bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.18),transparent_34%),linear-gradient(180deg,#101010_0%,#060606_100%)] px-5 py-6 shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
+        <div>
+          <div className="inline-flex rounded-full border border-[#42171e] bg-[#180c0f] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f2b6be]">
+            Agent Guild
+          </div>
 
-            <div className="space-y-4">
-              <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0b0b0b] px-4 py-4 text-sm leading-6 text-[#a1a1aa]">
-                Built for MiniPay-first client and freelancer workflows on Celo.
-              </div>
-              <button
-                type="button"
-                onClick={onContinue}
-                className="w-full rounded-[18px] bg-[#d72638] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#b91f30]"
-              >
-                Continue
-              </button>
+          <div className="mt-12">
+            <div className="text-[36px] font-semibold tracking-[-0.07em] text-[#f7f4ef]">
+              Secure freelance payments on Celo.
             </div>
-          </section>
-        ) : (
-          <section className="flex flex-1 flex-col rounded-[28px] border border-[#181818] bg-[#0b0b0b] px-5 py-6">
-            <div>
-              <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#f2b6be]">
-                Wallet & role
-              </div>
-              <h1 className="mt-4 text-[30px] font-semibold tracking-[-0.05em] text-[#f7f4ef]">
-                Open Agent Guild as the role you need right now.
-              </h1>
-              <p className="mt-3 text-sm leading-7 text-[#a1a1aa]">
-                Connect the MiniPay wallet you want to use for contracts, escrow, and payout.
-              </p>
-            </div>
+            <p className="mt-4 max-w-[300px] text-[15px] leading-7 text-[#c9c9d1]">
+              Create a deal, lock payment, submit work, and release funds in one simple flow.
+            </p>
+          </div>
+        </div>
 
-            {roleContent}
-          </section>
-        )}
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => onSelectRole("client")}
+            className="min-h-[56px] w-full rounded-[20px] bg-[#d72638] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#b91f30]"
+          >
+            Continue as Client
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelectRole("freelancer")}
+            className="min-h-[56px] w-full rounded-[20px] border border-[#252525] bg-[#0c0c0c] px-5 py-4 text-base font-semibold text-[#f7f4ef] transition hover:border-[#383838]"
+          >
+            Continue as Freelancer
+          </button>
+        </div>
       </div>
     </main>
   );
 }
 
-function RoleButton({
-  href,
-  title,
-  description,
-  disabled,
+function StaticSheet({
+  children,
+  onClose,
 }: {
-  href: string;
-  title: string;
-  description: string;
-  disabled: boolean;
+  children: ReactNode;
+  onClose: () => void;
 }) {
-  if (disabled) {
-    return (
-      <div className="rounded-[20px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 opacity-65">
-        <div className="text-base font-semibold text-[#f7f4ef]">{title}</div>
-        <div className="mt-2 text-sm leading-6 text-[#a1a1aa]">{description}</div>
-      </div>
-    );
-  }
-
   return (
-    <Link
-      href={href}
-      className="block rounded-[20px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 transition hover:border-[#363636]"
-    >
-      <div className="text-base font-semibold text-[#f7f4ef]">{title}</div>
-      <div className="mt-2 text-sm leading-6 text-[#a1a1aa]">{description}</div>
-    </Link>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 px-4 pb-4 pt-10 backdrop-blur-sm">
+      <button
+        type="button"
+        aria-label="Close sheet"
+        className="absolute inset-0 cursor-default"
+        onClick={onClose}
+      />
+      <div className="relative w-full max-w-[420px] rounded-[28px] border border-[#2a1116] bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.18),transparent_38%),linear-gradient(180deg,#111111_0%,#080808_100%)] p-5">
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#2a2a2a]" />
+        {children}
+      </div>
+    </div>
   );
-}
-
-function shortAddress(address: string) {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
