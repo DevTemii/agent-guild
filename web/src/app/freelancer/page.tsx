@@ -16,19 +16,14 @@ import {
   DetailCard,
   EmptyState,
   InlineNotice,
-  MetadataPill,
   NotificationList,
-  PipelineRow,
   SegmentedControl,
   SummaryCard,
 } from "@/components/workspace/WorkspacePrimitives";
 import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
 import { agentGuildChain } from "@/lib/networkConfig";
-import {
-  formatDisplayBudget,
-  formatSettlementAmountCelo,
-} from "@/lib/budget";
+import { formatDisplayBudget, formatSettlementAmountCelo } from "@/lib/budget";
 import { getReputationForWallet } from "@/lib/reputationStore";
 import {
   getContractsForFreelancer,
@@ -50,7 +45,7 @@ type Agent = {
   availability: string;
 };
 
-type FreelancerView = "overview" | "inbox" | "active";
+type FreelancerView = "inbox" | "active" | "profile";
 type InboxFilter = "pending" | "approved" | "rejected";
 
 export default function FreelancerWorkspacePage() {
@@ -139,12 +134,11 @@ export default function FreelancerWorkspacePage() {
   }
 
   const recommendedView = useMemo<FreelancerView>(() => {
-    if (!connectedAddress) return "overview";
+    if (!connectedAddress) return "profile";
     if (pendingContracts.length > 0) return "inbox";
     if (linkedContracts.length > 0 || unusedApprovedContracts.length > 0) return "active";
-    if (!myProfile) return "overview";
-    return "inbox";
-  }, [connectedAddress, pendingContracts.length, linkedContracts.length, unusedApprovedContracts.length, myProfile]);
+    return "profile";
+  }, [connectedAddress, linkedContracts.length, pendingContracts.length, unusedApprovedContracts.length]);
 
   useEffect(() => {
     if (hasManualViewSelection) return;
@@ -187,12 +181,12 @@ export default function FreelancerWorkspacePage() {
     const latestAgents = (latest.data as Agent[] | undefined) || allAgents;
     const walletExists = latestAgents.some((agent) => normalizeWallet(agent.owner) === connectedAddress);
     if (walletExists) {
-      setProfileStatus("This wallet already has a profile. One wallet can only create one freelancer profile in this demo.");
+      setProfileStatus("This wallet already has a profile. One wallet can only create one freelancer profile in this beta.");
       return;
     }
     const nameExists = latestAgents.some((agent) => agent.name.toLowerCase().trim() === name.toLowerCase().trim());
     if (nameExists) {
-      setProfileStatus("This profile name is already taken. Choose a different name for this demo.");
+      setProfileStatus("This profile name is already taken. Choose a different name for this beta.");
       return;
     }
 
@@ -222,7 +216,7 @@ export default function FreelancerWorkspacePage() {
       await refetch();
     } catch (error) {
       console.error(error);
-      setProfileStatus("Profile creation failed. Wallet may already have a profile or username may already be taken.");
+      setProfileStatus("Profile creation failed. Wallet may already have a profile or name may already be taken.");
     } finally {
       setCreating(false);
     }
@@ -231,18 +225,18 @@ export default function FreelancerWorkspacePage() {
   const nextAction = useMemo(() => {
     if (!connectedAddress) {
       return {
-        eyebrow: "Connection",
-        title: "Connect the freelancer wallet to activate this dashboard.",
-        description: "Wallet identity drives contract inbox visibility, active project permissions, and your stored reputation.",
+        eyebrow: "Connect",
+        title: "Connect the freelancer wallet to open your flow.",
+        description: "Inbox access, project permissions, and payout tracking are all wallet-scoped.",
         actionLabel: undefined,
         onAction: undefined,
       };
     }
     if (pendingContracts.length > 0) {
       return {
-        eyebrow: "Next action",
-        title: "Review the next incoming contract.",
-        description: "Approve or reject the pending contract before work can move into escrow.",
+        eyebrow: "Next",
+        title: "Review the next pending contract.",
+        description: "Approve or reject first, then wait for the client to fund escrow.",
         actionLabel: "Open Inbox",
         onAction: () => {
           openFreelancerView("inbox");
@@ -252,131 +246,103 @@ export default function FreelancerWorkspacePage() {
     }
     if (linkedContracts.length > 0) {
       return {
-        eyebrow: "Active work",
-        title: "A linked project needs delivery attention.",
-        description: "Open Active to monitor funded scope, submit work, and track the current project state.",
+        eyebrow: "Active",
+        title: "Submit work for the funded project.",
+        description: "Your linked project is ready for delivery or release tracking.",
         actionLabel: "Open Active",
         onAction: () => openFreelancerView("active"),
       };
     }
     if (!myProfile) {
       return {
-        eyebrow: "Setup",
-        title: "Create your freelancer profile to complete the workspace.",
+        eyebrow: "Profile",
+        title: "Create your curated beta profile.",
         description: isAllowlistedForBeta
-          ? "This wallet can publish one curated beta profile for client discovery."
-          : "This wallet can review work, but curated beta profile creation is limited to allowlisted wallets.",
-        actionLabel: undefined,
-        onAction: undefined,
+          ? "This wallet can publish one profile for client discovery."
+          : "This wallet can still review work, but profile publishing is limited to allowlisted wallets.",
+        actionLabel: "Open Profile",
+        onAction: () => openFreelancerView("profile"),
       };
     }
     if (unusedApprovedContracts.length > 0) {
       return {
         eyebrow: "Waiting",
-        title: "Approved work is waiting for client escrow setup.",
-        description: "The contract is approved. The next change will come when the client creates and funds the matching project.",
+        title: "Approved work is waiting for client funding.",
+        description: "The contract is approved. The next change happens when the client opens escrow.",
         actionLabel: "Open Active",
         onAction: () => openFreelancerView("active"),
       };
     }
     return {
       eyebrow: "Ready",
-      title: "Keep your profile and inbox ready for the next opportunity.",
-      description: "This workspace stays focused on incoming contracts, active delivery, and the reputation you build after outcomes resolve.",
+      title: "Stay ready for the next incoming contract.",
+      description: "Keep your inbox clear and your profile visible for the next client flow.",
       actionLabel: "Open Inbox",
       onAction: () => openFreelancerView("inbox"),
     };
-  }, [connectedAddress, isAllowlistedForBeta, pendingContracts.length, linkedContracts.length, myProfile, unusedApprovedContracts.length]);
+  }, [
+    connectedAddress,
+    isAllowlistedForBeta,
+    linkedContracts.length,
+    myProfile,
+    pendingContracts.length,
+    unusedApprovedContracts.length,
+  ]);
 
   const navItems: WorkspaceNavItem[] = [
-    { id: "overview", label: "Now", badge: myProfile ? undefined : "Setup", hint: "Immediate actions and setup." },
-    { id: "inbox", label: "Inbox", badge: `${pendingContracts.length}`, hint: "Review incoming contracts and decide." },
-    { id: "active", label: "Active", badge: `${linkedContracts.length}`, hint: "Track funded work and submit delivery." },
+    { id: "inbox", label: "Inbox", badge: `${pendingContracts.length}` },
+    { id: "active", label: "Active", badge: `${linkedContracts.length + unusedApprovedContracts.length}` },
+    { id: "profile", label: "Profile" },
   ];
 
   return (
     <WorkspaceShell
-      workspaceLabel="Freelancer workspace"
-      title="Freelancer dashboard for review and submit."
-      description="This route is the freelancer mini app: review contracts, track active delivery, and build reputation from a compact mobile-first workspace."
+      workspaceLabel="Freelancer"
+      title="Review, submit, and track payout."
+      description="One MiniPay-style freelancer flow for contract decisions, funded work, and release tracking."
       navItems={navItems}
       activeItem={activeView}
       onItemChange={(id) => openFreelancerView(id as FreelancerView)}
       headerActions={
         <>
-          <Link href="/client" className="rounded-[10px] border border-[#262626] px-4 py-2 text-sm font-medium text-[#f7f4ef] transition hover:border-[#3b3b3b]">Switch to Client</Link>
+          <Link
+            href="/client"
+            className="rounded-[12px] border border-[#262626] px-4 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#3b3b3b]"
+          >
+            Client
+          </Link>
           <ConnectButton client={client} chain={agentGuildChain} />
         </>
       }
-      metricStrip={<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><SummaryCard label="Pending" value={`${pendingContracts.length}`} /><SummaryCard label="Approved" value={`${unusedApprovedContracts.length}`} /><SummaryCard label="Active Links" value={`${linkedContracts.length}`} /><SummaryCard label="Earned" value={`${reputation?.totalEarned ?? 0} CELO`} /></div>}
-      focusArea={<SectionNotice eyebrow={nextAction.eyebrow} title={nextAction.title} description={nextAction.description} action={!connectedAddress ? <ConnectButton client={client} chain={agentGuildChain} /> : nextAction.actionLabel ? <button type="button" onClick={nextAction.onAction} className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]">{nextAction.actionLabel}</button> : null} />}
+      metricStrip={
+        <div className="grid gap-3 grid-cols-3">
+          <SummaryCard label="Pending" value={`${pendingContracts.length}`} />
+          <SummaryCard label="Active" value={`${linkedContracts.length}`} />
+          <SummaryCard label="Earned" value={`${reputation?.totalEarned ?? 0} CELO`} />
+        </div>
+      }
+      focusArea={
+        <SectionNotice
+          eyebrow={nextAction.eyebrow}
+          title={nextAction.title}
+          description={nextAction.description}
+          action={
+            !connectedAddress ? (
+              <ConnectButton client={client} chain={agentGuildChain} />
+            ) : nextAction.actionLabel ? (
+              <button
+                type="button"
+                onClick={nextAction.onAction}
+                className="w-full rounded-[16px] bg-[#d72638] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#b91f30]"
+              >
+                {nextAction.actionLabel}
+              </button>
+            ) : null
+          }
+        />
+      }
       mainArea={
         <>
-          {activeView === "overview" ? (
-            <div className="grid gap-6">
-              <WorkspacePanel title={!myProfile ? "Complete freelancer setup" : "Current operating state"} subtitle={!myProfile ? "The beta registry is curated. Only allowlisted wallets can publish one discoverable profile, while wallet activity remains visible either way." : "Your profile, active contracts, and delivery state now live in focused dashboard views."}>
-                {!connectedAddress ? (
-                  <WalletSignInPanel
-                    title="Sign in as freelancer"
-                    description="Connect the wallet you use for freelancer contracts, inbox access, and active project delivery."
-                  />
-                ) : !myProfile ? (
-                  <div className="grid gap-3">
-                    <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name *" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
-                    <input value={skill} onChange={(e) => setSkill(e.target.value)} placeholder="Primary skill *" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
-                    <input value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} placeholder="Hourly rate in USD *" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
-                    <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} placeholder="Short bio (optional)" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
-                    <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Location (optional)" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
-                    <input value={availability} onChange={(e) => setAvailability(e.target.value)} placeholder="Availability (optional)" className="w-full rounded-[12px] border border-[#242424] bg-[#090909] px-4 py-3 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]" />
-                    <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] px-4 py-3 text-sm text-[#d1d5db]">
-                      {isAllowlistedForBeta
-                        ? "This wallet is allowlisted for the curated beta directory and can publish one profile."
-                        : "This wallet is not allowlisted for profile creation in the curated beta directory yet."}
-                    </div>
-                    <div className="flex flex-wrap gap-3">
-                      <button type="button" onClick={createAgent} disabled={creating} className="rounded-[12px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30] disabled:opacity-60">{creating ? "Creating..." : "Create Profile"}</button>
-                      <button type="button" onClick={() => refetch()} className="rounded-[12px] border border-[#262626] px-5 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#3b3b3b]">Refresh</button>
-                    </div>
-                    {profileStatus ? <InlineNotice message={profileStatus} /> : null}
-                  </div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <SummaryCard label="Pending Contracts" value={`${pendingContracts.length}`} />
-                    <SummaryCard label="Approved Contracts" value={`${unusedApprovedContracts.length}`} />
-                    <SummaryCard label="Completed Contracts" value={`${reputation?.completedContracts ?? 0}`} />
-                    <SummaryCard label="Guild Score" value={`${reputation?.guildScore ?? 0}/100`} />
-                  </div>
-                )}
-              </WorkspacePanel>
-              <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-                <WorkspacePanel title="Current task" subtitle="Keep the most relevant contract or project at the center of the workspace.">
-                  {currentTask ? (
-                    <ContractCardList
-                      contracts={[currentTask]}
-                      variant="freelancer"
-                      nextActionLabel={(contract) =>
-                        contract.status === "sent"
-                          ? "Approve or reject"
-                          : contract.linkedProjectId
-                            ? `Linked to Project #${contract.linkedProjectId}`
-                            : "Waiting for escrow funding"
-                      }
-                    />
-                  ) : (
-                    <EmptyState copy="No current contracts or linked projects are assigned to this wallet yet." />
-                  )}
-                </WorkspacePanel>
-                <WorkspacePanel title="Workload snapshot" subtitle="Keep the inbox and active work lanes visible at a glance.">
-                  <div className="grid gap-3">
-                    <PipelineRow label="Pending decisions" value={`${pendingContracts.length}`} tone="amber" />
-                    <PipelineRow label="Approved contracts" value={`${unusedApprovedContracts.length}`} tone="neutral" />
-                    <PipelineRow label="Linked projects" value={`${linkedContracts.length}`} tone="red" />
-                    <PipelineRow label="Rejected" value={`${rejectedContracts.length}`} tone="green" />
-                  </div>
-                </WorkspacePanel>
-              </div>
-            </div>
-          ) : null}
           {activeView === "inbox" ? (
             !connectedAddress ? (
               <WalletSignInPanel
@@ -384,36 +350,67 @@ export default function FreelancerWorkspacePage() {
                 description="Pending contracts and approval actions are scoped to the connected freelancer wallet."
               />
             ) : (
-            <div className="grid gap-6">
-              <WorkspacePanel title="Contract inbox" subtitle="Keep only one inbox state visible at a time so review stays focused." action={<SegmentedControl items={[{ id: "pending", label: `Pending (${pendingContracts.length})` }, { id: "approved", label: `Approved (${unusedApprovedContracts.length})` }, { id: "rejected", label: `Rejected (${rejectedContracts.length})` }]} activeId={inboxFilter} onChange={(id) => setInboxFilter(id as InboxFilter)} />}>
+              <WorkspacePanel
+                title="Contract inbox"
+                subtitle="Keep one inbox state visible at a time so review stays focused."
+                action={
+                  <SegmentedControl
+                    items={[
+                      { id: "pending", label: `Pending (${pendingContracts.length})` },
+                      { id: "approved", label: `Approved (${unusedApprovedContracts.length})` },
+                      { id: "rejected", label: `Rejected (${rejectedContracts.length})` },
+                    ]}
+                    activeId={inboxFilter}
+                    onChange={(id) => setInboxFilter(id as InboxFilter)}
+                  />
+                }
+              >
                 <ContractCardList
                   contracts={inboxContracts}
                   variant="freelancer"
-                  emptyState={inboxFilter === "pending" ? "No pending contracts are assigned to this wallet." : inboxFilter === "approved" ? "No approved contracts are assigned to this wallet." : "No rejected contracts are assigned to this wallet."}
-                  nextActionLabel={(contract) =>
-                    contract.status === "sent"
+                  emptyState={
+                    inboxFilter === "pending"
+                      ? "No pending contracts are assigned to this wallet."
+                      : inboxFilter === "approved"
+                        ? "No approved contracts are assigned to this wallet."
+                        : "No rejected contracts are assigned to this wallet."
+                  }
+                  nextActionLabel={(contractEntry) =>
+                    contractEntry.status === "sent"
                       ? "Approve or reject"
-                      : contract.linkedProjectId
-                        ? `Linked to Project #${contract.linkedProjectId}`
-                        : contract.status === "approved"
-                          ? "Wait for client escrow setup"
+                      : contractEntry.linkedProjectId
+                        ? `Project #${contractEntry.linkedProjectId}`
+                        : contractEntry.status === "approved"
+                          ? "Wait for escrow funding"
                           : "Archived"
                   }
                   footer={
                     inboxFilter === "pending"
                       ? (contractEntry) => (
                           <div className="flex flex-wrap gap-3">
-                            <button type="button" onClick={() => approveContract(contractEntry.id)} className="rounded-[10px] bg-[#d72638] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#b91f30]">Approve</button>
-                            <button type="button" onClick={() => rejectContract(contractEntry.id)} className="rounded-[10px] border border-[#262626] px-4 py-2 text-xs font-semibold text-[#f7f4ef] transition hover:border-[#3b3b3b]">Reject</button>
+                            <button
+                              type="button"
+                              onClick={() => approveContract(contractEntry.id)}
+                              className="rounded-[12px] bg-[#d72638] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30]"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => rejectContract(contractEntry.id)}
+                              className="rounded-[12px] border border-[#262626] px-4 py-3 text-sm font-semibold text-[#f7f4ef] transition hover:border-[#3b3b3b]"
+                            >
+                              Reject
+                            </button>
                           </div>
                         )
                       : undefined
                   }
                 />
               </WorkspacePanel>
-            </div>
             )
           ) : null}
+
           {activeView === "active" ? (
             !connectedAddress ? (
               <WalletSignInPanel
@@ -421,64 +418,157 @@ export default function FreelancerWorkspacePage() {
                 description="Project permissions and submit-work actions only unlock after the freelancer wallet is connected."
               />
             ) : (
-            <div className="grid gap-6">
-              {!myProfile ? <WorkspacePanel title="Profile note" subtitle="Wallet permissions still govern active work, but beta discovery only includes curated allowlisted profiles."><EmptyState copy={isAllowlistedForBeta ? "You can still inspect project state for this wallet. Finish profile setup in Now to appear in the curated beta directory." : "You can still inspect project state for this wallet. Profile publishing is currently limited to allowlisted beta participants."} /></WorkspacePanel> : null}
-              <div id="freelancer-active-work"><EscrowSimulator selectedRole="freelancer" /></div>
-            </div>
+              <>
+                {currentTask ? (
+                  <WorkspacePanel
+                    title="Current work"
+                    subtitle="Keep the current contract or linked project visible while you move through delivery."
+                  >
+                    <ContractCardList
+                      contracts={[currentTask]}
+                      variant="freelancer"
+                      nextActionLabel={(contractEntry) =>
+                        contractEntry.status === "sent"
+                          ? "Approve or reject"
+                          : contractEntry.linkedProjectId
+                            ? `Project #${contractEntry.linkedProjectId}`
+                            : "Waiting for client funding"
+                      }
+                    />
+                  </WorkspacePanel>
+                ) : (
+                  <WorkspacePanel
+                    title="No active project"
+                    subtitle="Active work will appear here once a contract is approved and linked into escrow."
+                  >
+                    <EmptyState copy="No linked project is assigned to this wallet yet." />
+                  </WorkspacePanel>
+                )}
+
+                <div id="freelancer-active-work">
+                  <EscrowSimulator selectedRole="freelancer" />
+                </div>
+              </>
+            )
+          ) : null}
+
+          {activeView === "profile" ? (
+            !connectedAddress ? (
+              <WalletSignInPanel
+                title="Sign in as freelancer"
+                description="Connect the wallet you use for freelancer contracts, inbox access, and delivery."
+              />
+            ) : myProfile ? (
+              <>
+                <WorkspacePanel title="Profile" subtitle="This curated beta profile is what clients see first.">
+                  <div className="grid gap-3">
+                    <DetailCard label="Name" value={myProfile.name} />
+                    <DetailCard label="Skill" value={myProfile.skill} />
+                    <DetailCard label="Rate" value={`$${myProfile.hourlyRate.toString()}/hr`} />
+                    <DetailCard label="Availability" value={myProfile.availability} />
+                  </div>
+                </WorkspacePanel>
+                <WorkspacePanel title="Reputation" subtitle="Track the visible work outcome signals tied to this wallet.">
+                  <div className="grid gap-3 grid-cols-2">
+                    <SummaryCard label="Earned" value={`${reputation?.totalEarned ?? 0} CELO`} />
+                    <SummaryCard label="Completed" value={`${reputation?.completedContracts ?? 0}`} />
+                  </div>
+                </WorkspacePanel>
+              </>
+            ) : (
+              <WorkspacePanel
+                title="Create freelancer profile"
+                subtitle="The beta directory is curated. Only allowlisted wallets can publish one profile."
+              >
+                <div className="grid gap-3">
+                  <div className="rounded-[14px] border border-[#1f1f1f] bg-[#111111] px-4 py-4 text-sm leading-6 text-[#d1d5db]">
+                    {isAllowlistedForBeta
+                      ? "This wallet is allowlisted for the curated beta directory and can publish one profile."
+                      : "This wallet is not allowlisted for profile creation in the curated beta directory yet."}
+                  </div>
+                  <input
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="Name"
+                    className="w-full rounded-[14px] border border-[#242424] bg-[#090909] px-4 py-4 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
+                  />
+                  <input
+                    value={skill}
+                    onChange={(event) => setSkill(event.target.value)}
+                    placeholder="Primary skill"
+                    className="w-full rounded-[14px] border border-[#242424] bg-[#090909] px-4 py-4 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
+                  />
+                  <input
+                    value={hourlyRate}
+                    onChange={(event) => setHourlyRate(event.target.value)}
+                    placeholder="Hourly rate in USD"
+                    className="w-full rounded-[14px] border border-[#242424] bg-[#090909] px-4 py-4 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
+                  />
+                  <textarea
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    rows={4}
+                    placeholder="Short bio"
+                    className="w-full rounded-[14px] border border-[#242424] bg-[#090909] px-4 py-4 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
+                  />
+                  <input
+                    value={location}
+                    onChange={(event) => setLocation(event.target.value)}
+                    placeholder="Location"
+                    className="w-full rounded-[14px] border border-[#242424] bg-[#090909] px-4 py-4 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
+                  />
+                  <input
+                    value={availability}
+                    onChange={(event) => setAvailability(event.target.value)}
+                    placeholder="Availability"
+                    className="w-full rounded-[14px] border border-[#242424] bg-[#090909] px-4 py-4 text-sm text-[#f7f4ef] outline-none placeholder:text-[#71717a] focus:border-[#6f1d26]"
+                  />
+                  <button
+                    type="button"
+                    onClick={createAgent}
+                    disabled={creating}
+                    className="w-full rounded-[16px] bg-[#d72638] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#b91f30] disabled:opacity-60"
+                  >
+                    {creating ? "Creating..." : "Create Profile"}
+                  </button>
+                  {profileStatus ? <InlineNotice message={profileStatus} /> : null}
+                </div>
+              </WorkspacePanel>
             )
           ) : null}
         </>
       }
       supportArea={
         <>
-          <WorkspacePanel title="Notifications" subtitle="Recent workflow updates for this connected wallet.">
-            <NotificationList notifications={notifications} emptyCopy={connectedAddress ? "No notifications for this wallet yet." : "Connect a wallet to see wallet-scoped notifications."} />
+          <WorkspacePanel title="Notifications" subtitle="Recent workflow updates for this wallet.">
+            <NotificationList
+              notifications={notifications}
+              emptyCopy={
+                connectedAddress
+                  ? "No notifications for this wallet yet."
+                  : "Connect a wallet to see wallet-scoped notifications."
+              }
+            />
           </WorkspacePanel>
-          <WorkspacePanel title="Profile summary" subtitle="Registry identity and wallet context.">
-            {myProfile ? (
-              <div className="grid gap-3">
-                <DetailCard label="Name" value={myProfile.name} />
-                <DetailCard label="Primary skill" value={myProfile.skill} />
-                <DetailCard label="Rate" value={`$${myProfile.hourlyRate.toString()}/hr`} />
-                <DetailCard label="Availability" value={myProfile.availability} />
-                {connectedAddress ? <DetailCard label="Connected wallet" value={shortAddress(connectedAddress)} /> : null}
-              </div>
-            ) : (
-              <EmptyState copy="No curated beta freelancer profile yet. Wallet activity and inbox state still remain visible." />
-            )}
-          </WorkspacePanel>
-          <WorkspacePanel title="Current snapshot" subtitle="Keep the current contract and earnings context visible.">
+          <WorkspacePanel title="Current snapshot" subtitle="Keep the current contract context visible.">
             {currentTask ? (
               <div className="grid gap-3">
                 <DetailCard label="Client" value={currentTask.clientName} />
                 <DetailCard label="Contract value" value={formatDisplayBudget(currentTask.displayBudget)} />
-                <DetailCard label="Settlement amount" value={formatSettlementAmountCelo(currentTask.settlementAmountCelo)} />
+                <DetailCard
+                  label="Settlement amount"
+                  value={formatSettlementAmountCelo(currentTask.settlementAmountCelo)}
+                />
                 <DetailCard label="Status" value={currentTask.status} />
-                {currentTask.linkedProjectId ? <DetailCard label="Project" value={`#${currentTask.linkedProjectId}`} /> : null}
               </div>
             ) : (
-              <div className="grid gap-3">
-                <DetailCard label="Total earned" value={`${reputation?.totalEarned ?? 0} CELO`} />
-                <DetailCard label="Completed" value={`${reputation?.completedContracts ?? 0}`} />
-                <DetailCard label="Guild score" value={`${reputation?.guildScore ?? 0}/100`} />
-              </div>
+              <EmptyState copy="No current contract or project is assigned to this wallet." />
             )}
-          </WorkspacePanel>
-          <WorkspacePanel title="Earnings and history" subtitle="Completed work stays secondary while beta focuses on the live loop.">
-            <div className="grid gap-3">
-              <DetailCard label="Total earned" value={`${reputation?.totalEarned ?? 0} CELO`} />
-              <DetailCard label="Completed contracts" value={`${reputation?.completedContracts ?? 0}`} />
-              <DetailCard label="Archived records" value={`${linkedContracts.length + rejectedContracts.length}`} />
-            </div>
           </WorkspacePanel>
         </>
       }
     />
   );
-}
-
-function shortAddress(address: string) {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
 function WalletSignInPanel({
@@ -489,10 +579,10 @@ function WalletSignInPanel({
   description: string;
 }) {
   return (
-    <div className="rounded-[16px] border border-[#4c1d24] bg-[#160b0d] p-5">
-      <div className="text-[12px] uppercase tracking-[0.14em] text-[#f2b6be]">Freelancer access</div>
-      <div className="mt-3 text-[20px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{title}</div>
-      <p className="mt-3 max-w-[620px] text-sm leading-7 text-[#e6c7cb]">{description}</p>
+    <div className="rounded-[20px] border border-[#4c1d24] bg-[#160b0d] p-5">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-[#f2b6be]">Freelancer access</div>
+      <div className="mt-3 text-[22px] font-semibold tracking-[-0.04em] text-[#f7f4ef]">{title}</div>
+      <p className="mt-3 text-sm leading-7 text-[#e6c7cb]">{description}</p>
       <div className="mt-5">
         <ConnectButton client={client} chain={agentGuildChain} />
       </div>
