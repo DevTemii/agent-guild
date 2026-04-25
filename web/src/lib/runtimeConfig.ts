@@ -14,9 +14,20 @@ export type AgentGuildRuntimeConfig = {
   activeDeployment: DeploymentAddressSet | null;
 };
 
-function readPublicEnv(name: string) {
-  const value = process.env[name]?.trim();
-  return value ? value : null;
+type AgentGuildPublicEnv = {
+  thirdwebClientId: string | null;
+  requestedNetwork: string | null;
+  celoMainnetAgentRegistryAddress: string | null;
+  celoMainnetFreelanceEscrowAddress: string | null;
+};
+
+declare global {
+  var __agentGuildRuntimeConfigLogged: boolean | undefined;
+}
+
+function readPublicValue(value: string | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function isValidEvmAddress(value: string | null) {
@@ -24,27 +35,37 @@ function isValidEvmAddress(value: string | null) {
 }
 
 function validateNetworkKey(value: string | null) {
-  if (value === "celo-mainnet" || value === "celo-sepolia") {
+  if (value === "celo-mainnet") {
     return value satisfies AgentGuildNetworkKey;
   }
 
   return null;
 }
 
+function readAgentGuildPublicEnv(): AgentGuildPublicEnv {
+  return {
+    thirdwebClientId: readPublicValue(process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID),
+    requestedNetwork: readPublicValue(process.env.NEXT_PUBLIC_AGENT_GUILD_NETWORK)?.toLowerCase() ?? null,
+    celoMainnetAgentRegistryAddress: readPublicValue(process.env.NEXT_PUBLIC_CELO_MAINNET_AGENT_REGISTRY_ADDRESS),
+    celoMainnetFreelanceEscrowAddress: readPublicValue(process.env.NEXT_PUBLIC_CELO_MAINNET_FREELANCE_ESCROW_ADDRESS),
+  };
+}
+
 function buildRuntimeConfig(): AgentGuildRuntimeConfig {
   const errors: string[] = [];
-  const thirdwebClientId = readPublicEnv("NEXT_PUBLIC_THIRDWEB_CLIENT_ID");
-  const requestedNetwork = readPublicEnv("NEXT_PUBLIC_AGENT_GUILD_NETWORK")?.toLowerCase() ?? null;
+  const publicEnv = readAgentGuildPublicEnv();
+  const thirdwebClientId = publicEnv.thirdwebClientId;
+  const requestedNetwork = publicEnv.requestedNetwork;
   const networkKey = validateNetworkKey(requestedNetwork);
 
   const deploymentByNetwork: Record<AgentGuildNetworkKey, DeploymentAddressSet> = {
     "celo-mainnet": {
-      agentRegistryAddress: readPublicEnv("NEXT_PUBLIC_CELO_MAINNET_AGENT_REGISTRY_ADDRESS"),
-      freelanceEscrowAddress: readPublicEnv("NEXT_PUBLIC_CELO_MAINNET_FREELANCE_ESCROW_ADDRESS"),
+      agentRegistryAddress: publicEnv.celoMainnetAgentRegistryAddress,
+      freelanceEscrowAddress: publicEnv.celoMainnetFreelanceEscrowAddress,
     },
     "celo-sepolia": {
-      agentRegistryAddress: readPublicEnv("NEXT_PUBLIC_CELO_SEPOLIA_AGENT_REGISTRY_ADDRESS"),
-      freelanceEscrowAddress: readPublicEnv("NEXT_PUBLIC_CELO_SEPOLIA_FREELANCE_ESCROW_ADDRESS"),
+      agentRegistryAddress: null,
+      freelanceEscrowAddress: null,
     },
   };
 
@@ -55,11 +76,7 @@ function buildRuntimeConfig(): AgentGuildRuntimeConfig {
   if (!requestedNetwork) {
     errors.push("NEXT_PUBLIC_AGENT_GUILD_NETWORK is required for Agent Guild runtime configuration.");
   } else if (!networkKey) {
-    errors.push("NEXT_PUBLIC_AGENT_GUILD_NETWORK must be either 'celo-mainnet' or 'celo-sepolia'.");
-  } else if (process.env.NODE_ENV === "production" && networkKey !== "celo-mainnet") {
-    errors.push(
-      "Production Agent Guild builds must target Celo Mainnet with NEXT_PUBLIC_AGENT_GUILD_NETWORK=celo-mainnet."
-    );
+    errors.push("NEXT_PUBLIC_AGENT_GUILD_NETWORK must be 'celo-mainnet'.");
   }
 
   const activeDeployment = networkKey ? deploymentByNetwork[networkKey] : null;
@@ -86,4 +103,11 @@ function buildRuntimeConfig(): AgentGuildRuntimeConfig {
   };
 }
 
-export const agentGuildRuntimeConfig = buildRuntimeConfig();
+const resolvedConfig = buildRuntimeConfig();
+
+if (!globalThis.__agentGuildRuntimeConfigLogged) {
+  console.log("Agent Guild runtime config", resolvedConfig);
+  globalThis.__agentGuildRuntimeConfigLogged = true;
+}
+
+export const agentGuildRuntimeConfig = resolvedConfig;

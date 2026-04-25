@@ -9,3 +9,5 @@ cache
 coverage
 dist
 out
+.vercel
+.env*.local
