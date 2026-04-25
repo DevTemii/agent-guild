@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ConnectButton, useActiveAccount } from "thirdweb/react";
 import { client } from "@/lib/client";
 import { agentGuildChain } from "@/lib/networkConfig";
@@ -11,14 +11,13 @@ const SPLASH_STORAGE_KEY = "agent-guild-minipay-splash";
 export default function Home() {
   const account = useActiveAccount();
   const connectedAddress = account?.address ?? null;
-  const [showRoleScreen, setShowRoleScreen] = useState(false);
-
-  useEffect(() => {
-    const savedStep = window.localStorage.getItem(SPLASH_STORAGE_KEY);
-    if (savedStep === "role") {
-      setShowRoleScreen(true);
+  const [showRoleScreen, setShowRoleScreen] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
     }
-  }, []);
+
+    return window.localStorage.getItem(SPLASH_STORAGE_KEY) === "role";
+  });
 
   function continueToRoleSelection() {
     window.localStorage.setItem(SPLASH_STORAGE_KEY, "role");
