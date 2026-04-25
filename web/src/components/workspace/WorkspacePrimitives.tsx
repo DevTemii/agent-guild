@@ -10,18 +10,18 @@ import { WorkspacePanel } from "./WorkspaceShell";
 
 export function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[14px] border border-[#1d1d1d] bg-[#0d0d0d] p-3.5">
-      <div className="text-[22px] font-semibold tracking-[-0.03em] text-[#f7f4ef]">{value}</div>
-      <div className="mt-1.5 text-[10px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
+    <div className="rounded-[18px] border border-[#191919] bg-[#0c0c0c] p-4">
+      <div className="text-[24px] font-semibold tracking-[-0.04em] text-[#f7f4ef]">{value}</div>
+      <div className="mt-2 text-[10px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
     </div>
   );
 }
 
 export function DetailCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[14px] border border-[#1d1d1d] bg-[#090909] p-3.5">
+    <div className="rounded-[16px] border border-[#1d1d1d] bg-[#090909] p-4">
       <div className="text-[11px] uppercase tracking-[0.14em] text-[#71717a]">{label}</div>
-      <div className="mt-2 break-words text-[14px] leading-6 text-[#d4d4d8]">{value}</div>
+      <div className="mt-2 break-words text-[15px] leading-7 text-[#d4d4d8]">{value}</div>
     </div>
   );
 }
@@ -49,7 +49,7 @@ export function NotificationList({
   return (
     <div className="grid gap-2">
       {notifications.slice(0, 4).map((note, index) => (
-        <div key={index} className="rounded-[12px] border border-[#1d1d1d] bg-[#090909] px-3 py-3 text-sm leading-6 text-[#d4d4d8]">
+        <div key={index} className="rounded-[16px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 text-sm leading-7 text-[#d4d4d8]">
           {note}
         </div>
       ))}
@@ -103,7 +103,7 @@ export function ContractCardList({
             }}
             role={canSelect ? "button" : undefined}
             tabIndex={canSelect ? 0 : undefined}
-            className={`rounded-[16px] border p-4 text-left transition ${
+            className={`rounded-[20px] border p-4 text-left transition ${
               canSelect && selectedId === contract.id
                 ? "border-[#6f1d26] bg-[#160b0d]"
                 : "border-[#1d1d1d] bg-[#090909]"
@@ -121,8 +121,8 @@ export function ContractCardList({
               <StatusBadge status={contract.status} />
             </div>
 
-            <div className="mt-3 text-sm leading-6 text-[#d4d4d8]">{contract.summary}</div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-4">
+            <div className="mt-3 text-sm leading-7 text-[#d4d4d8]">{contract.summary}</div>
+            <div className="mt-3 grid gap-2">
               <MetadataPill
                 label="Contract value"
                 value={formatDisplayBudget(contract.displayBudget)}
@@ -160,7 +160,7 @@ export function ContractCardList({
                     event.stopPropagation();
                     onAction(contract.id);
                   }}
-                  className="inline-flex rounded-[10px] bg-[#d72638] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#b91f30]"
+                  className="inline-flex min-h-[44px] rounded-[14px] bg-[#d72638] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#b91f30]"
                 >
                   {actionLabel}
                 </button>
@@ -200,7 +200,7 @@ export function SegmentedControl({
   onChange: (id: string) => void;
 }) {
   return (
-    <div className="flex max-w-full gap-2 overflow-x-auto rounded-[14px] border border-[#1d1d1d] bg-[#090909] p-1">
+    <div className="flex max-w-full gap-2 overflow-x-auto rounded-[16px] border border-[#1d1d1d] bg-[#090909] p-1.5">
       {items.map((item) => {
         const active = item.id === activeId;
         return (
@@ -208,7 +208,7 @@ export function SegmentedControl({
             key={item.id}
             type="button"
             onClick={() => onChange(item.id)}
-            className={`whitespace-nowrap rounded-[10px] px-3 py-2 text-xs font-semibold transition ${
+            className={`min-h-[44px] whitespace-nowrap rounded-[12px] px-3 py-2 text-xs font-semibold transition ${
               active ? "bg-[#160b0d] text-[#f7f4ef]" : "text-[#a1a1aa] hover:bg-[#111111] hover:text-[#f7f4ef]"
             }`}
           >
@@ -248,7 +248,7 @@ export function PipelineRow({
 
 export function EmptyState({ copy }: { copy: string }) {
   return (
-    <div className="rounded-[14px] border border-dashed border-[#242424] bg-[#090909] px-4 py-5 text-sm leading-6 text-[#a1a1aa]">
+    <div className="rounded-[18px] border border-dashed border-[#242424] bg-[#090909] px-4 py-5 text-sm leading-7 text-[#a1a1aa]">
       {copy}
     </div>
   );
@@ -264,8 +264,66 @@ export function SetupGate({ copy }: { copy: string }) {
 
 export function InlineNotice({ message }: { message: string }) {
   return (
-    <div className="rounded-[12px] border border-[#1d1d1d] bg-[#090909] px-4 py-3 text-sm leading-6 text-[#d4d4d8]">
+    <div className="rounded-[16px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 text-sm leading-7 text-[#d4d4d8]">
       {message}
+    </div>
+  );
+}
+
+export function DealEventList({
+  events,
+}: {
+  events: Array<{
+    id: string;
+    speaker: string;
+    message: string;
+    tone?: "neutral" | "accent" | "success";
+  }>;
+}) {
+  if (events.length === 0) {
+    return <EmptyState copy="No deal updates yet." />;
+  }
+
+  return (
+    <div className="grid gap-3">
+      {events.map((event) => {
+        const bubbleTone =
+          event.tone === "accent"
+            ? "border-[#4c1d24] bg-[#160b0d] text-[#f6d6db]"
+            : event.tone === "success"
+              ? "border-[#1f3b28] bg-[#0d1912] text-[#cbead5]"
+              : "border-[#1d1d1d] bg-[#101010] text-[#d4d4d8]";
+
+        return (
+          <div key={event.id} className={`rounded-[20px] border px-4 py-4 ${bubbleTone}`}>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9ca3af]">
+              {event.speaker}
+            </div>
+            <div className="mt-2 text-[15px] leading-7">{event.message}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function DealStageCard({
+  eyebrow,
+  title,
+  body,
+  cta,
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+  cta?: ReactNode;
+}) {
+  return (
+    <div className="rounded-[24px] border border-[#4c1d24] bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.18),transparent_36%),linear-gradient(180deg,#170b0d_0%,#10080a_100%)] p-5">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f2b6be]">{eyebrow}</div>
+      <div className="mt-3 text-[24px] font-semibold tracking-[-0.05em] text-[#f7f4ef]">{title}</div>
+      <p className="mt-3 text-[15px] leading-7 text-[#f0cfd4]">{body}</p>
+      {cta ? <div className="mt-5">{cta}</div> : null}
     </div>
   );
 }
