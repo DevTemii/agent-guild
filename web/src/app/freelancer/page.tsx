@@ -346,7 +346,7 @@ function ConfiguredFreelancerWorkspacePage() {
       setProfileStatus("Saving your freelancer profile...");
       const transaction = prepareContractCall({
         contract,
-        method: AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE,
+        method: "registerAgent",
         params: profileArgs,
       });
 
