@@ -165,7 +165,7 @@ function ConfiguredFreelancerWorkspacePage() {
 
   const { data, refetch } = useReadContract({ contract, method: "getAgents", params: [] });
 
-  const resolvedChainId = activeChainId ?? providerChainId;
+  const resolvedChainId = walletSession.isMiniPay ? providerChainId : activeChainId;
 
   useEffect(() => {
     const syncWorkflow = async () => {
@@ -695,6 +695,19 @@ function ConfiguredFreelancerWorkspacePage() {
                     <DetailCard label="wallet connected" value={walletSession.walletConnected ? "true" : "false"} />
                     <DetailCard label="Wallet" value={connectedAddress || "Not connected"} />
                     <DetailCard label="provider detected" value={walletSession.providerDetected ? "true" : "false"} />
+                    <DetailCard label="provider source" value={walletSession.providerSource || "Not detected"} />
+                    <DetailCard
+                      label="raw provider chainId"
+                      value={
+                        walletSession.rawProviderChainId !== null
+                          ? `${walletSession.rawProviderChainId}`
+                          : "Not detected"
+                      }
+                    />
+                    <DetailCard
+                      label="normalized chainId"
+                      value={walletSession.normalizedChainId ? `${walletSession.normalizedChainId}` : "Not detected"}
+                    />
                     <DetailCard label="Registry address" value={AGENT_REGISTRY_ADDRESS} />
                     <DetailCard label="Function" value={AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE} />
                     <DetailCard label="Tx hash" value={profileTxHash || "No profile tx submitted yet"} />

@@ -257,9 +257,17 @@ function ConfiguredClientWorkspacePage() {
     }
 
     const resolvedChainId =
-      walletSession.walletSource === "minipay"
+      walletSession.isMiniPay
         ? walletSession.providerChainId
         : walletSession.externalChainId;
+    console.log("Agent Guild MiniPay create contract chain validation", {
+      isMiniPay: walletSession.isMiniPay,
+      providerSource: walletSession.providerSource,
+      rawProviderChainId: walletSession.rawProviderChainId,
+      normalizedChainValue: resolvedChainId,
+      hookChainId: walletSession.externalChainId,
+      validationResult: resolvedChainId === agentGuildChainId,
+    });
     if (resolvedChainId !== agentGuildChainId) {
       setContractStatus("Reconnect Wallet");
       return;
@@ -309,7 +317,10 @@ function ConfiguredClientWorkspacePage() {
         walletConnected: walletSession.walletConnected,
         activeAddress: walletSession.address,
         providerDetected: walletSession.providerDetected,
+        providerSource: walletSession.providerSource,
+        rawProviderChainId: walletSession.rawProviderChainId,
         providerChainId: walletSession.providerChainId,
+        normalizedChainId: walletSession.normalizedChainId,
         externalChainId: walletSession.externalChainId,
         sessionActive: walletSession.sessionActive,
       });
@@ -891,12 +902,25 @@ function ConfiguredClientWorkspacePage() {
                     <DetailCard label="wallet connected" value={walletSession.walletConnected ? "true" : "false"} />
                     <DetailCard label="active address" value={walletSession.address || "Not connected"} />
                     <DetailCard label="provider detected" value={walletSession.providerDetected ? "true" : "false"} />
+                    <DetailCard label="provider source" value={walletSession.providerSource || "Not detected"} />
+                    <DetailCard
+                      label="raw provider chainId"
+                      value={
+                        walletSession.rawProviderChainId !== null
+                          ? `${walletSession.rawProviderChainId}`
+                          : "Not detected"
+                      }
+                    />
                     <DetailCard
                       label="provider chainId"
                       value={walletSession.providerChainId ? `${walletSession.providerChainId}` : "Not detected"}
                     />
                     <DetailCard
-                      label="external chainId"
+                      label="normalized chainId"
+                      value={walletSession.normalizedChainId ? `${walletSession.normalizedChainId}` : "Not detected"}
+                    />
+                    <DetailCard
+                      label="hook chainId"
                       value={walletSession.externalChainId ? `${walletSession.externalChainId}` : "Not connected"}
                     />
                     <DetailCard label="session active" value={walletSession.sessionActive ? "true" : "false"} />

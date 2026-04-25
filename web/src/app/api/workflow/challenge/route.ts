@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseUnits } from "viem";
+import { normalizeChainId } from "@/lib/chainId";
 import { createWorkflowChallenge } from "@/lib/server/workflowAuth";
 import { normalizeWallet } from "@/lib/workflowTypes";
 
@@ -14,12 +15,7 @@ export async function POST(request: Request) {
     };
     const wallet = normalizeWallet(body.wallet);
     const rawAmount = typeof body.amount === "string" ? body.amount.trim() : "";
-    const parsedChainId =
-      typeof body.chainId === "number"
-        ? body.chainId
-        : typeof body.chainId === "string" && body.chainId.trim()
-          ? Number.parseInt(body.chainId, 10)
-          : null;
+    const parsedChainId = normalizeChainId(body.chainId);
     let parsedAmount: string | null = null;
 
     if (!wallet) {
@@ -62,7 +58,9 @@ export async function POST(request: Request) {
       amountRawValue: rawAmount,
       parsedAmount,
       walletAddress: wallet,
-      chainId: parsedChainId,
+      rawChainResponse: body.chainId ?? null,
+      normalizedChainValue: parsedChainId,
+      validationResult: parsedChainId === 42220,
     });
 
     const challenge = createWorkflowChallenge(wallet);

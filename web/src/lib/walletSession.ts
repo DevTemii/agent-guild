@@ -5,6 +5,7 @@ import { useActiveAccount, useActiveWallet, useActiveWalletChain, useConnect, us
 import type { Account } from "thirdweb/wallets";
 import { createWallet, EIP1193 } from "thirdweb/wallets";
 import { client } from "./client";
+import { normalizeChainId } from "./chainId";
 import { agentGuildChain, agentGuildChainId } from "./networkConfig";
 import { normalizeWallet } from "./workflowTypes";
 
@@ -35,6 +36,7 @@ type MiniPayResolution = {
   providerDetected: boolean;
   provider: BrowserWalletProvider | null;
   address: string | null;
+  rawChainId: unknown;
   chainId: number | null;
 };
 
@@ -47,7 +49,10 @@ export type AgentWalletSessionState = {
   address: string | null;
   walletConnected: boolean;
   providerDetected: boolean;
+  providerSource: string | null;
+  rawProviderChainId: string | number | null;
   providerChainId: number | null;
+  normalizedChainId: number | null;
   externalChainId: number | null;
   sessionActive: boolean;
   rawWalletError: string | null;
@@ -82,29 +87,6 @@ function getBrowserWalletProvider() {
   }
 
   return provider;
-}
-
-function parseChainId(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  if (trimmed.startsWith("0x")) {
-    const parsedHex = Number.parseInt(trimmed, 16);
-    return Number.isFinite(parsedHex) ? parsedHex : null;
-  }
-
-  const parsed = Number.parseInt(trimmed, 10);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function parseAccounts(value: unknown) {
@@ -164,6 +146,7 @@ export async function resolveMiniPayWallet(requestAccounts = false): Promise<Min
       providerDetected,
       provider,
       address: null,
+      rawChainId: null,
       chainId: null,
     };
   }
@@ -171,6 +154,7 @@ export async function resolveMiniPayWallet(requestAccounts = false): Promise<Min
   const persisted = readPersistedMiniPaySession();
   let address = persisted?.address ?? null;
   let chainId = persisted?.chainId ?? null;
+  let rawChainId: unknown = null;
 
   try {
     const accountsResponse = await provider.request?.({
@@ -185,7 +169,14 @@ export async function resolveMiniPayWallet(requestAccounts = false): Promise<Min
 
   try {
     const chainResponse = await provider.request?.({ method: "eth_chainId" });
-    chainId = parseChainId(chainResponse);
+    rawChainId = typeof chainResponse === "string" || typeof chainResponse === "number" ? chainResponse : null;
+    chainId = normalizeChainId(chainResponse);
+    console.log("Agent Guild MiniPay chain resolution", {
+      providerSource: "window.ethereum",
+      rawChainResponse: rawChainId,
+      normalizedChainValue: chainId,
+      validationResult: chainId === agentGuildChainId,
+    });
   } catch (error) {
     console.error("Failed to resolve MiniPay chain id", error);
   }
@@ -206,6 +197,7 @@ export async function resolveMiniPayWallet(requestAccounts = false): Promise<Min
     providerDetected,
     provider,
     address,
+    rawChainId,
     chainId,
   };
 }
@@ -303,6 +295,7 @@ export function useAgentWalletSession(): AgentWalletSessionState {
     providerDetected: false,
     provider: null,
     address: null,
+    rawChainId: null,
     chainId: null,
   });
   const [rawWalletError, setRawWalletError] = useState<string | null>(null);
@@ -322,6 +315,7 @@ export function useAgentWalletSession(): AgentWalletSessionState {
           providerDetected: Boolean(provider),
           provider,
           address: null,
+          rawChainId: null,
           chainId: null,
         });
         return;
@@ -437,6 +431,7 @@ export function useAgentWalletSession(): AgentWalletSessionState {
         providerDetected: Boolean(getBrowserWalletProvider()),
         provider: getBrowserWalletProvider(),
         address: null,
+        rawChainId: null,
         chainId: null,
       });
 
@@ -466,8 +461,12 @@ export function useAgentWalletSession(): AgentWalletSessionState {
   }, [activeAccount?.address, miniPayState.address, walletSource]);
 
   const providerChainId = miniPayState.chainId;
-  const externalChainId = activeWalletChain?.id ?? null;
+  const externalChainId = normalizeChainId(activeWalletChain?.id ?? null);
   const walletConnected = Boolean(address);
+  const normalizedChainId =
+    walletSource === "minipay"
+      ? providerChainId
+      : externalChainId;
   const sessionActive =
     walletSource === "minipay"
       ? Boolean(address && providerChainId === agentGuildChainId)
@@ -480,7 +479,13 @@ export function useAgentWalletSession(): AgentWalletSessionState {
     address,
     walletConnected,
     providerDetected: miniPayState.providerDetected,
+    providerSource: miniPayState.provider ? "window.ethereum" : null,
+    rawProviderChainId:
+      typeof miniPayState.rawChainId === "string" || typeof miniPayState.rawChainId === "number"
+        ? miniPayState.rawChainId
+        : null,
     providerChainId,
+    normalizedChainId,
     externalChainId,
     sessionActive,
     rawWalletError,
