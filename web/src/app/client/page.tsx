@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useActiveAccount, useReadContract } from "thirdweb/react";
+import { useReadContract } from "thirdweb/react";
 import { getContract } from "thirdweb";
 import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
 import EscrowSimulator from "@/components/EscrowSimulator";
@@ -20,8 +20,9 @@ import {
 import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
 import { getContractCacheKey, getWalletCacheKey } from "@/lib/cacheKeys";
-import { agentGuildChain } from "@/lib/networkConfig";
+import { agentGuildChain, agentGuildChainId } from "@/lib/networkConfig";
 import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
+import { useAgentWalletSession } from "@/lib/walletSession";
 import {
   createDraftContract,
   getContractsForClient,
@@ -77,8 +78,9 @@ export default function ClientWorkspacePage() {
 
 function ConfiguredClientWorkspacePage() {
   const thirdwebClient = client!;
-  const account = useActiveAccount();
-  const connectedAddress = normalizeWallet(account?.address) || null;
+  const walletSession = useAgentWalletSession();
+  const account = walletSession.thirdwebAccount;
+  const connectedAddress = walletSession.address;
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const [companyName, setCompanyName] = useState("");
   const [contactName, setContactName] = useState("");
@@ -232,8 +234,22 @@ function ConfiguredClientWorkspacePage() {
       setContractStatus("Add the client name, project brief, and contract value first.");
       return;
     }
-    if (!connectedAddress) {
-      setContractStatus("Connect your wallet first.");
+    if (!connectedAddress || !walletSession.walletConnected || !walletSession.sessionActive) {
+      setContractStatus("Reconnect Wallet");
+      return;
+    }
+
+    const resolvedChainId =
+      walletSession.walletSource === "minipay"
+        ? walletSession.providerChainId
+        : walletSession.externalChainId;
+    if (resolvedChainId !== agentGuildChainId) {
+      setContractStatus("Reconnect Wallet");
+      return;
+    }
+
+    if (walletSession.walletSource === "minipay" && !walletSession.provider) {
+      setContractStatus("Reconnect Wallet");
       return;
     }
 
@@ -254,6 +270,16 @@ function ConfiguredClientWorkspacePage() {
     try {
       setGeneratingContract(true);
       setContractStatus("Creating the deal...");
+      console.log("Agent Guild contract flow wallet debug", {
+        isMiniPay: walletSession.isMiniPay,
+        walletSource: walletSession.walletSource,
+        walletConnected: walletSession.walletConnected,
+        activeAddress: walletSession.address,
+        providerDetected: walletSession.providerDetected,
+        providerChainId: walletSession.providerChainId,
+        externalChainId: walletSession.externalChainId,
+        sessionActive: walletSession.sessionActive,
+      });
       const res = await fetch("/api/generate-contract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -301,8 +327,8 @@ function ConfiguredClientWorkspacePage() {
       console.error(error);
       const nextStatus =
         error instanceof Error
-          ? error.message === "Failed to create workflow challenge."
-            ? "Could not start a secure wallet session for contract creation. Reconnect MiniPay and try again."
+          ? error.message.includes("secure wallet session")
+            ? "Reconnect Wallet"
             : error.message
           : "AI contract generation failed.";
       setContractStatus(nextStatus);
@@ -786,6 +812,26 @@ function ConfiguredClientWorkspacePage() {
                     />
                   </WorkspacePanel>
                 ) : null}
+
+                <WorkspacePanel title="Wallet debug" subtitle="Temporary MiniPay session diagnostics for beta.">
+                  <div className="grid gap-3">
+                    <DetailCard label="isMiniPay" value={walletSession.isMiniPay ? "true" : "false"} />
+                    <DetailCard label="wallet source" value={walletSession.walletSource || "Not connected"} />
+                    <DetailCard label="wallet connected" value={walletSession.walletConnected ? "true" : "false"} />
+                    <DetailCard label="active address" value={walletSession.address || "Not connected"} />
+                    <DetailCard label="provider detected" value={walletSession.providerDetected ? "true" : "false"} />
+                    <DetailCard
+                      label="provider chainId"
+                      value={walletSession.providerChainId ? `${walletSession.providerChainId}` : "Not detected"}
+                    />
+                    <DetailCard
+                      label="external chainId"
+                      value={walletSession.externalChainId ? `${walletSession.externalChainId}` : "Not connected"}
+                    />
+                    <DetailCard label="session active" value={walletSession.sessionActive ? "true" : "false"} />
+                    <DetailCard label="raw wallet error" value={walletSession.rawWalletError || "No wallet error captured"} />
+                  </div>
+                </WorkspacePanel>
               </>
             ) : null}
           </>

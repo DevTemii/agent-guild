@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useActiveAccount, useActiveWalletChain, useReadContract } from "thirdweb/react";
+import { useReadContract } from "thirdweb/react";
 import { getContract, prepareContractCall, sendTransaction, waitForReceipt } from "thirdweb";
 import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
 import EscrowSimulator from "@/components/EscrowSimulator";
@@ -24,6 +24,7 @@ import {
 } from "@/lib/contract";
 import { agentGuildChain, agentGuildChainId, agentGuildChainLabel } from "@/lib/networkConfig";
 import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
+import { useAgentWalletSession } from "@/lib/walletSession";
 import { getReputationForWallet } from "@/lib/reputationStore";
 import {
   getContractsForFreelancer,
@@ -130,11 +131,11 @@ export default function FreelancerWorkspacePage() {
 
 function ConfiguredFreelancerWorkspacePage() {
   const thirdwebClient = client!;
-  const account = useActiveAccount();
-  const activeWalletChain = useActiveWalletChain();
-  const connectedAddress = normalizeWallet(account?.address) || null;
-  const activeChainId = activeWalletChain?.id ?? null;
-  const [providerChainId, setProviderChainId] = useState<number | null>(null);
+  const walletSession = useAgentWalletSession();
+  const account = walletSession.thirdwebAccount;
+  const connectedAddress = walletSession.address;
+  const activeChainId = walletSession.externalChainId;
+  const providerChainId = walletSession.providerChainId;
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -163,40 +164,6 @@ function ConfiguredFreelancerWorkspacePage() {
   );
 
   const { data, refetch } = useReadContract({ contract, method: "getAgents", params: [] });
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function resolveProviderChain() {
-      if (typeof window === "undefined" || !window.ethereum) {
-        if (!cancelled) {
-          setProviderChainId(null);
-        }
-        return;
-      }
-
-      try {
-        const hexChainId = await (
-          window.ethereum as { request?: (args: { method: string }) => Promise<string> }
-        ).request?.({ method: "eth_chainId" });
-
-        if (!cancelled) {
-          setProviderChainId(hexChainId ? Number.parseInt(hexChainId, 16) : null);
-        }
-      } catch (error) {
-        console.error("Failed to resolve provider chain id", error);
-        if (!cancelled) {
-          setProviderChainId(null);
-        }
-      }
-    }
-
-    void resolveProviderChain();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [connectedAddress]);
 
   const resolvedChainId = activeChainId ?? providerChainId;
 
@@ -723,11 +690,16 @@ function ConfiguredFreelancerWorkspacePage() {
                   <div className="grid gap-3">
                     <DetailCard label="Chain" value={activeChainId ? `${activeChainId}` : "Not connected"} />
                     <DetailCard label="Provider chain" value={providerChainId ? `${providerChainId}` : "Not detected"} />
+                    <DetailCard label="isMiniPay" value={walletSession.isMiniPay ? "true" : "false"} />
+                    <DetailCard label="wallet source" value={walletSession.walletSource || "Not connected"} />
+                    <DetailCard label="wallet connected" value={walletSession.walletConnected ? "true" : "false"} />
                     <DetailCard label="Wallet" value={connectedAddress || "Not connected"} />
+                    <DetailCard label="provider detected" value={walletSession.providerDetected ? "true" : "false"} />
                     <DetailCard label="Registry address" value={AGENT_REGISTRY_ADDRESS} />
                     <DetailCard label="Function" value={AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE} />
                     <DetailCard label="Tx hash" value={profileTxHash || "No profile tx submitted yet"} />
-                    <DetailCard label="Raw error" value={profileRawError || "No error captured"} />
+                    <DetailCard label="session active" value={walletSession.sessionActive ? "true" : "false"} />
+                    <DetailCard label="Raw error" value={profileRawError || walletSession.rawWalletError || "No error captured"} />
                   </div>
                 </WorkspacePanel>
 

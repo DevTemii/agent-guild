@@ -1,16 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useActiveAccount, useActiveWallet, useConnect, useDisconnect } from "thirdweb/react";
-import { EIP1193 } from "thirdweb/wallets";
-import { client } from "@/lib/client";
-import { agentGuildChain } from "@/lib/networkConfig";
-
-declare global {
-  interface Window {
-    ethereum?: object;
-  }
-}
+import { useEffect, useState } from "react";
+import { useAgentWalletSession } from "@/lib/walletSession";
 
 type MiniPayWalletSheetProps = {
   open: boolean;
@@ -31,46 +22,50 @@ export function MiniPayWalletSheet({
   onContinue,
   configErrors,
 }: MiniPayWalletSheetProps) {
-  const activeAccount = useActiveAccount();
-  const activeWallet = useActiveWallet();
-  const { connect, isConnecting, error } = useConnect({
-    client: client!,
-  });
-  const { disconnect } = useDisconnect();
+  const walletSession = useAgentWalletSession();
+  const { isMiniPay, walletConnected, refreshSession } = walletSession;
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const shortenedAddress = activeAccount?.address
-    ? `${activeAccount.address.slice(0, 6)}...${activeAccount.address.slice(-4)}`
+  const shortenedAddress = walletSession.address
+    ? `${walletSession.address.slice(0, 6)}...${walletSession.address.slice(-4)}`
     : null;
 
-  const resolvedError =
-    localError || error?.message || null;
+  const resolvedError = localError || walletSession.rawWalletError || null;
+  const actionTitle = walletSession.isMiniPay ? title : "Connect wallet";
+  const actionDescription = walletSession.isMiniPay
+    ? description
+    : "Use your wallet to create deals, secure payment, and confirm payout.";
+
+  useEffect(() => {
+    if (!open || !isMiniPay || walletConnected) {
+      return;
+    }
+
+    void refreshSession(false);
+  }, [isMiniPay, open, refreshSession, walletConnected]);
 
   async function handleConnectWallet() {
     if (configErrors?.length) {
       return;
     }
 
-    if (typeof window === "undefined" || !window.ethereum) {
-      setLocalError("Could not connect wallet. Try again.");
-      return;
-    }
-
     try {
       setLocalError(null);
-      await connect(async () => {
-        const wallet = EIP1193.fromProvider({
-          provider: window.ethereum as never,
-          walletId: "adapter",
-        });
+      if (walletSession.isMiniPay) {
+        await walletSession.connectWallet();
+      } else {
+        await walletSession.connectExternalWallet("io.metamask");
+      }
+    } catch (connectError) {
+      console.error(connectError);
+      setLocalError("Could not connect wallet. Try again.");
+    }
+  }
 
-        await wallet.connect({
-          client: client!,
-          chain: agentGuildChain,
-        });
-
-        return wallet;
-      });
+  async function handleExternalConnect(walletId: Parameters<typeof walletSession.connectExternalWallet>[0]) {
+    try {
+      setLocalError(null);
+      await walletSession.connectExternalWallet(walletId);
     } catch (connectError) {
       console.error(connectError);
       setLocalError("Could not connect wallet. Try again.");
@@ -78,11 +73,7 @@ export function MiniPayWalletSheet({
   }
 
   async function handleDisconnectWallet() {
-    if (!activeWallet) {
-      return;
-    }
-
-    await disconnect(activeWallet);
+    await walletSession.disconnectWallet();
   }
 
   if (!open) {
@@ -107,8 +98,8 @@ export function MiniPayWalletSheet({
         <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#f2b6be]">
           Wallet
         </div>
-        <h2 className="mt-3 text-[27px] font-semibold tracking-[-0.05em] text-[#f7f4ef]">{title}</h2>
-        <p className="mt-3 text-[15px] leading-7 text-[#c9c9d1]">{description}</p>
+        <h2 className="mt-3 text-[27px] font-semibold tracking-[-0.05em] text-[#f7f4ef]">{actionTitle}</h2>
+        <p className="mt-3 text-[15px] leading-7 text-[#c9c9d1]">{actionDescription}</p>
 
         {configErrors?.length ? (
           <div className="mt-5 rounded-[20px] border border-[#4c1d24] bg-[#150b0d] p-4">
@@ -129,7 +120,11 @@ export function MiniPayWalletSheet({
               Connected
             </div>
             <div className="mt-2 text-[18px] font-semibold text-[#f7f4ef]">{shortenedAddress}</div>
-            <div className="mt-2 text-sm leading-6 text-[#b8c7bc]">MiniPay wallet ready for this deal flow.</div>
+            <div className="mt-2 text-sm leading-6 text-[#b8c7bc]">
+              {walletSession.walletSource === "minipay"
+                ? "Wallet connected securely inside MiniPay."
+                : "Wallet connected securely for this deal flow."}
+            </div>
           </div>
         ) : null}
 
@@ -141,14 +136,49 @@ export function MiniPayWalletSheet({
 
         <div className="mt-6 space-y-3">
           {!shortenedAddress ? (
-            <button
-              type="button"
-              onClick={handleConnectWallet}
-              disabled={isConnecting || Boolean(configErrors?.length)}
-              className="min-h-[56px] w-full rounded-[18px] bg-[#d72638] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#b91f30] disabled:cursor-not-allowed disabled:opacity-55"
-            >
-              {isConnecting ? "Connecting..." : "Connect Wallet"}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleConnectWallet}
+                disabled={walletSession.isConnecting || Boolean(configErrors?.length)}
+                className="min-h-[56px] w-full rounded-[18px] bg-[#d72638] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#b91f30] disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                {walletSession.isConnecting
+                  ? "Connecting..."
+                  : walletSession.isMiniPay
+                    ? "Connect Wallet"
+                    : "Continue with MetaMask"}
+              </button>
+
+              {!walletSession.isMiniPay ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleExternalConnect("io.metamask")}
+                    disabled={walletSession.isConnecting || Boolean(configErrors?.length)}
+                    className="min-h-[52px] w-full rounded-[18px] border border-[#252525] bg-[#0d0d0d] px-5 py-4 text-base font-semibold text-[#f7f4ef] transition hover:border-[#393939] disabled:opacity-55"
+                  >
+                    Continue with MetaMask
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExternalConnect("walletConnect")}
+                    disabled={walletSession.isConnecting || Boolean(configErrors?.length)}
+                    className="min-h-[52px] w-full rounded-[18px] border border-[#252525] bg-[#0d0d0d] px-5 py-4 text-base font-semibold text-[#f7f4ef] transition hover:border-[#393939] disabled:opacity-55"
+                  >
+                    Continue with WalletConnect
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExternalConnect("com.coinbase.wallet")}
+                    disabled={walletSession.isConnecting || Boolean(configErrors?.length)}
+                    className="min-h-[52px] w-full rounded-[18px] border border-[#252525] bg-[#0d0d0d] px-5 py-4 text-base font-semibold text-[#f7f4ef] transition hover:border-[#393939] disabled:opacity-55"
+                  >
+                    Continue with Coinbase
+                  </button>
+                </>
+              ) : null}
+            </>
           ) : (
             <>
               {continueLabel && onContinue ? (
@@ -194,8 +224,8 @@ export function MiniPayWalletButton({
   label?: string;
   onClick: () => void;
 }) {
-  const activeAccount = useActiveAccount();
-  const address = activeAccount?.address;
+  const walletSession = useAgentWalletSession();
+  const address = walletSession.address;
   const text = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : label;
 
   return (

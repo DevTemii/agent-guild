@@ -3,11 +3,11 @@
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useActiveAccount } from "thirdweb/react";
 import { ConfigErrorPanel } from "@/components/ConfigErrorScreen";
 import { MiniPayWalletSheet } from "@/components/wallet/MiniPayWalletSheet";
 import { client } from "@/lib/client";
 import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
+import { useAgentWalletSession } from "@/lib/walletSession";
 
 type Role = "client" | "freelancer";
 
@@ -21,9 +21,9 @@ export default function Home() {
 
 function ConfiguredHomeEntry() {
   const router = useRouter();
-  const account = useActiveAccount();
+  const walletSession = useAgentWalletSession();
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
-  const connectedAddress = account?.address ?? null;
+  const connectedAddress = walletSession.address;
 
   const continueLabel = useMemo(() => {
     if (!selectedRole) {

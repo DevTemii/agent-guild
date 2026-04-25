@@ -2,6 +2,7 @@ import type { Account } from "thirdweb/wallets";
 import {
   getWalletCacheKey,
 } from "./cacheKeys";
+import { resolveAgentWalletIdentity, signAgentWalletMessage } from "./walletSession";
 import {
   type ContractStatus,
   type ProjectSubmission,
@@ -221,10 +222,13 @@ async function parseErrorMessage(response: Response, fallback: string) {
   }
 }
 
-async function ensureBackendWorkflowSession(account?: Account | null) {
-  if (!account) return false;
+async function resolveWorkflowWalletAddress(account?: Account | null) {
+  const walletIdentity = await resolveAgentWalletIdentity(account);
+  return normalizeWallet(walletIdentity.address);
+}
 
-  const connectedWallet = normalizeWallet(account.address);
+async function ensureBackendWorkflowSession(account?: Account | null) {
+  const connectedWallet = await resolveWorkflowWalletAddress(account);
   if (!connectedWallet) {
     return false;
   }
@@ -265,7 +269,10 @@ async function ensureBackendWorkflowSession(account?: Account | null) {
     message: string;
   };
 
-  const signature = await account.signMessage({ message: challenge.message });
+  const signature = await signAgentWalletMessage({
+    account,
+    message: challenge.message,
+  });
 
   const verifyResponse = await fetch("/api/workflow/session", {
     method: "POST",
@@ -290,20 +297,22 @@ async function ensureBackendWorkflowSession(account?: Account | null) {
 }
 
 async function importLegacyWorkflowIfNeeded(account?: Account | null) {
-  if (!account || typeof window === "undefined") {
+  if (typeof window === "undefined") {
     return;
   }
 
-  const normalizedWallet = normalizeWallet(account.address);
+  const normalizedWallet = await resolveWorkflowWalletAddress(account);
+  if (!normalizedWallet) {
+    return;
+  }
   const markerKey = getMigrationMarkerKey(normalizedWallet);
   if (!markerKey || window.localStorage.getItem(markerKey) === "done") {
     return;
   }
 
   const legacyContracts = getLegacyContracts().filter((contract) => {
-    const wallet = normalizeWallet(account.address);
     return (
-      contract.clientWallet === wallet || contract.freelancerWallet === wallet
+      contract.clientWallet === normalizedWallet || contract.freelancerWallet === normalizedWallet
     );
   });
   const legacyNotifications = getLegacyNotificationsForWallet(normalizedWallet).map(
@@ -340,7 +349,8 @@ async function importLegacyWorkflowIfNeeded(account?: Account | null) {
 }
 
 async function fetchWorkflowSnapshot(account?: Account | null) {
-  if (!account) {
+  const wallet = await resolveWorkflowWalletAddress(account);
+  if (!wallet) {
     return {
       contracts: [],
       notifications: [],
@@ -370,7 +380,8 @@ async function fetchWorkflowSnapshot(account?: Account | null) {
 }
 
 async function refreshWorkflowSnapshot(account?: Account | null) {
-  if (!account) {
+  const wallet = await resolveWorkflowWalletAddress(account);
+  if (!wallet) {
     return {
       contracts: [],
       notifications: [],
@@ -379,18 +390,19 @@ async function refreshWorkflowSnapshot(account?: Account | null) {
 
   try {
     const snapshot = await fetchWorkflowSnapshot(account);
-    return hydrateWorkflowSnapshot(account.address, snapshot);
+    return hydrateWorkflowSnapshot(wallet, snapshot);
   } catch (error) {
     console.error("Failed to refresh workflow snapshot", error);
     return {
-      contracts: getCachedContractsForWallet(account.address),
-      notifications: getCachedNotificationsForWallet(account.address),
+      contracts: getCachedContractsForWallet(wallet),
+      notifications: getCachedNotificationsForWallet(wallet),
     } satisfies WorkflowSnapshot;
   }
 }
 
 async function fetchWorkflowProjects(account?: Account | null) {
-  if (!account) {
+  const wallet = await resolveWorkflowWalletAddress(account);
+  if (!wallet) {
     return {
       projects: [],
     } satisfies WorkflowProjectSnapshot;
@@ -419,7 +431,8 @@ async function fetchWorkflowProjects(account?: Account | null) {
 }
 
 async function refreshWorkflowProjects(account?: Account | null) {
-  if (!account) {
+  const wallet = await resolveWorkflowWalletAddress(account);
+  if (!wallet) {
     return {
       projects: [],
     } satisfies WorkflowProjectSnapshot;
@@ -427,13 +440,13 @@ async function refreshWorkflowProjects(account?: Account | null) {
 
   try {
     const snapshot = await fetchWorkflowProjects(account);
-    setCachedProjects(account.address, snapshot.projects);
+    setCachedProjects(wallet, snapshot.projects);
     emitWorkflowRefresh();
     return snapshot;
   } catch (error) {
     console.error("Failed to refresh workflow projects", error);
     return {
-      projects: getCachedProjectsForWallet(account.address),
+      projects: getCachedProjectsForWallet(wallet),
     } satisfies WorkflowProjectSnapshot;
   }
 }
@@ -445,8 +458,9 @@ async function postWorkflowMutation<T>(
     body?: unknown;
   }
 ) {
-  if (!account) {
-    throw new Error("Connect your wallet first.");
+  const wallet = await resolveWorkflowWalletAddress(account);
+  if (!wallet) {
+    throw new Error("Reconnect Wallet");
   }
 
   await ensureBackendWorkflowSession(account);
