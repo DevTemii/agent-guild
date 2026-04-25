@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useActiveAccount, useReadContract } from "thirdweb/react";
-import { getContract, prepareContractCall, sendTransaction } from "thirdweb";
+import { useActiveAccount, useActiveWalletChain, useReadContract } from "thirdweb/react";
+import { getContract, prepareContractCall, sendTransaction, waitForReceipt } from "thirdweb";
 import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
 import EscrowSimulator from "@/components/EscrowSimulator";
 import { MiniPayWalletButton, MiniPayWalletSheet } from "@/components/wallet/MiniPayWalletSheet";
@@ -17,8 +17,12 @@ import {
   InlineNotice,
 } from "@/components/workspace/WorkspacePrimitives";
 import { client } from "@/lib/client";
-import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
-import { agentGuildChain } from "@/lib/networkConfig";
+import {
+  AGENT_REGISTRY_ABI,
+  AGENT_REGISTRY_ADDRESS,
+  AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE,
+} from "@/lib/contract";
+import { agentGuildChain, agentGuildChainId, agentGuildChainLabel } from "@/lib/networkConfig";
 import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import { getReputationForWallet } from "@/lib/reputationStore";
 import {
@@ -44,6 +48,72 @@ type Agent = {
 type FreelancerView = "home" | "deal" | "profile";
 type FreelancerStage = "connect" | "review" | "wait" | "submit" | "ready";
 
+function extractRawErrorMessage(error: unknown): string {
+  const messages: string[] = [];
+  const visited = new Set<unknown>();
+
+  function visit(value: unknown) {
+    if (!value || visited.has(value)) {
+      return;
+    }
+    visited.add(value);
+
+    if (typeof value === "string") {
+      messages.push(value);
+      return;
+    }
+
+    if (value instanceof Error) {
+      if (value.message) {
+        messages.push(value.message);
+      }
+
+      const details = value as Error & {
+        shortMessage?: string;
+        reason?: string;
+        details?: string;
+        cause?: unknown;
+      };
+
+      if (details.shortMessage) messages.push(details.shortMessage);
+      if (details.reason) messages.push(details.reason);
+      if (details.details) messages.push(details.details);
+      if (details.cause) visit(details.cause);
+      return;
+    }
+
+    if (typeof value === "object") {
+      const record = value as {
+        message?: string;
+        shortMessage?: string;
+        reason?: string;
+        details?: string;
+        cause?: unknown;
+      };
+
+      if (record.message) messages.push(record.message);
+      if (record.shortMessage) messages.push(record.shortMessage);
+      if (record.reason) messages.push(record.reason);
+      if (record.details) messages.push(record.details);
+      if (record.cause) visit(record.cause);
+      return;
+    }
+  }
+
+  visit(error);
+
+  const uniqueMessages = [...new Set(messages.map((message) => message.trim()).filter(Boolean))];
+  if (uniqueMessages.length > 0) {
+    return uniqueMessages.join(" | ");
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Unknown profile creation error.";
+  }
+}
+
 export default function FreelancerWorkspacePage() {
   if (!agentGuildRuntimeConfig.valid || !client) {
     return (
@@ -61,7 +131,9 @@ export default function FreelancerWorkspacePage() {
 function ConfiguredFreelancerWorkspacePage() {
   const thirdwebClient = client!;
   const account = useActiveAccount();
+  const activeWalletChain = useActiveWalletChain();
   const connectedAddress = normalizeWallet(account?.address) || null;
+  const activeChainId = activeWalletChain?.id ?? null;
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -71,6 +143,8 @@ function ConfiguredFreelancerWorkspacePage() {
   const [availability, setAvailability] = useState("");
   const [creating, setCreating] = useState(false);
   const [profileStatus, setProfileStatus] = useState("");
+  const [profileTxHash, setProfileTxHash] = useState<string | null>(null);
+  const [profileRawError, setProfileRawError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<string[]>([]);
   const [contracts, setContracts] = useState<ProductContract[]>([]);
   const [activeView, setActiveView] = useState<FreelancerView>("home");
@@ -173,37 +247,90 @@ function ConfiguredFreelancerWorkspacePage() {
 
   async function createAgent() {
     if (!account) {
-      setProfileStatus("Connect your wallet first.");
+      const message = "Connect your wallet first.";
+      setProfileRawError(message);
+      setProfileStatus(message);
       return;
     }
     if (!name || !skill || !hourlyRate) {
-      setProfileStatus("Fill name, skill, and hourly rate.");
+      const message = "Fill name, skill, and hourly rate.";
+      setProfileRawError(message);
+      setProfileStatus(message);
+      return;
+    }
+
+    if (activeChainId !== agentGuildChainId) {
+      const message = `Wrong network detected. Connected chain is ${activeChainId ?? "unknown"}. Switch to ${agentGuildChainLabel} (${agentGuildChainId}).`;
+      setProfileRawError(message);
+      setProfileStatus(message);
+      return;
+    }
+
+    const normalizedHourlyRate = hourlyRate.trim();
+    if (!/^\d+$/.test(normalizedHourlyRate)) {
+      const message = "Hourly rate must be a whole USD amount, like 25.";
+      setProfileRawError(message);
+      setProfileStatus(message);
       return;
     }
     const latest = await refetch();
     const latestAgents = (latest.data as Agent[] | undefined) || allAgents;
     const walletExists = latestAgents.some((agent) => normalizeWallet(agent.owner) === connectedAddress);
     if (walletExists) {
-      setProfileStatus("This wallet already has a freelancer profile in this beta.");
+      const message = "This wallet already has a freelancer profile in this beta.";
+      setProfileRawError(message);
+      setProfileStatus(message);
       return;
     }
 
+    const profileArgs = [
+      name.trim(),
+      (description || "Freelancer profile").trim(),
+      skill.trim(),
+      BigInt(normalizedHourlyRate),
+      (location || "Not specified").trim(),
+      (availability || "Open").trim(),
+    ] as const;
+
+    console.log("Agent Guild create profile write", {
+      wallet: connectedAddress,
+      chainId: activeChainId,
+      contractAddress: AGENT_REGISTRY_ADDRESS,
+      functionName: AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE,
+      args: profileArgs,
+    });
+
     try {
       setCreating(true);
+      setProfileTxHash(null);
+      setProfileRawError(null);
       setProfileStatus("Saving your freelancer profile...");
       const transaction = prepareContractCall({
         contract,
-        method: "registerAgent",
-        params: [
-          name,
-          description || "Freelancer profile",
-          skill,
-          BigInt(hourlyRate),
-          location || "Not specified",
-          availability || "Open",
-        ],
+        method: AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE,
+        params: profileArgs,
       });
-      await sendTransaction({ transaction, account });
+
+      const transactionResult = await sendTransaction({ transaction, account });
+      const transactionHash = transactionResult.transactionHash;
+      setProfileTxHash(transactionHash);
+
+      console.log("Agent Guild create profile tx submitted", {
+        wallet: connectedAddress,
+        chainId: activeChainId,
+        contractAddress: AGENT_REGISTRY_ADDRESS,
+        functionName: AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE,
+        transactionHash,
+      });
+
+      setProfileStatus("Waiting for profile confirmation...");
+
+      await waitForReceipt({
+        client: thirdwebClient,
+        chain: agentGuildChain,
+        transactionHash,
+      });
+
       setProfileStatus("Freelancer profile created successfully.");
       setName("");
       setDescription("");
@@ -212,9 +339,18 @@ function ConfiguredFreelancerWorkspacePage() {
       setLocation("");
       setAvailability("");
       await refetch();
-    } catch (error) {
-      console.error(error);
-      setProfileStatus("Profile creation failed. Try again.");
+    } catch (error: unknown) {
+      const rawMessage = extractRawErrorMessage(error);
+      console.error("Agent Guild create profile failed", {
+        wallet: connectedAddress,
+        chainId: activeChainId,
+        contractAddress: AGENT_REGISTRY_ADDRESS,
+        functionName: AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE,
+        rawError: rawMessage,
+        error,
+      });
+      setProfileRawError(rawMessage);
+      setProfileStatus(rawMessage);
     } finally {
       setCreating(false);
     }
@@ -539,6 +675,17 @@ function ConfiguredFreelancerWorkspacePage() {
                     </div>
                   </WorkspacePanel>
                 )}
+
+                <WorkspacePanel title="Create profile debug" subtitle="Temporary contract write diagnostics for beta.">
+                  <div className="grid gap-3">
+                    <DetailCard label="Chain" value={activeChainId ? `${activeChainId}` : "Not connected"} />
+                    <DetailCard label="Wallet" value={connectedAddress || "Not connected"} />
+                    <DetailCard label="Registry address" value={AGENT_REGISTRY_ADDRESS} />
+                    <DetailCard label="Function" value={AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE} />
+                    <DetailCard label="Tx hash" value={profileTxHash || "No profile tx submitted yet"} />
+                    <DetailCard label="Raw error" value={profileRawError || "No error captured"} />
+                  </div>
+                </WorkspacePanel>
 
                 {rejectedContracts.length > 0 ? (
                   <WorkspacePanel title="Closed deals" subtitle="Rejected deals stay here for reference.">

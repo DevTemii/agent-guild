@@ -6,6 +6,9 @@ export const AGENT_REGISTRY_ADDRESS =
 export const FREELANCE_ESCROW_ADDRESS =
     activeAgentGuildDeployment.freelanceEscrowAddress;
 
+export const AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE =
+    "function registerAgent(string _name, string _description, string _skill, uint256 _hourlyRate, string _location, string _availability)" as const;
+
 export const FREELANCE_ESCROW_PROJECT_CREATED_EVENT =
     "event ProjectCreated(uint256 indexed projectId, address indexed client, address indexed freelancer)" as const;
 
