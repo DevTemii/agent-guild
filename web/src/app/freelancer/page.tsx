@@ -134,6 +134,7 @@ function ConfiguredFreelancerWorkspacePage() {
   const activeWalletChain = useActiveWalletChain();
   const connectedAddress = normalizeWallet(account?.address) || null;
   const activeChainId = activeWalletChain?.id ?? null;
+  const [providerChainId, setProviderChainId] = useState<number | null>(null);
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -162,6 +163,42 @@ function ConfiguredFreelancerWorkspacePage() {
   );
 
   const { data, refetch } = useReadContract({ contract, method: "getAgents", params: [] });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveProviderChain() {
+      if (typeof window === "undefined" || !window.ethereum) {
+        if (!cancelled) {
+          setProviderChainId(null);
+        }
+        return;
+      }
+
+      try {
+        const hexChainId = await (
+          window.ethereum as { request?: (args: { method: string }) => Promise<string> }
+        ).request?.({ method: "eth_chainId" });
+
+        if (!cancelled) {
+          setProviderChainId(hexChainId ? Number.parseInt(hexChainId, 16) : null);
+        }
+      } catch (error) {
+        console.error("Failed to resolve provider chain id", error);
+        if (!cancelled) {
+          setProviderChainId(null);
+        }
+      }
+    }
+
+    void resolveProviderChain();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connectedAddress]);
+
+  const resolvedChainId = activeChainId ?? providerChainId;
 
   useEffect(() => {
     const syncWorkflow = async () => {
@@ -259,8 +296,8 @@ function ConfiguredFreelancerWorkspacePage() {
       return;
     }
 
-    if (activeChainId !== agentGuildChainId) {
-      const message = `Wrong network detected. Connected chain is ${activeChainId ?? "unknown"}. Switch to ${agentGuildChainLabel} (${agentGuildChainId}).`;
+    if (resolvedChainId !== agentGuildChainId) {
+      const message = `Wrong network detected. Connected chain is ${resolvedChainId ?? "unknown"}. Switch to ${agentGuildChainLabel} (${agentGuildChainId}).`;
       setProfileRawError(message);
       setProfileStatus(message);
       return;
@@ -294,7 +331,9 @@ function ConfiguredFreelancerWorkspacePage() {
 
     console.log("Agent Guild create profile write", {
       wallet: connectedAddress,
-      chainId: activeChainId,
+      chainId: resolvedChainId,
+      hookChainId: activeChainId,
+      providerChainId,
       contractAddress: AGENT_REGISTRY_ADDRESS,
       functionName: AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE,
       args: profileArgs,
@@ -317,7 +356,9 @@ function ConfiguredFreelancerWorkspacePage() {
 
       console.log("Agent Guild create profile tx submitted", {
         wallet: connectedAddress,
-        chainId: activeChainId,
+        chainId: resolvedChainId,
+        hookChainId: activeChainId,
+        providerChainId,
         contractAddress: AGENT_REGISTRY_ADDRESS,
         functionName: AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE,
         transactionHash,
@@ -343,7 +384,9 @@ function ConfiguredFreelancerWorkspacePage() {
       const rawMessage = extractRawErrorMessage(error);
       console.error("Agent Guild create profile failed", {
         wallet: connectedAddress,
-        chainId: activeChainId,
+        chainId: resolvedChainId,
+        hookChainId: activeChainId,
+        providerChainId,
         contractAddress: AGENT_REGISTRY_ADDRESS,
         functionName: AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE,
         rawError: rawMessage,
@@ -679,6 +722,7 @@ function ConfiguredFreelancerWorkspacePage() {
                 <WorkspacePanel title="Create profile debug" subtitle="Temporary contract write diagnostics for beta.">
                   <div className="grid gap-3">
                     <DetailCard label="Chain" value={activeChainId ? `${activeChainId}` : "Not connected"} />
+                    <DetailCard label="Provider chain" value={providerChainId ? `${providerChainId}` : "Not detected"} />
                     <DetailCard label="Wallet" value={connectedAddress || "Not connected"} />
                     <DetailCard label="Registry address" value={AGENT_REGISTRY_ADDRESS} />
                     <DetailCard label="Function" value={AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE} />
