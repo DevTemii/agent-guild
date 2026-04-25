@@ -88,14 +88,6 @@ function ConfiguredFreelancerWorkspacePage() {
   );
 
   const { data, refetch } = useReadContract({ contract, method: "getAgents", params: [] });
-  const { data: betaAccessData } = useReadContract({
-    contract,
-    method: "betaAllowed",
-    params: [connectedAddress as `0x${string}`],
-    queryOptions: {
-      enabled: !!connectedAddress,
-    },
-  });
 
   useEffect(() => {
     const syncWorkflow = async () => {
@@ -127,7 +119,6 @@ function ConfiguredFreelancerWorkspacePage() {
     return index === arr.findIndex((item) => normalizeWallet(item.owner) === owner);
   });
   const myProfile = uniqueAgents.find((agent) => normalizeWallet(agent.owner) === connectedAddress) || null;
-  const isAllowlistedForBeta = Boolean(betaAccessData);
   const reputation = connectedAddress ? getReputationForWallet(connectedAddress) : null;
   const sortedContracts = [...contracts].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
   const pendingContracts = sortedContracts.filter((entry) => entry.status === "sent");
@@ -189,11 +180,6 @@ function ConfiguredFreelancerWorkspacePage() {
       setProfileStatus("Fill name, skill, and hourly rate.");
       return;
     }
-    if (!isAllowlistedForBeta) {
-      setProfileStatus("This wallet is not allowlisted for the curated beta directory yet.");
-      return;
-    }
-
     const latest = await refetch();
     const latestAgents = (latest.data as Agent[] | undefined) || allAgents;
     const walletExists = latestAgents.some((agent) => normalizeWallet(agent.owner) === connectedAddress);
@@ -286,7 +272,7 @@ function ConfiguredFreelancerWorkspacePage() {
       events.push({
         id: "profile",
         speaker: "You",
-        message: `${myProfile.name} is visible in the curated beta directory for new deals.`,
+        message: `${myProfile.name} is visible in the beta directory for new deals.`,
       });
     }
 
@@ -499,12 +485,10 @@ function ConfiguredFreelancerWorkspacePage() {
                     </WorkspacePanel>
                   </>
                 ) : (
-                  <WorkspacePanel title="Create freelancer profile" subtitle="Publish one curated beta profile for clients to discover.">
+                  <WorkspacePanel title="Create freelancer profile" subtitle="Publish one beta profile for clients to discover.">
                     <div className="grid gap-3">
                       <div className="rounded-[18px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 text-sm leading-7 text-[#d4d4d8]">
-                        {isAllowlistedForBeta
-                          ? "This wallet is allowlisted and can publish one freelancer profile."
-                          : "This wallet can still receive assigned deals, but profile publishing is limited to allowlisted beta wallets."}
+                        Any wallet can publish one freelancer profile during beta. Admin moderation tools still control directory oversight.
                       </div>
                       <input
                         value={name}

@@ -565,7 +565,7 @@ function ConfiguredClientWorkspacePage() {
                   <>
                     {(clientStage === "create" || draftContracts.length > 0) ? (
                       <>
-                        <WorkspacePanel title="Choose freelancer" subtitle="Pick from the curated beta directory or enter a trusted wallet.">
+                        <WorkspacePanel title="Choose freelancer" subtitle="Pick from the beta directory or enter a trusted wallet.">
                           <div className="grid gap-3">
                             <input
                               value={freelancerSearch}

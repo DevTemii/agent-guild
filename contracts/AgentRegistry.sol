@@ -44,7 +44,6 @@ contract AgentRegistry {
         string memory _location,
         string memory _availability
     ) public {
-        require(betaAllowed[msg.sender], "Wallet is not allowlisted for beta.");
         require(!hasRegisteredProfile[msg.sender], "Wallet already has a profile.");
 
         agents.push(
