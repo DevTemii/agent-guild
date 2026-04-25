@@ -252,7 +252,12 @@ async function ensureBackendWorkflowSession(account?: Account | null) {
   });
 
   if (!challengeResponse.ok) {
-    throw new Error(await parseErrorMessage(challengeResponse, "Failed to create workflow challenge."));
+    throw new Error(
+      await parseErrorMessage(
+        challengeResponse,
+        "Could not start a secure wallet session for this action."
+      )
+    );
   }
 
   const challenge = (await challengeResponse.json()) as {
@@ -273,7 +278,12 @@ async function ensureBackendWorkflowSession(account?: Account | null) {
   });
 
   if (!verifyResponse.ok) {
-    throw new Error(await parseErrorMessage(verifyResponse, "Failed to verify workflow session."));
+    throw new Error(
+      await parseErrorMessage(
+        verifyResponse,
+        "Could not verify the secure wallet session for this action."
+      )
+    );
   }
 
   return true;

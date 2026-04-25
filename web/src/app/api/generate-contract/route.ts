@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { buildDisplayBudget } from "@/lib/budget";
+import { buildDisplayBudget, parseUsdAmountInput } from "@/lib/budget";
 
 type ContractResponse = {
     clientName: string;
@@ -51,14 +51,34 @@ export async function POST(request: Request) {
         const body = await request.json();
         const clientName = body.clientName;
         const projectDescription = body.projectDescription;
-        const displayBudgetAmountUsd = Number(body.displayBudgetAmountUsd);
+        const displayBudgetAmountInput =
+            typeof body.displayBudgetAmountUsd === "string"
+                ? body.displayBudgetAmountUsd
+                : String(body.displayBudgetAmountUsd ?? "");
 
-        if (!clientName || !projectDescription || !displayBudgetAmountUsd) {
+        if (!clientName || !projectDescription || !displayBudgetAmountInput.trim()) {
             return NextResponse.json(
                 { error: "Missing required fields." },
                 { status: 400 }
             );
         }
+
+        let parsedDisplayBudgetAmountUsd;
+        try {
+            parsedDisplayBudgetAmountUsd = parseUsdAmountInput(displayBudgetAmountInput);
+        } catch (error) {
+            return NextResponse.json(
+                {
+                    error:
+                        error instanceof Error
+                            ? error.message
+                            : "Contract value must be a valid USD amount like 0.01 or 25.",
+                },
+                { status: 400 }
+            );
+        }
+
+        const displayBudgetAmountUsd = parsedDisplayBudgetAmountUsd.amount;
 
         const groqKey = process.env.GROQ_API_KEY;
 

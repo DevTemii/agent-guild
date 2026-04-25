@@ -6,6 +6,12 @@ export type DisplayBudget = {
   label: string;
 };
 
+type ParsedUsdAmount = {
+  normalized: string;
+  amount: number;
+  cents: bigint;
+};
+
 export function formatUsdAmount(amount: number) {
   const hasDecimals = !Number.isInteger(amount);
   return new Intl.NumberFormat("en-US", {
@@ -22,6 +28,55 @@ export function buildDisplayBudget(amount: number): DisplayBudget {
     currency: "USD",
     label: formatUsdAmount(amount),
   };
+}
+
+export function validateUsdAmountInput(value: string) {
+  const normalized = value.trim();
+
+  if (!normalized) return "Enter a contract value in USD.";
+  if (!/^\d+(\.\d+)?$/.test(normalized)) {
+    return "Contract value must use plain decimal format.";
+  }
+
+  const fraction = normalized.split(".")[1];
+  if (fraction && fraction.length > 2) {
+    return "Contract value supports up to 2 decimal places.";
+  }
+
+  const [wholePart, fractionalPart = ""] = normalized.split(".");
+  const cents = BigInt(wholePart) * 100n + BigInt((fractionalPart + "00").slice(0, 2));
+
+  if (cents <= 0n) {
+    return "Contract value must be greater than zero.";
+  }
+
+  return null;
+}
+
+export function parseUsdAmountInput(value: string): ParsedUsdAmount {
+  const normalized = value.trim();
+  const validationError = validateUsdAmountInput(normalized);
+
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const [wholePart, fractionalPart = ""] = normalized.split(".");
+  const normalizedFraction = (fractionalPart + "00").slice(0, 2);
+  const cents = BigInt(wholePart) * 100n + BigInt(normalizedFraction);
+
+  return {
+    normalized:
+      normalizedFraction === "00"
+        ? wholePart
+        : `${wholePart}.${normalizedFraction}`,
+    amount: Number(cents) / 100,
+    cents,
+  };
+}
+
+export function buildDisplayBudgetFromInput(value: string): DisplayBudget {
+  return buildDisplayBudget(parseUsdAmountInput(value).amount);
 }
 
 export function formatDisplayBudget(displayBudget: DisplayBudget) {

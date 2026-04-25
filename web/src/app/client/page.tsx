@@ -33,9 +33,10 @@ import {
   syncWorkflowState,
 } from "@/lib/workflowStore";
 import {
-  buildDisplayBudget,
+  buildDisplayBudgetFromInput,
   formatDisplayBudget,
   formatSettlementAmountCelo,
+  validateUsdAmountInput,
 } from "@/lib/budget";
 
 type Agent = {
@@ -244,6 +245,12 @@ function ConfiguredClientWorkspacePage() {
       return;
     }
 
+    const displayBudgetError = validateUsdAmountInput(displayBudgetAmountUsd);
+    if (displayBudgetError) {
+      setContractStatus(displayBudgetError);
+      return;
+    }
+
     try {
       setGeneratingContract(true);
       setContractStatus("Creating the deal...");
@@ -253,7 +260,7 @@ function ConfiguredClientWorkspacePage() {
         body: JSON.stringify({
           clientName,
           projectDescription: projectBrief,
-          displayBudgetAmountUsd: Number(displayBudgetAmountUsd),
+          displayBudgetAmountUsd: displayBudgetAmountUsd.trim(),
         }),
       });
       const result = await res.json();
@@ -268,7 +275,7 @@ function ConfiguredClientWorkspacePage() {
           freelancerWallet,
           freelancerName,
           projectBrief,
-          displayBudget: buildDisplayBudget(Number(displayBudgetAmountUsd)),
+          displayBudget: buildDisplayBudgetFromInput(displayBudgetAmountUsd),
           settlementAmountCelo: null,
           summary: result.summary,
           milestones: result.milestones,
@@ -292,7 +299,13 @@ function ConfiguredClientWorkspacePage() {
       openClientView("deal");
     } catch (error) {
       console.error(error);
-      setContractStatus(error instanceof Error ? error.message : "AI contract generation failed.");
+      const nextStatus =
+        error instanceof Error
+          ? error.message === "Failed to create workflow challenge."
+            ? "Could not start a secure wallet session for contract creation. Reconnect MiniPay and try again."
+            : error.message
+          : "AI contract generation failed.";
+      setContractStatus(nextStatus);
     } finally {
       setGeneratingContract(false);
     }
