@@ -63,6 +63,14 @@ export type AgentWalletSessionState = {
 const MINIPAY_SESSION_STORAGE_KEY = `agent-guild-minipay-session:${agentGuildChainId}`;
 const MINIPAY_ADAPTER_WALLET_ID = "adapter";
 
+function getRequiredThirdwebClient() {
+  if (!client) {
+    throw new Error("Could not connect wallet. Try again.");
+  }
+
+  return client;
+}
+
 function getBrowserWalletProvider() {
   if (typeof window === "undefined") {
     return null;
@@ -324,7 +332,8 @@ export function useAgentWalletSession(): AgentWalletSessionState {
         const nextMiniPayState = await resolveMiniPayWallet(requestAccounts);
         setMiniPayState(nextMiniPayState);
 
-        if (nextMiniPayState.address && client) {
+        if (nextMiniPayState.address) {
+          const thirdwebClient = getRequiredThirdwebClient();
           const shouldSyncAdapter =
             normalizeWallet(activeAccount?.address) !== nextMiniPayState.address ||
             activeWalletId !== MINIPAY_ADAPTER_WALLET_ID;
@@ -341,7 +350,7 @@ export function useAgentWalletSession(): AgentWalletSessionState {
               });
 
               await wallet.connect({
-                client,
+                client: thirdwebClient,
                 chain: agentGuildChain,
               });
 
@@ -403,9 +412,10 @@ export function useAgentWalletSession(): AgentWalletSessionState {
         }
 
         await connect(async () => {
+          const thirdwebClient = getRequiredThirdwebClient();
           const wallet = createWallet(walletId);
           await wallet.connect({
-            client: client!,
+            client: thirdwebClient,
             chain: agentGuildChain,
           });
           return wallet;
