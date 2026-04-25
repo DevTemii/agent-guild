@@ -82,7 +82,7 @@ type OnchainProjectResult = readonly [
 ];
 
 const BETA_DISPUTE_SUPPORT_COPY =
-    "Mainnet beta uses support review only for disputes. Release is the only onchain final settlement right now.";
+    "Mainnet beta uses support review only for disputes. Confirm payout is the only final payment action available in the app right now.";
 const ACTIVE_ESCROW_CACHE_SCHEMA_VERSION = 1;
 
 type ActiveEscrowCacheEntry = {
@@ -837,7 +837,7 @@ export default function EscrowSimulator({
 
         try {
             setBusy(true);
-            setStatus("Creating real escrow project onchain...");
+            setStatus("Starting secure payment...");
 
             const tx = prepareContractCall({
                 contract: escrowContract,
@@ -863,7 +863,7 @@ export default function EscrowSimulator({
 
             if (createdProjectId === null) {
                 setStatus(
-                    "Escrow transaction confirmed, but the created project ID could not be verified from the receipt. This deployment must emit ProjectCreated before the app can link escrow safely."
+                    "The secure payment step confirmed, but the created deal ID could not be verified from the receipt. This deployment must emit ProjectCreated before the app can link the deal safely."
                 );
                 await refreshEscrowUi();
                 return;
@@ -905,8 +905,8 @@ export default function EscrowSimulator({
                 freelancerWallet: selectedSourceContract.freelancerWallet,
             });
 
-            const message = `Escrow created for ${selectedSourceContract.freelancerName}. Client should fund ${normalizedSettlementAmount} CELO into Project #${createdProjectId}.`;
-            setStatus(`Escrow project created onchain. Project ID: ${createdProjectId}`);
+            const message = `Secure payment started for ${selectedSourceContract.freelancerName}. Client should lock ${normalizedSettlementAmount} CELO into Project #${createdProjectId}.`;
+            setStatus(`Secure payment started. Project ID: ${createdProjectId}`);
             pushNotification(message);
             await refreshEscrowUi(createdProjectId);
         } catch (error) {
@@ -948,7 +948,7 @@ export default function EscrowSimulator({
 
         try {
             setBusy(true);
-            setStatus("Depositing CELO into escrow...");
+            setStatus("Securing payment...");
 
             const tx = prepareContractCall({
                 contract: escrowContract,
@@ -966,9 +966,9 @@ export default function EscrowSimulator({
 
             await refetchProjectData();
             setEscrowState("funded");
-            setStatus("Escrow funded successfully.");
+            setStatus("Payment secured successfully.");
             pushNotification(
-                `Escrow funded with ${effectiveSettlementAmountCelo} CELO. Freelancer can now submit work for Project #${projectId}.`
+                `Payment secured with ${effectiveSettlementAmountCelo} CELO. Freelancer can now submit work for Project #${projectId}.`
             );
             await refreshEscrowUi();
         } catch (error) {
@@ -1009,7 +1009,7 @@ export default function EscrowSimulator({
 
         try {
             setBusy(true);
-            setStatus("Submitting work to escrow contract...");
+            setStatus("Submitting work...");
 
             const tx = prepareContractCall({
                 contract: escrowContract,
@@ -1061,7 +1061,7 @@ export default function EscrowSimulator({
             console.error(error);
             if (submittedOnchain) {
                 setStatus(
-                    "Work reached escrow, but the delivery link did not sync. Use Sync Delivery Link so the client can review it."
+                    "Work was submitted, but the delivery link did not sync. Use Sync Delivery Link so the client can review it."
                 );
             } else {
                 setStatus("Submit work failed.");
@@ -1181,7 +1181,7 @@ export default function EscrowSimulator({
             setStatus(
                 resolutionSource === "judge_release"
                     ? "Project resolved by judge in favor of release."
-                    : "Payment released onchain."
+                    : "Funds released."
             );
 
             const previous = getReputationForWallet(freelancerAddress);
@@ -1376,7 +1376,7 @@ export default function EscrowSimulator({
 
     function verdictLabel(verdict: DisputeJudgment["verdict"]) {
         if (verdict === "release_funds") return "Release Funds";
-        return "Do Not Release Onchain";
+        return "Do Not Release";
     }
 
     const isFreelancerWorkspace = selectedRole === "freelancer";
@@ -1454,11 +1454,11 @@ export default function EscrowSimulator({
                         ? 1
                         : 0;
     const timelineSteps = [
-        "Contract Approved",
-        "Escrow Created",
-        "Escrow Funded",
-        "Work Submitted",
-        "Review / Support",
+        "Deal approved",
+        "Payment flow started",
+        "Payment secured",
+        "Work submitted",
+        "Review in progress",
         finalResolutionLabel,
     ];
     const currentRoleLabel =
@@ -1481,12 +1481,12 @@ export default function EscrowSimulator({
         !submittedWorkLink.trim();
     const roleExplainer =
         actualRole === "client"
-            ? "This wallet controls client-side actions for the current contract or project."
+            ? "This wallet controls payment setup, review, and final payout confirmation."
             : actualRole === "freelancer"
-                ? "This wallet is the assigned freelancer and can only act when the project reaches freelancer stages."
+                ? "This wallet is assigned to the deal and can approve work, submit delivery, and follow payout progress."
                 : actualRole === "viewer"
-                    ? "This wallet can inspect project state and outcomes, but cannot perform restricted actions."
-                    : "Connect the wallet that owns this contract or project to unlock actions.";
+                    ? "This wallet can follow deal progress, but it cannot take restricted deal actions."
+                    : "Connect the wallet that owns this deal to unlock actions.";
     const clientActionBlockedReason =
         actualRole === "disconnected"
             ? "Connect the client wallet to unlock client actions."
@@ -1501,17 +1501,17 @@ export default function EscrowSimulator({
         actualRole !== "client"
             ? null
             : projectId === null && approvedContract
-                ? "This wallet is ready to create escrow for the approved contract."
+                ? "This deal is approved and ready for secure payment."
                 : projectId === null
-                        ? "Select an approved contract or project to determine the next client action."
+                        ? "Select an approved deal or active project to continue."
                     : judgeResolution === "judge_release"
-                        ? "Client resolution is complete. Funds were released in favor of the judge verdict."
+                        ? "The payout is complete and the deal has been closed."
                         : disputeJudgment?.verdict === "refund_client" && escrowState === "submitted"
-                            ? "AI support review recommends not releasing funds onchain. Beta mode does not support onchain refunds."
+                            ? "AI support review recommends holding payout. Beta mode does not support refund completion here."
                             : escrowState === "funded"
-                                ? "The client is waiting for the freelancer to submit work."
+                                ? "Payment is secured and the client is waiting for delivery."
                                 : escrowState === "released"
-                                    ? "The project is already resolved and no further client action is available."
+                                    ? "Funds have already been released and the deal is complete."
                                     : null;
     const freelancerActionBlockedReason =
         actualRole === "disconnected"
@@ -1534,24 +1534,24 @@ export default function EscrowSimulator({
     const primaryMessage =
         status ||
         (judgeResolution === "judge_release"
-            ? "The dispute has been resolved by judge in favor of release, and payout has been completed onchain."
+            ? "Support review ended with release, and the payout is complete."
             : projectId === null && approvedContract
-                ? "The contract is approved and ready to move onchain."
+                ? "The deal is approved and ready for secure payment."
                 : projectId === null
-                    ? "Waiting for an approved contract or a selected project to continue."
+                    ? "Waiting for an approved deal or an active project to continue."
                     : escrowState === "created"
-                        ? "Escrow exists onchain and is ready for the funding step."
+                        ? "The payment flow has started and is ready for funding."
                         : escrowState === "funded"
-                            ? "Escrow is funded. The freelancer can now submit delivery."
+                            ? "Payment is secured. The freelancer can now submit work."
                             : escrowState === "submitted"
                                 ? hasSubmittedDispute
                                     ? disputeJudgment
                                         ? disputeJudgment.verdict === "release_funds"
-                                            ? "Support review recommends release. The client can still choose whether to settle onchain."
-                                            : "Support review recommends holding release. Refunds are not executable onchain in beta."
+                                            ? "Support review recommends release. The client can still decide whether to confirm payout."
+                                            : "Support review recommends holding payout. Refunds are not executable in beta."
                                         : "A support review request has been submitted. Run AI support review for a non-settling recommendation."
                                     : "Work has been submitted and is waiting for client review."
-                                : "The project has reached its final resolved state.");
+                                : "The deal has reached its final resolved state.");
 
     useEffect(() => {
         if (!activeProjectContract || projectId === null) return;
@@ -1587,30 +1587,30 @@ export default function EscrowSimulator({
     ]);
 
     return (
-        <section className="rounded-[16px] border border-[#1f1f1f] bg-[#111111] p-6">
+        <section className="rounded-[24px] border border-[#191919] bg-[#0b0b0b] p-5 shadow-[0_18px_40px_rgba(0,0,0,0.24)]">
             <div className="mb-6">
                 <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#f2b6be]">
-                    {isFreelancerWorkspace ? "Freelancer workspace" : "Client workspace"}
+                    {isFreelancerWorkspace ? "Freelancer deal flow" : "Client deal flow"}
                 </div>
                 <h2 className="mt-3 text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">
                     {isFreelancerWorkspace
-                        ? "Assigned work and payout tracking"
-                        : "Onchain escrow flow"}
+                        ? "Deliver work and track payout"
+                        : "Secure payment and confirm payout"}
                 </h2>
                 <p className="mt-3 text-[15px] leading-7 text-[#9ca3af]">
                     {isFreelancerWorkspace
-                        ? "Pick a project from your assigned list, submit work when funded, and monitor whether payment has been released."
-                        : `Create a real escrow project, deposit CELO, review delivery, and release funds on ${agentGuildChainLabel}.`}
+                        ? "Pick an assigned deal, submit work when payment is secured, and follow release until the payout lands."
+                        : `Create the payment flow, secure CELO, review delivery, and release funds on ${agentGuildChainLabel}.`}
                 </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="grid gap-5">
                 <div className={`grid gap-4 ${primaryColumnClass}`}>
                     <div className="rounded-[18px] border border-[#1f1f1f] bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.14),transparent_38%),linear-gradient(180deg,#121212_0%,#0b0b0b_100%)] p-5">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                             <div>
                                 <div className="text-[12px] uppercase tracking-[0.14em] text-[#f2b6be]">
-                                    Active project state
+                                    Current deal step
                                 </div>
                                 <h3 className="mt-3 text-[24px] font-semibold tracking-[-0.03em] text-[#f8fafc]">
                                     {timelineSteps[activeStageIndex]}
@@ -1619,13 +1619,13 @@ export default function EscrowSimulator({
                                     {primaryMessage}
                                 </p>
                                 <p className="mt-3 max-w-[640px] text-[13px] leading-7 text-[#71717a]">
-                                    Workspace selection changes emphasis only. Real permissions follow wallet ownership on the active contract or project.
+                                    Deal actions still follow wallet ownership on the selected contract or active deal.
                                 </p>
                             </div>
 
                             <div className="rounded-[14px] border border-[#1f1f1f] bg-[#111111] px-4 py-3">
                                 <div className="text-[11px] uppercase tracking-[0.12em] text-[#6b7280]">
-                                    Permission role
+                                    Access
                                 </div>
                                 <div className="mt-3">
                                     <RoleBadge role={actualRole} />
@@ -1640,7 +1640,7 @@ export default function EscrowSimulator({
                             <TimelineRail steps={timelineSteps} activeIndex={activeStageIndex} />
                         </div>
 
-                        <div className="mt-6 grid gap-3 sm:grid-cols-4">
+                        <div className="mt-6 grid gap-3">
                             <MiniStateCard label="Project" value={projectId ? `#${projectId}` : "Not created"} />
                             <MiniStateCard
                                 label="Freelancer"
@@ -1692,10 +1692,10 @@ export default function EscrowSimulator({
                         }`}
                     >
                         <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
-                            Client permissions
+                            Client step
                         </div>
                         <div className="mt-3 text-[14px] leading-7 text-[#9ca3af]">
-                            Create escrow, fund work, review submitted delivery, and resolve the project only when this wallet is the client.
+                            Start the payment flow, secure funds, review delivery, and confirm payout when this wallet owns the client side.
                         </div>
 
                         {clientActionBlockedReason ? (
@@ -1706,7 +1706,7 @@ export default function EscrowSimulator({
                             <div className="mt-4 grid gap-3">
                                 {!preCreateSourceContract && (
                                     <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] px-4 py-3 text-sm text-[#d1d5db]">
-                                        Escrow creation unlocks only after a freelancer approves a contract.
+                                        Secure payment unlocks only after a freelancer approves a contract.
                                     </div>
                                 )}
 
@@ -1744,7 +1744,7 @@ export default function EscrowSimulator({
                                                 {formatSettlementAmountCelo(effectiveSettlementAmountCelo)}
                                             </div>
                                             <div className="mt-2 text-[13px] text-[#9ca3af]">
-                                                Set the CELO amount you actually want to fund onchain.
+                                                Set the CELO amount you actually want to lock for this deal.
                                             </div>
                                         </div>
                                     </div>
@@ -1802,7 +1802,7 @@ export default function EscrowSimulator({
                                             disabled={busy}
                                             className="rounded-[10px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30] disabled:opacity-60"
                                         >
-                                            {busy ? "Processing..." : "Create Onchain Escrow"}
+                                            {busy ? "Processing..." : "Start Secure Payment"}
                                         </button>
                                     )}
 
@@ -1818,7 +1818,7 @@ export default function EscrowSimulator({
                                             disabled={busy || !!settlementAmountError || !effectiveSettlementAmountCelo}
                                             className="rounded-[10px] border border-[#2c2c2c] px-5 py-3 text-sm font-semibold text-[#f8fafc] transition hover:border-[#3a3a3a] disabled:opacity-50"
                                         >
-                                            Deposit Funds
+                                            Secure Payment
                                         </button>
                                     )}
 
@@ -1830,7 +1830,7 @@ export default function EscrowSimulator({
                                                     disabled={busy}
                                                     className="rounded-[10px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30] disabled:opacity-50"
                                                 >
-                                                    Approve & Release
+                                                    Confirm Payout
                                                 </button>
 
                                                 <button
@@ -1896,7 +1896,7 @@ export default function EscrowSimulator({
 
                                             {disputeJudgment && (
                                                 <div className="rounded-[12px] border border-[#1f3b28] bg-[#0d1912] px-4 py-4 text-sm text-[#9be2b0]">
-                                                    AI support review completed. See the support rail for the recommendation, confidence, and reasoning.
+                                                    AI support review completed. See Deal details for the recommendation, confidence, and reasoning.
                                                 </div>
                                             )}
                                         </div>
@@ -1912,8 +1912,8 @@ export default function EscrowSimulator({
                                             </div>
                                             <div className="mt-2 text-sm leading-7 text-[#d1d5db]">
                                                 {disputeJudgment.verdict === "release_funds"
-                                                    ? `Confidence ${disputeJudgment.confidence}%. Release remains the only onchain settlement path in beta.`
-                                                    : `Confidence ${disputeJudgment.confidence}%. This is a non-settling recommendation only. Beta mode does not execute refunds onchain.`}
+                                                    ? `Confidence ${disputeJudgment.confidence}%. Confirm payout remains the only final payment action in beta.`
+                                                    : `Confidence ${disputeJudgment.confidence}%. This is a non-settling recommendation only. Beta mode does not execute refunds in the app.`}
                                             </div>
 
                                             {disputeJudgment.verdict === "release_funds" ? (
@@ -1922,11 +1922,11 @@ export default function EscrowSimulator({
                                                     disabled={busy}
                                                     className="mt-4 rounded-[10px] bg-[#d72638] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#b91f30] disabled:opacity-50"
                                                 >
-                                                    {busy ? "Resolving..." : "Release Funds Onchain"}
+                                                    {busy ? "Resolving..." : "Confirm Payout"}
                                                 </button>
                                             ) : (
                                                 <div className="mt-4 rounded-[10px] border border-[#3f2c11] bg-[#18120a] px-4 py-3 text-sm leading-7 text-[#facc15]">
-                                                    Refunds are not executable onchain in mainnet beta. Use this recommendation for offchain support review only.
+                                                    Refunds are not executable in mainnet beta. Use this recommendation for support review only.
                                                 </div>
                                             )}
                                         </div>
@@ -1948,10 +1948,10 @@ export default function EscrowSimulator({
                         }`}
                     >
                         <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
-                            Freelancer permissions
+                            Freelancer step
                         </div>
                         <div className="mt-3 text-[14px] leading-7 text-[#9ca3af]">
-                            Submit delivery when this wallet is the assigned freelancer, then keep the shared delivery link synced so the client can review it from any device.
+                            Submit delivery when this wallet is assigned to the deal, then keep the shared delivery link synced so the client can review it from any device.
                         </div>
 
                         {!freelancerActionBlockedReason &&
@@ -1983,21 +1983,21 @@ export default function EscrowSimulator({
 
                 </div>
 
-                <div className={`rounded-[16px] border border-[#1f1f1f] bg-[#0b0b0b] p-5 ${secondaryColumnClass}`}>
-                    <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
-                        Support panels
-                    </div>
+                    <div className={`rounded-[16px] border border-[#1f1f1f] bg-[#0b0b0b] p-5 ${secondaryColumnClass}`}>
+                        <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
+                            Deal details
+                        </div>
 
                     <div className="mt-4 grid gap-4">
                         <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
                             <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
-                                My Projects
+                                My deals
                             </div>
 
                             <div className="mt-3 space-y-3">
                                 {!connectedAddress ? (
                                     <div className="text-[14px] text-[#9ca3af]">
-                                        Connect wallet to discover your escrow projects.
+                                        Connect wallet to discover your deals.
                                     </div>
                                 ) : loadingProjects ? (
                                     <div className="text-[14px] text-[#9ca3af]">
@@ -2005,7 +2005,7 @@ export default function EscrowSimulator({
                                     </div>
                                 ) : projectsLoaded && myProjects.length === 0 ? (
                                     <div className="text-[14px] text-[#9ca3af]">
-                                        No escrow projects found for this wallet.
+                                        No deals found for this wallet yet.
                                     </div>
                                 ) : (
                                     myProjects.map((project) => {
@@ -2046,7 +2046,7 @@ export default function EscrowSimulator({
 
                         <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
                             <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
-                                Review context
+                                Deal context
                             </div>
                             <div className="mt-3 grid gap-3">
                                 <MiniStateCard label="Project ID" value={projectId ? `#${projectId}` : "Not created"} />
@@ -2066,7 +2066,7 @@ export default function EscrowSimulator({
                                 {disputeJudgment?.verdict === "refund_client" && !judgeResolution && (
                                     <MiniStateCard
                                         label="Support recommendation"
-                                        value="Do not release onchain"
+                                        value="Do not release"
                                     />
                                 )}
                             </div>
@@ -2074,7 +2074,7 @@ export default function EscrowSimulator({
 
                         <div className="rounded-[12px] border border-[#1f1f1f] bg-[#111111] p-4">
                             <div className="text-[12px] uppercase tracking-[0.12em] text-[#6b7280]">
-                                AI Support Review
+                                AI support review
                             </div>
                             {!hasSubmittedDispute ? (
                                 <div className="mt-2 text-[14px] text-[#9ca3af]">
@@ -2115,7 +2115,7 @@ export default function EscrowSimulator({
 
                                     {disputeJudgment.verdict === "refund_client" && (
                                         <div className="rounded-[10px] border border-[#3f2c11] bg-[#18120a] px-3 py-3 text-sm leading-7 text-[#facc15]">
-                                            This recommendation does not settle funds onchain. Release is the only executable beta settlement path.
+                                            This recommendation does not settle funds directly. Confirm payout is the only executable beta settlement path.
                                         </div>
                                     )}
 
@@ -2172,7 +2172,7 @@ function TimelineRail({
     activeIndex: number;
 }) {
     return (
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-3">
             {steps.map((step, index) => {
                 const state =
                     index < activeIndex
@@ -2186,13 +2186,30 @@ function TimelineRail({
                         : state === "current"
                             ? "border-[#4c1d24] bg-[#160b0d] text-[#f2b6be]"
                             : "border-[#1f1f1f] bg-[#111111] text-[#9ca3af]";
+                const label =
+                    state === "complete"
+                        ? "Done"
+                        : state === "current"
+                            ? "Now"
+                            : "Next";
+                const bubbleTone =
+                    state === "current"
+                        ? "bg-[#d72638] text-white"
+                        : state === "complete"
+                            ? "bg-[#134e2a] text-[#d1fae5]"
+                            : "bg-[#18181b] text-[#a1a1aa]";
 
                 return (
-                    <div key={step} className={`rounded-[14px] border px-4 py-4 ${tone}`}>
-                        <div className="text-[10px] uppercase tracking-[0.14em]">
-                            {state}
+                    <div key={step} className={`flex items-start gap-3 rounded-[18px] border px-4 py-4 ${tone}`}>
+                        <div className={`mt-0.5 flex h-9 min-w-9 items-center justify-center rounded-full text-[11px] font-semibold uppercase tracking-[0.08em] ${bubbleTone}`}>
+                            {label}
                         </div>
-                        <div className="mt-2 text-[13px] font-semibold leading-6">{step}</div>
+                        <div className="min-w-0 flex-1">
+                            <div className="text-[12px] uppercase tracking-[0.12em] opacity-80">
+                                {index === 0 ? "Deal update" : `Update ${index + 1}`}
+                            </div>
+                            <div className="mt-1 text-[14px] font-semibold leading-6">{step}</div>
+                        </div>
                     </div>
                 );
             })}
