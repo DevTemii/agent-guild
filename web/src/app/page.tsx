@@ -1,118 +1,134 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { ConnectButton, useActiveAccount } from "thirdweb/react";
 import { client } from "@/lib/client";
-import { agentGuildChain, agentGuildChainLabel } from "@/lib/networkConfig";
+import { agentGuildChain } from "@/lib/networkConfig";
 
-const appSteps = [
-  "Create or review a contract",
-  "Move approved work into escrow",
-  "Submit delivery and release funds",
-];
+const SPLASH_STORAGE_KEY = "agent-guild-minipay-splash";
 
 export default function Home() {
   const account = useActiveAccount();
   const connectedAddress = account?.address ?? null;
+  const [showRoleScreen, setShowRoleScreen] = useState(false);
+
+  useEffect(() => {
+    const savedStep = window.localStorage.getItem(SPLASH_STORAGE_KEY);
+    if (savedStep === "role") {
+      setShowRoleScreen(true);
+    }
+  }, []);
+
+  function continueToRoleSelection() {
+    window.localStorage.setItem(SPLASH_STORAGE_KEY, "role");
+    setShowRoleScreen(true);
+  }
 
   return (
-    <main className="min-h-screen bg-[#070707] px-4 py-4 text-[#f7f4ef] sm:px-5 sm:py-5">
-      <div className="mx-auto max-w-[720px]">
-        <header className="sticky top-0 z-20 rounded-[20px] border border-[#181818] bg-[#0b0b0b]/92 px-4 py-3 backdrop-blur sm:px-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <main className="min-h-screen bg-[#070707] px-4 py-5 text-[#f7f4ef]">
+      <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] max-w-[420px] flex-col">
+        {!showRoleScreen ? (
+          <section className="flex flex-1 flex-col justify-between rounded-[28px] border border-[#181818] bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.18),transparent_32%),linear-gradient(180deg,#101010_0%,#090909_100%)] px-5 py-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
             <div>
-              <div className="text-[12px] font-semibold tracking-[0.18em]">AGENT GUILD</div>
-              <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-[#f2b6be]">
-                Mini app launcher
+              <div className="inline-flex rounded-full border border-[#3f2025] bg-[#150b0d] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f2b6be]">
+                Agent Guild
+              </div>
+              <div className="mt-10">
+                <div className="text-[34px] font-semibold tracking-[-0.06em] text-[#f7f4ef]">
+                  Agent Guild
+                </div>
+                <p className="mt-4 max-w-[290px] text-[15px] leading-7 text-[#c8c8d0]">
+                  Contracts, escrow, and payout in one flow.
+                </p>
               </div>
             </div>
-            <ConnectButton client={client} chain={agentGuildChain} />
-          </div>
-        </header>
 
-        <section className="mt-4 rounded-[24px] border border-[#1b1b1b] bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.12),transparent_36%),linear-gradient(180deg,#101010_0%,#0b0b0b_100%)] p-5 sm:p-6">
-          <div className="text-[11px] uppercase tracking-[0.16em] text-[#f2b6be]">Launch</div>
-          <h1 className="mt-3 text-[28px] font-semibold tracking-[-0.05em] sm:text-[34px]">
-            Open the role workspace you need right now.
-          </h1>
-          <p className="mt-3 text-sm leading-6 text-[#a1a1aa] sm:text-[15px] sm:leading-7">
-            Agent Guild now prioritizes the app routes first. Choose client to create, send, and fund. Choose freelancer to review, submit, and track payout.
-          </p>
-
-          <div className="mt-5 grid gap-4">
-            <RoleCard
-              href="/client"
-              eyebrow="Client"
-              title="Create, send, and fund"
-              description="Start with briefs and agreements, then move approved work into escrow and release from one action-driven dashboard."
-              cta="Open Client App"
-            />
-            <RoleCard
-              href="/freelancer"
-              eyebrow="Freelancer"
-              title="Review, submit, and track"
-              description="Open the inbox, approve incoming contracts, submit funded work, and monitor reputation without desktop-style scrolling."
-              cta="Open Freelancer App"
-            />
-          </div>
-        </section>
-
-        <section className="mt-4 grid gap-4 lg:grid-cols-[1fr_0.92fr]">
-          <div className="rounded-[20px] border border-[#1b1b1b] bg-[#0d0d0d] p-5">
-            <div className="text-[11px] uppercase tracking-[0.16em] text-[#71717a]">Core flow</div>
-            <div className="mt-4 grid gap-3">
-              {appSteps.map((step, index) => (
-                <div key={step} className="rounded-[14px] border border-[#1d1d1d] bg-[#090909] px-4 py-4">
-                  <div className="text-[10px] uppercase tracking-[0.14em] text-[#71717a]">
-                    Step 0{index + 1}
-                  </div>
-                  <div className="mt-2 text-sm font-semibold text-[#f7f4ef]">{step}</div>
-                </div>
-              ))}
+            <div className="space-y-4">
+              <div className="rounded-[18px] border border-[#1e1e1e] bg-[#0b0b0b] px-4 py-4 text-sm leading-6 text-[#a1a1aa]">
+                Built for MiniPay-first client and freelancer workflows on Celo.
+              </div>
+              <button
+                type="button"
+                onClick={continueToRoleSelection}
+                className="w-full rounded-[18px] bg-[#d72638] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#b91f30]"
+              >
+                Continue
+              </button>
             </div>
-          </div>
+          </section>
+        ) : (
+          <section className="flex flex-1 flex-col justify-between rounded-[28px] border border-[#181818] bg-[#0b0b0b] px-5 py-6">
+            <div>
+              <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#f2b6be]">
+                Wallet & role
+              </div>
+              <h1 className="mt-4 text-[30px] font-semibold tracking-[-0.05em] text-[#f7f4ef]">
+                Open Agent Guild as the role you need right now.
+              </h1>
+              <p className="mt-3 text-sm leading-7 text-[#a1a1aa]">
+                Connect the MiniPay wallet you want to use for contracts, escrow, and payout.
+              </p>
 
-          <div className="rounded-[20px] border border-[#1b1b1b] bg-[#0d0d0d] p-5">
-            <div className="text-[11px] uppercase tracking-[0.16em] text-[#71717a]">Status</div>
-            <div className="mt-4 rounded-[16px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 text-sm leading-6 text-[#d4d4d8]">
-              {connectedAddress
-                ? `Wallet connected: ${shortAddress(connectedAddress)}`
-                : "Connect a wallet, then jump straight into the correct role app."}
+              <div className="mt-6">
+                <ConnectButton client={client} chain={agentGuildChain} />
+              </div>
+
+              <div className="mt-4 rounded-[18px] border border-[#1e1e1e] bg-[#090909] px-4 py-4 text-sm leading-6 text-[#d4d4d8]">
+                {connectedAddress
+                  ? `Connected wallet: ${shortAddress(connectedAddress)}`
+                  : "Connect your wallet to continue into the app flow."}
+              </div>
             </div>
-            <div className="mt-4 rounded-[16px] border border-[#4c1d24] bg-[#160b0d] px-4 py-4 text-sm leading-6 text-[#e6c7cb]">
-              {agentGuildChainLabel} keeps release as the only onchain final settlement path in beta mode. Support review remains recommendation-only.
+
+            <div className="space-y-3">
+              <RoleButton
+                href="/client"
+                title="Continue as Client"
+                description="Create contracts, fund escrow, and release payout."
+                disabled={!connectedAddress}
+              />
+              <RoleButton
+                href="/freelancer"
+                title="Continue as Freelancer"
+                description="Review contracts, submit work, and track release."
+                disabled={!connectedAddress}
+              />
             </div>
-          </div>
-        </section>
+          </section>
+        )}
       </div>
     </main>
   );
 }
 
-function RoleCard({
+function RoleButton({
   href,
-  eyebrow,
   title,
   description,
-  cta,
+  disabled,
 }: {
   href: string;
-  eyebrow: string;
   title: string;
   description: string;
-  cta: string;
+  disabled: boolean;
 }) {
+  if (disabled) {
+    return (
+      <div className="rounded-[20px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 opacity-65">
+        <div className="text-base font-semibold text-[#f7f4ef]">{title}</div>
+        <div className="mt-2 text-sm leading-6 text-[#a1a1aa]">{description}</div>
+      </div>
+    );
+  }
+
   return (
     <Link
       href={href}
-      className="rounded-[18px] border border-[#1d1d1d] bg-[#090909] p-5 transition hover:border-[#363636]"
+      className="block rounded-[20px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 transition hover:border-[#363636]"
     >
-      <div className="text-[11px] uppercase tracking-[0.16em] text-[#f2b6be]">{eyebrow}</div>
-      <div className="mt-3 text-[20px] font-semibold tracking-[-0.04em] text-[#f7f4ef]">{title}</div>
-      <div className="mt-3 text-sm leading-6 text-[#a1a1aa]">{description}</div>
-      <div className="mt-5 inline-flex rounded-[12px] bg-[#d72638] px-4 py-2.5 text-sm font-semibold text-white">
-        {cta}
-      </div>
+      <div className="text-base font-semibold text-[#f7f4ef]">{title}</div>
+      <div className="mt-2 text-sm leading-6 text-[#a1a1aa]">{description}</div>
     </Link>
   );
 }
