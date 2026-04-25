@@ -3,12 +3,23 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ConnectButton, useActiveAccount } from "thirdweb/react";
+import { ConfigErrorPanel } from "@/components/ConfigErrorScreen";
 import { client } from "@/lib/client";
 import { agentGuildChain } from "@/lib/networkConfig";
+import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 
 const SPLASH_STORAGE_KEY = "agent-guild-minipay-splash";
 
 export default function Home() {
+  if (!agentGuildRuntimeConfig.valid || !client) {
+    return <ConfigAwareHomeEntry />;
+  }
+
+  return <ConfiguredHomeEntry />;
+}
+
+function ConfiguredHomeEntry() {
+  const thirdwebClient = client!;
   const account = useActiveAccount();
   const connectedAddress = account?.address ?? null;
   const [showRoleScreen, setShowRoleScreen] = useState(() => {
@@ -24,6 +35,82 @@ export default function Home() {
     setShowRoleScreen(true);
   }
 
+  return (
+    <EntryLayout
+      showRoleScreen={showRoleScreen}
+      onContinue={continueToRoleSelection}
+      roleContent={
+        <>
+          <div className="mt-6">
+            <ConnectButton client={thirdwebClient} chain={agentGuildChain} />
+          </div>
+
+          <div className="mt-4 rounded-[18px] border border-[#1e1e1e] bg-[#090909] px-4 py-4 text-sm leading-6 text-[#d4d4d8]">
+            {connectedAddress
+              ? `Connected wallet: ${shortAddress(connectedAddress)}`
+              : "Connect your wallet to continue into the app flow."}
+          </div>
+
+          <div className="mt-auto space-y-3">
+            <RoleButton
+              href="/client"
+              title="Continue as Client"
+              description="Create contracts, fund escrow, and release payout."
+              disabled={!connectedAddress}
+            />
+            <RoleButton
+              href="/freelancer"
+              title="Continue as Freelancer"
+              description="Review contracts, submit work, and track release."
+              disabled={!connectedAddress}
+            />
+          </div>
+        </>
+      }
+    />
+  );
+}
+
+function ConfigAwareHomeEntry() {
+  const [showRoleScreen, setShowRoleScreen] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return window.localStorage.getItem(SPLASH_STORAGE_KEY) === "role";
+  });
+
+  function continueToRoleSelection() {
+    window.localStorage.setItem(SPLASH_STORAGE_KEY, "role");
+    setShowRoleScreen(true);
+  }
+
+  return (
+    <EntryLayout
+      showRoleScreen={showRoleScreen}
+      onContinue={continueToRoleSelection}
+      roleContent={
+        <div className="mt-6">
+          <ConfigErrorPanel
+            title="Agent Guild needs runtime setup before wallet actions can load."
+            description="The splash screen is still available, but wallet connection and contract actions stay disabled until the public app configuration is fixed."
+            errors={agentGuildRuntimeConfig.errors}
+          />
+        </div>
+      }
+    />
+  );
+}
+
+function EntryLayout({
+  showRoleScreen,
+  onContinue,
+  roleContent,
+}: {
+  showRoleScreen: boolean;
+  onContinue: () => void;
+  roleContent: React.ReactNode;
+}) {
   return (
     <main className="min-h-screen bg-[#070707] px-4 py-5 text-[#f7f4ef]">
       <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] max-w-[420px] flex-col">
@@ -49,7 +136,7 @@ export default function Home() {
               </div>
               <button
                 type="button"
-                onClick={continueToRoleSelection}
+                onClick={onContinue}
                 className="w-full rounded-[18px] bg-[#d72638] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#b91f30]"
               >
                 Continue
@@ -57,7 +144,7 @@ export default function Home() {
             </div>
           </section>
         ) : (
-          <section className="flex flex-1 flex-col justify-between rounded-[28px] border border-[#181818] bg-[#0b0b0b] px-5 py-6">
+          <section className="flex flex-1 flex-col rounded-[28px] border border-[#181818] bg-[#0b0b0b] px-5 py-6">
             <div>
               <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#f2b6be]">
                 Wallet & role
@@ -68,32 +155,9 @@ export default function Home() {
               <p className="mt-3 text-sm leading-7 text-[#a1a1aa]">
                 Connect the MiniPay wallet you want to use for contracts, escrow, and payout.
               </p>
-
-              <div className="mt-6">
-                <ConnectButton client={client} chain={agentGuildChain} />
-              </div>
-
-              <div className="mt-4 rounded-[18px] border border-[#1e1e1e] bg-[#090909] px-4 py-4 text-sm leading-6 text-[#d4d4d8]">
-                {connectedAddress
-                  ? `Connected wallet: ${shortAddress(connectedAddress)}`
-                  : "Connect your wallet to continue into the app flow."}
-              </div>
             </div>
 
-            <div className="space-y-3">
-              <RoleButton
-                href="/client"
-                title="Continue as Client"
-                description="Create contracts, fund escrow, and release payout."
-                disabled={!connectedAddress}
-              />
-              <RoleButton
-                href="/freelancer"
-                title="Continue as Freelancer"
-                description="Review contracts, submit work, and track release."
-                disabled={!connectedAddress}
-              />
-            </div>
+            {roleContent}
           </section>
         )}
       </div>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useMemo } from "react";
 import { useReadContract } from "thirdweb/react";
 import { getContract } from "thirdweb";
+import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
 import { client } from "@/lib/client";
 import {
   AGENT_REGISTRY_ABI,
@@ -13,6 +14,7 @@ import {
   agentGuildChain,
   getExplorerAddressUrl,
 } from "@/lib/networkConfig";
+import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import { getReputationForWallet } from "@/lib/reputationStore";
 
 type Agent = {
@@ -32,17 +34,36 @@ export default function AgentProfilePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  if (!agentGuildRuntimeConfig.valid || !client) {
+    return (
+      <ConfigErrorScreen
+        title="Agent profile unavailable"
+        description="Agent Guild could not load wallet and contract configuration on this device, so profile reads stay disabled until the public runtime values are fixed."
+        errors={agentGuildRuntimeConfig.errors}
+      />
+    );
+  }
+
+  return <ConfiguredAgentProfilePage params={params} />;
+}
+
+function ConfiguredAgentProfilePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const thirdwebClient = client!;
   const resolvedParams = use(params);
   const id = Number(resolvedParams.id);
 
   const contract = useMemo(() => {
     return getContract({
-      client,
+      client: thirdwebClient,
       chain: agentGuildChain,
       address: AGENT_REGISTRY_ADDRESS,
       abi: AGENT_REGISTRY_ABI,
     });
-  }, []);
+  }, [thirdwebClient]);
 
   const { data, isLoading } = useReadContract({
     contract,

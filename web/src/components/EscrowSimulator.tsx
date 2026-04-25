@@ -176,6 +176,7 @@ export default function EscrowSimulator({
     approvedContract = null,
     escrowSelectionNonce = 0,
 }: EscrowSimulatorProps) {
+    const thirdwebClient = client!;
     const account = useActiveAccount();
     const connectedAddress = normalizeWallet(account?.address) || undefined;
     const activeEscrowStorageKey = getWalletCacheKey(
@@ -387,12 +388,12 @@ export default function EscrowSimulator({
 
     const escrowContract = useMemo(() => {
         return getContract({
-            client,
+            client: thirdwebClient,
             chain: agentGuildChain,
             address: FREELANCE_ESCROW_ADDRESS,
             abi: FREELANCE_ESCROW_ABI,
         });
-    }, []);
+    }, [thirdwebClient]);
 
     useEffect(() => {
         setProjectId(null);
@@ -850,7 +851,7 @@ export default function EscrowSimulator({
             });
 
             const receipt = await waitForReceipt({
-                client,
+                client: thirdwebClient,
                 chain: agentGuildChain,
                 transactionHash: transactionResult.transactionHash,
             });
@@ -1021,7 +1022,7 @@ export default function EscrowSimulator({
                 account,
             });
             await waitForReceipt({
-                client,
+                client: thirdwebClient,
                 chain: agentGuildChain,
                 transactionHash: transactionResult.transactionHash,
             });

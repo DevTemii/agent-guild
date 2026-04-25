@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ConnectButton, useActiveAccount, useReadContract } from "thirdweb/react";
 import { getContract } from "thirdweb";
+import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
 import EscrowSimulator from "@/components/EscrowSimulator";
 import {
   SectionNotice,
@@ -26,6 +27,7 @@ import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
 import { getContractCacheKey, getWalletCacheKey } from "@/lib/cacheKeys";
 import { agentGuildChain } from "@/lib/networkConfig";
+import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import {
   createDraftContract,
   getContractsForClient,
@@ -65,6 +67,21 @@ const PROFILE_STORAGE_KEY_PREFIX = "agent-guild-client-profile";
 const GENERATED_CONTRACT_STORAGE_KEY_PREFIX = "agent-guild-generated-contract";
 
 export default function ClientWorkspacePage() {
+  if (!agentGuildRuntimeConfig.valid || !client) {
+    return (
+      <ConfigErrorScreen
+        title="Client app unavailable"
+        description="Agent Guild could not load wallet and contract configuration on this device, so client actions stay disabled until the public runtime values are fixed."
+        errors={agentGuildRuntimeConfig.errors}
+      />
+    );
+  }
+
+  return <ConfiguredClientWorkspacePage />;
+}
+
+function ConfiguredClientWorkspacePage() {
+  const thirdwebClient = client!;
   const account = useActiveAccount();
   const connectedAddress = normalizeWallet(account?.address) || null;
   const [companyName, setCompanyName] = useState("");
@@ -91,12 +108,12 @@ export default function ClientWorkspacePage() {
   const registryContract = useMemo(
     () =>
       getContract({
-        client,
+        client: thirdwebClient,
         chain: agentGuildChain,
         address: AGENT_REGISTRY_ADDRESS,
         abi: AGENT_REGISTRY_ABI,
       }),
-    []
+    [thirdwebClient]
   );
 
   const { data } = useReadContract({ contract: registryContract, method: "getAgents", params: [] });
@@ -438,7 +455,7 @@ export default function ClientWorkspacePage() {
           >
             Freelancer
           </Link>
-          <ConnectButton client={client} chain={agentGuildChain} />
+          <ConnectButton client={thirdwebClient} chain={agentGuildChain} />
         </>
       }
       metricStrip={

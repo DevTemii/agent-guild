@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ConnectButton, useActiveAccount, useReadContract } from "thirdweb/react";
 import { getContract, prepareContractCall, sendTransaction } from "thirdweb";
+import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
 import EscrowSimulator from "@/components/EscrowSimulator";
 import {
   SectionNotice,
@@ -23,6 +24,7 @@ import {
 import { client } from "@/lib/client";
 import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
 import { agentGuildChain } from "@/lib/networkConfig";
+import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import { formatDisplayBudget, formatSettlementAmountCelo } from "@/lib/budget";
 import { getReputationForWallet } from "@/lib/reputationStore";
 import {
@@ -49,6 +51,21 @@ type FreelancerView = "inbox" | "active" | "profile";
 type InboxFilter = "pending" | "approved" | "rejected";
 
 export default function FreelancerWorkspacePage() {
+  if (!agentGuildRuntimeConfig.valid || !client) {
+    return (
+      <ConfigErrorScreen
+        title="Freelancer app unavailable"
+        description="Agent Guild could not load wallet and contract configuration on this device, so freelancer actions stay disabled until the public runtime values are fixed."
+        errors={agentGuildRuntimeConfig.errors}
+      />
+    );
+  }
+
+  return <ConfiguredFreelancerWorkspacePage />;
+}
+
+function ConfiguredFreelancerWorkspacePage() {
+  const thirdwebClient = client!;
   const account = useActiveAccount();
   const connectedAddress = normalizeWallet(account?.address) || null;
   const [name, setName] = useState("");
@@ -68,12 +85,12 @@ export default function FreelancerWorkspacePage() {
   const contract = useMemo(
     () =>
       getContract({
-        client,
+        client: thirdwebClient,
         chain: agentGuildChain,
         address: AGENT_REGISTRY_ADDRESS,
         abi: AGENT_REGISTRY_ABI,
       }),
-    []
+    [thirdwebClient]
   );
 
   const { data, refetch } = useReadContract({ contract, method: "getAgents", params: [] });
@@ -311,7 +328,7 @@ export default function FreelancerWorkspacePage() {
           >
             Client
           </Link>
-          <ConnectButton client={client} chain={agentGuildChain} />
+          <ConnectButton client={thirdwebClient} chain={agentGuildChain} />
         </>
       }
       metricStrip={
@@ -328,7 +345,7 @@ export default function FreelancerWorkspacePage() {
           description={nextAction.description}
           action={
             !connectedAddress ? (
-              <ConnectButton client={client} chain={agentGuildChain} />
+              <ConnectButton client={thirdwebClient} chain={agentGuildChain} />
             ) : nextAction.actionLabel ? (
               <button
                 type="button"
@@ -348,6 +365,7 @@ export default function FreelancerWorkspacePage() {
               <WalletSignInPanel
                 title="Sign in to open the freelancer inbox"
                 description="Pending contracts and approval actions are scoped to the connected freelancer wallet."
+                walletClient={thirdwebClient}
               />
             ) : (
               <WorkspacePanel
@@ -416,6 +434,7 @@ export default function FreelancerWorkspacePage() {
               <WalletSignInPanel
                 title="Sign in to manage active work"
                 description="Project permissions and submit-work actions only unlock after the freelancer wallet is connected."
+                walletClient={thirdwebClient}
               />
             ) : (
               <>
@@ -457,6 +476,7 @@ export default function FreelancerWorkspacePage() {
               <WalletSignInPanel
                 title="Sign in as freelancer"
                 description="Connect the wallet you use for freelancer contracts, inbox access, and delivery."
+                walletClient={thirdwebClient}
               />
             ) : myProfile ? (
               <>
@@ -574,9 +594,11 @@ export default function FreelancerWorkspacePage() {
 function WalletSignInPanel({
   title,
   description,
+  walletClient,
 }: {
   title: string;
   description: string;
+  walletClient: Exclude<typeof client, null>;
 }) {
   return (
     <div className="rounded-[20px] border border-[#4c1d24] bg-[#160b0d] p-5">
@@ -584,7 +606,7 @@ function WalletSignInPanel({
       <div className="mt-3 text-[22px] font-semibold tracking-[-0.04em] text-[#f7f4ef]">{title}</div>
       <p className="mt-3 text-sm leading-7 text-[#e6c7cb]">{description}</p>
       <div className="mt-5">
-        <ConnectButton client={client} chain={agentGuildChain} />
+        <ConnectButton client={walletClient} chain={agentGuildChain} />
       </div>
     </div>
   );
