@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { verifySignature } from "thirdweb/auth";
 import { client } from "@/lib/client";
 import { agentGuildChain } from "@/lib/networkConfig";
+import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import { normalizeWallet } from "@/lib/workflowTypes";
 
 const WORKFLOW_SESSION_COOKIE = "agent-guild-workflow-session";
@@ -110,6 +111,10 @@ export async function verifyWorkflowChallengeSignature({
   }
 
   if (payload.wallet !== normalizedWallet || payload.expiresAt < Date.now()) {
+    return false;
+  }
+
+  if (!agentGuildRuntimeConfig.valid || !client) {
     return false;
   }
 

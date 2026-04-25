@@ -1,6 +1,22 @@
 import { createThirdwebClient } from "thirdweb";
-import { requirePublicEnv } from "./runtimeConfig";
+import { agentGuildRuntimeConfig } from "./runtimeConfig";
 
-export const client = createThirdwebClient({
-    clientId: requirePublicEnv("NEXT_PUBLIC_THIRDWEB_CLIENT_ID"),
-});
+type ThirdwebClient = ReturnType<typeof createThirdwebClient>;
+
+let cachedClient: ThirdwebClient | null = null;
+
+function createAgentGuildClient() {
+  if (!agentGuildRuntimeConfig.thirdwebClientId) {
+    return null;
+  }
+
+  if (!cachedClient) {
+    cachedClient = createThirdwebClient({
+      clientId: agentGuildRuntimeConfig.thirdwebClientId,
+    });
+  }
+
+  return cachedClient;
+}
+
+export const client = createAgentGuildClient();
