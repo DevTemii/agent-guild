@@ -25,6 +25,7 @@ import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import { useAgentWalletSession } from "@/lib/walletSession";
 import {
   createDraftContract,
+  ensureWorkflowSessionForAction,
   getContractsForClient,
   getNotificationsForWallet,
   getWorkflowRefreshEventName,
@@ -37,7 +38,9 @@ import {
   buildDisplayBudgetFromInput,
   formatDisplayBudget,
   formatSettlementAmountCelo,
+  parseWorkflowChallengeAmountToWei,
   validateUsdAmountInput,
+  validateWorkflowChallengeAmountInput,
 } from "@/lib/budget";
 
 type Agent = {
@@ -92,6 +95,8 @@ function ConfiguredClientWorkspacePage() {
   const [displayBudgetAmountUsd, setDisplayBudgetAmountUsd] = useState("");
   const [generatingContract, setGeneratingContract] = useState(false);
   const [contractStatus, setContractStatus] = useState("");
+  const [contractDebugApiResponse, setContractDebugApiResponse] = useState<string | null>(null);
+  const [contractDebugRawError, setContractDebugRawError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<string[]>([]);
   const [freelancerSearch, setFreelancerSearch] = useState("");
   const [selectedFreelancerWallet, setSelectedFreelancerWallet] = useState("");
@@ -101,6 +106,18 @@ function ConfiguredClientWorkspacePage() {
   const [escrowSelectionNonce, setEscrowSelectionNonce] = useState(0);
   const [activeView, setActiveView] = useState<ClientView>("home");
   const [hasManualViewSelection, setHasManualViewSelection] = useState(false);
+  const amountInput = displayBudgetAmountUsd.trim();
+  const parsedWorkflowAmount = useMemo(() => {
+    if (!amountInput) {
+      return null;
+    }
+
+    try {
+      return parseWorkflowChallengeAmountToWei(amountInput).toString();
+    } catch {
+      return null;
+    }
+  }, [amountInput]);
 
   const registryContract = useMemo(
     () =>
@@ -267,8 +284,24 @@ function ConfiguredClientWorkspacePage() {
       return;
     }
 
+    const workflowAmountError = validateWorkflowChallengeAmountInput(amountInput);
+    if (workflowAmountError) {
+      setContractStatus(workflowAmountError);
+      return;
+    }
+
+    const workflowPayload = {
+      title: clientName.trim(),
+      description: projectBrief.trim(),
+      amount: amountInput,
+      wallet: connectedAddress,
+      chainId: resolvedChainId,
+    };
+
     try {
       setGeneratingContract(true);
+      setContractDebugRawError(null);
+      setContractDebugApiResponse(null);
       setContractStatus("Creating the deal...");
       console.log("Agent Guild contract flow wallet debug", {
         isMiniPay: walletSession.isMiniPay,
@@ -280,6 +313,18 @@ function ConfiguredClientWorkspacePage() {
         externalChainId: walletSession.externalChainId,
         sessionActive: walletSession.sessionActive,
       });
+      console.log("Agent Guild create contract payload", {
+        incomingPayload: workflowPayload,
+        amountRawValue: amountInput,
+        parsedAmount: parsedWorkflowAmount,
+        walletAddress: connectedAddress,
+        chainId: resolvedChainId,
+      });
+
+      const workflowChallengeResponse = await ensureWorkflowSessionForAction(account, workflowPayload);
+      console.log("Agent Guild workflow challenge response", workflowChallengeResponse);
+      setContractDebugApiResponse(JSON.stringify(workflowChallengeResponse, null, 2));
+
       const res = await fetch("/api/generate-contract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -293,6 +338,11 @@ function ConfiguredClientWorkspacePage() {
       if (!res.ok) {
         throw new Error(result?.error || result?.message || "Failed to generate contract.");
       }
+
+      console.log("Agent Guild generate contract response", {
+        challengeResponse: workflowChallengeResponse,
+        apiResponse: result,
+      });
 
       const draft = await createDraftContract(
         {
@@ -324,12 +374,21 @@ function ConfiguredClientWorkspacePage() {
       setContractStatus("Deal created. Send it when you are ready.");
       openClientView("deal");
     } catch (error) {
-      console.error(error);
+      const rawError = error instanceof Error ? error.message : "Failed to create contract.";
+      console.error("Agent Guild create contract failed", {
+        incomingPayload: workflowPayload,
+        amountRawValue: amountInput,
+        parsedAmount: parsedWorkflowAmount,
+        walletAddress: connectedAddress,
+        chainId: resolvedChainId,
+        challengeResponse: contractDebugApiResponse,
+        serverError: rawError,
+        stackTrace: error instanceof Error ? error.stack : null,
+      });
+      setContractDebugRawError(rawError);
       const nextStatus =
         error instanceof Error
-          ? error.message.includes("secure wallet session")
-            ? "Reconnect Wallet"
-            : error.message
+          ? error.message
           : "AI contract generation failed.";
       setContractStatus(nextStatus);
     } finally {
@@ -693,6 +752,18 @@ function ConfiguredClientWorkspacePage() {
                               {generatingContract ? "Creating..." : "Create Contract"}
                             </button>
                             {contractStatus ? <InlineNotice message={contractStatus} /> : null}
+                          </div>
+                        </WorkspacePanel>
+
+                        <WorkspacePanel title="Create contract debug" subtitle="Temporary workflow challenge diagnostics for beta.">
+                          <div className="grid gap-3">
+                            <DetailCard label="amount input" value={amountInput || "No amount entered"} />
+                            <DetailCard label="parsed amount" value={parsedWorkflowAmount || "Amount not parsed yet"} />
+                            <DetailCard
+                              label="API response"
+                              value={contractDebugApiResponse || "No workflow challenge response captured yet"}
+                            />
+                            <DetailCard label="raw error" value={contractDebugRawError || "No error captured"} />
                           </div>
                         </WorkspacePanel>
 

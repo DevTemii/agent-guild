@@ -115,3 +115,31 @@ export function validateSettlementAmountCelo(value: string) {
 export function parseSettlementAmountCeloToWei(value: string) {
   return parseUnits(value.trim(), 18);
 }
+
+export function validateWorkflowChallengeAmountInput(value: string) {
+  const normalized = value.trim();
+
+  if (!normalized) return "Enter an amount before creating the deal.";
+  if (!/^\d+(\.\d+)?$/.test(normalized)) {
+    return "Amount must use plain decimal format.";
+  }
+
+  const fraction = normalized.split(".")[1];
+  if (fraction && fraction.length > 18) {
+    return "Amount supports up to 18 decimal places.";
+  }
+
+  try {
+    if (parseUnits(normalized, 18) <= 0n) {
+      return "Amount must be greater than zero.";
+    }
+  } catch {
+    return "Amount is not a valid decimal value.";
+  }
+
+  return null;
+}
+
+export function parseWorkflowChallengeAmountToWei(value: string) {
+  return parseUnits(value.trim(), 18);
+}

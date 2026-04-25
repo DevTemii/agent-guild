@@ -48,6 +48,25 @@ type WorkflowProjectSnapshot = {
   projects: WorkflowProjectIndexEntry[];
 };
 
+export type WorkflowChallengeDebugContext = {
+  title?: string;
+  description?: string;
+  amount?: string;
+  chainId?: number | null;
+};
+
+export type WorkflowSessionDebugResult = {
+  wallet: string;
+  chainId: number | null;
+  amountRawValue: string | null;
+  parsedAmount: string | null;
+  usedExistingSession: boolean;
+  challengeResponse: {
+    tokenPresent: boolean;
+    message?: string;
+  } | null;
+};
+
 function getWalletScopedStorageKey(prefix: string, wallet?: string | null) {
   return getWalletCacheKey(prefix, wallet);
 }
@@ -227,7 +246,10 @@ async function resolveWorkflowWalletAddress(account?: Account | null) {
   return normalizeWallet(walletIdentity.address);
 }
 
-async function ensureBackendWorkflowSession(account?: Account | null) {
+async function ensureBackendWorkflowSession(
+  account?: Account | null,
+  debugContext?: WorkflowChallengeDebugContext
+) {
   const connectedWallet = await resolveWorkflowWalletAddress(account);
   if (!connectedWallet) {
     return false;
@@ -241,7 +263,14 @@ async function ensureBackendWorkflowSession(account?: Account | null) {
     const session = (await sessionResponse.json()) as { wallet?: string | null };
     const sessionWallet = normalizeWallet(session.wallet);
     if (sessionWallet === connectedWallet) {
-      return true;
+      return {
+        wallet: connectedWallet,
+        chainId: debugContext?.chainId ?? null,
+        amountRawValue: debugContext?.amount?.trim() || null,
+        parsedAmount: null,
+        usedExistingSession: true,
+        challengeResponse: null,
+      } satisfies WorkflowSessionDebugResult;
     }
 
     if (sessionWallet && sessionWallet !== connectedWallet) {
@@ -252,7 +281,13 @@ async function ensureBackendWorkflowSession(account?: Account | null) {
   const challengeResponse = await fetch("/api/workflow/challenge", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ wallet: connectedWallet }),
+    body: JSON.stringify({
+      wallet: connectedWallet,
+      title: debugContext?.title ?? null,
+      description: debugContext?.description ?? null,
+      amount: debugContext?.amount ?? null,
+      chainId: debugContext?.chainId ?? null,
+    }),
   });
 
   if (!challengeResponse.ok) {
@@ -267,6 +302,9 @@ async function ensureBackendWorkflowSession(account?: Account | null) {
   const challenge = (await challengeResponse.json()) as {
     token: string;
     message: string;
+    parsedAmount?: string | null;
+    amountRawValue?: string | null;
+    chainId?: number | null;
   };
 
   const signature = await signAgentWalletMessage({
@@ -293,7 +331,17 @@ async function ensureBackendWorkflowSession(account?: Account | null) {
     );
   }
 
-  return true;
+  return {
+    wallet: connectedWallet,
+    chainId: challenge.chainId ?? debugContext?.chainId ?? null,
+    amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
+    parsedAmount: challenge.parsedAmount ?? null,
+    usedExistingSession: false,
+    challengeResponse: {
+      tokenPresent: Boolean(challenge.token),
+      message: challenge.message,
+    },
+  } satisfies WorkflowSessionDebugResult;
 }
 
 async function importLegacyWorkflowIfNeeded(account?: Account | null) {
@@ -492,6 +540,13 @@ export async function syncWorkflowState(account?: Account | null) {
 
 export async function syncWorkflowProjects(account?: Account | null) {
   return refreshWorkflowProjects(account);
+}
+
+export async function ensureWorkflowSessionForAction(
+  account: Account | null | undefined,
+  debugContext: WorkflowChallengeDebugContext
+) {
+  return ensureBackendWorkflowSession(account, debugContext);
 }
 
 export function getProductContracts(wallet?: string | null) {
