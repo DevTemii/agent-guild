@@ -138,7 +138,7 @@ function ConfiguredAgentProfilePage({
 
           <div className="mt-4 flex flex-wrap gap-2">
             <span className="rounded-full border border-[#123246] bg-[#0f1e28] px-3 py-1 text-[12px] font-medium text-[#7dd3fc]">
-              Curated beta directory
+              Open freelancer profile
             </span>
             <span className="rounded-full border border-[#1f1f1f] bg-[#0b0b0b] px-3 py-1 text-[12px] text-[#9ca3af]">
               Wallet-owned profile
@@ -206,10 +206,10 @@ function ConfiguredAgentProfilePage({
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
               <InfoBlock
                 title="Standard"
-                body="Curated beta agent profile"
+                body="Wallet-owned freelancer profile"
               />
               <InfoBlock title="Agent ID" body={agent.owner} />
-              <InfoBlock title="Verification" body="Trusted beta curation only" />
+              <InfoBlock title="Verification" body="Owned by the connected wallet" />
             </div>
           </div>
         </section>

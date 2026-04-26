@@ -917,7 +917,7 @@ function ConfiguredClientWorkspacePage() {
                   <>
                     {(clientStage === "create" || draftContracts.length > 0) ? (
                       <>
-                        <WorkspacePanel title="Choose freelancer" subtitle="Pick from the beta directory or enter a trusted wallet.">
+                        <WorkspacePanel title="Choose freelancer" subtitle="Pick a freelancer profile or enter a trusted wallet.">
                           <div className="grid gap-3">
                             <input
                               value={freelancerSearch}
@@ -952,7 +952,7 @@ function ConfiguredClientWorkspacePage() {
                             </div>
 
                             {filteredTalent.length === 0 ? (
-                              <EmptyState copy="No matching freelancers found in the beta directory." />
+                              <EmptyState copy="No matching freelancer profiles found right now." />
                             ) : null}
 
                             {!selectedFreelancer ? (

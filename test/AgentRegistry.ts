@@ -30,28 +30,22 @@ describe("AgentRegistry", async () => {
     assert.equal(allowed, true);
   });
 
-  it("requires allowlist access before profile registration", async () => {
-    await assert.rejects(
-      registry.write.registerAgent(
-        ["Freelancer", "Curated beta profile", "Design", 100n, "Lagos", "Open"],
-        { account: freelancer.account }
-      )
-    );
-  });
-
-  it("allows one profile per wallet after allowlisting", async () => {
-    await registry.write.setBetaAccess([freelancer.account.address, true], {
-      account: owner.account,
-    });
-
+  it("allows any wallet to create a profile without allowlist access", async () => {
     await registry.write.registerAgent(
-      ["Freelancer", "Curated beta profile", "Design", 100n, "Lagos", "Open"],
+      ["Freelancer", "Open profile", "Design", 100n, "Lagos", "Open"],
       { account: freelancer.account }
     );
 
     const agents = await registry.read.getAgents();
     assert.equal(agents.length, 1);
     assert.equal(agents[0].owner.toLowerCase(), freelancer.account.address.toLowerCase());
+  });
+
+  it("keeps one profile per wallet", async () => {
+    await registry.write.registerAgent(
+      ["Freelancer", "Open profile", "Design", 100n, "Lagos", "Open"],
+      { account: freelancer.account }
+    );
 
     await assert.rejects(
       registry.write.registerAgent(
@@ -61,25 +55,19 @@ describe("AgentRegistry", async () => {
     );
   });
 
-  it("keeps discovery limited to curated allowlisted wallets", async () => {
-    await registry.write.setBetaAccess([freelancer.account.address, true], {
-      account: owner.account,
-    });
-
+  it("lets multiple wallets appear in discovery", async () => {
     await registry.write.registerAgent(
-      ["Freelancer", "Curated beta profile", "Design", 100n, "Lagos", "Open"],
+      ["Freelancer", "Open profile", "Design", 100n, "Lagos", "Open"],
       { account: freelancer.account }
+    );
+    await registry.write.registerAgent(
+      ["Outsider", "Open profile", "Ops", 90n, "Abuja", "Open"],
+      { account: outsider.account }
     );
 
     const agents = await registry.read.getAgents();
-    assert.equal(agents.length, 1);
+    assert.equal(agents.length, 2);
     assert.equal(agents[0].owner.toLowerCase(), freelancer.account.address.toLowerCase());
-
-    await assert.rejects(
-      registry.write.registerAgent(
-        ["Outsider", "Not allowlisted", "Ops", 90n, "Abuja", "Open"],
-        { account: outsider.account }
-      )
-    );
+    assert.equal(agents[1].owner.toLowerCase(), outsider.account.address.toLowerCase());
   });
 });

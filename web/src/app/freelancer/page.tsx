@@ -418,7 +418,7 @@ function ConfiguredFreelancerWorkspacePage() {
       events.push({
         id: "profile",
         speaker: "You",
-        message: `${myProfile.name} is visible in the beta directory for new deals.`,
+        message: `${myProfile.name} is ready to receive new deals from any client wallet.`,
       });
     }
 
@@ -631,10 +631,10 @@ function ConfiguredFreelancerWorkspacePage() {
                     </WorkspacePanel>
                   </>
                 ) : (
-                  <WorkspacePanel title="Create freelancer profile" subtitle="Publish one beta profile for clients to discover.">
+                  <WorkspacePanel title="Create freelancer profile" subtitle="Create your freelancer profile and start receiving deals.">
                     <div className="grid gap-3">
                       <div className="rounded-[18px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 text-sm leading-7 text-[#d4d4d8]">
-                        Any wallet can publish one freelancer profile during beta. Admin moderation tools still control directory oversight.
+                        Create your freelancer profile and start receiving deals.
                       </div>
                       <input
                         value={name}
