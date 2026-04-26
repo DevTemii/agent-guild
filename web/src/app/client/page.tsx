@@ -220,7 +220,7 @@ function ConfiguredClientWorkspacePage() {
         address: AGENT_REGISTRY_ADDRESS,
         abi: AGENT_REGISTRY_ABI,
       }),
-    [thirdwebClient]
+    [thirdwebClient, AGENT_REGISTRY_ADDRESS]
   );
 
   const { data } = useReadContract({ contract: registryContract, method: "getAgents", params: [] });

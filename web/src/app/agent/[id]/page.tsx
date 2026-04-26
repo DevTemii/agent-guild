@@ -63,7 +63,7 @@ function ConfiguredAgentProfilePage({
       address: AGENT_REGISTRY_ADDRESS,
       abi: AGENT_REGISTRY_ABI,
     });
-  }, [thirdwebClient]);
+  }, [thirdwebClient, AGENT_REGISTRY_ADDRESS]);
 
   const { data, isLoading } = useReadContract({
     contract,

@@ -160,7 +160,7 @@ function ConfiguredFreelancerWorkspacePage() {
         address: AGENT_REGISTRY_ADDRESS,
         abi: AGENT_REGISTRY_ABI,
       }),
-    [thirdwebClient]
+    [thirdwebClient, AGENT_REGISTRY_ADDRESS]
   );
 
   const { data, refetch } = useReadContract({ contract, method: "getAgents", params: [] });
@@ -708,6 +708,7 @@ function ConfiguredFreelancerWorkspacePage() {
                       label="normalized chainId"
                       value={walletSession.normalizedChainId ? `${walletSession.normalizedChainId}` : "Not detected"}
                     />
+                    <DetailCard label="Registry in use" value={AGENT_REGISTRY_ADDRESS} />
                     <DetailCard label="Registry address" value={AGENT_REGISTRY_ADDRESS} />
                     <DetailCard label="Function" value={AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE} />
                     <DetailCard label="Tx hash" value={profileTxHash || "No profile tx submitted yet"} />
