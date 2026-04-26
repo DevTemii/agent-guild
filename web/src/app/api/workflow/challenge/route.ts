@@ -9,22 +9,52 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   let stage = "route_entered";
   console.log("workflow challenge route entered");
+  let rawRequestText = "";
 
   try {
-    const rawRequestText = await request.text();
+    stage = "body_parse_started";
+    rawRequestText = await request.text();
     console.log("Agent Guild workflow challenge request body", {
       stage,
       typeofBody: typeof rawRequestText,
       rawRequestText,
     });
 
-    const body = (rawRequestText ? JSON.parse(rawRequestText) : {}) as {
+    let body: {
       wallet?: string;
       title?: string;
       description?: string;
       amount?: string;
       chainId?: number | string;
-    };
+    } = {};
+
+    try {
+      body = (rawRequestText ? JSON.parse(rawRequestText) : {}) as typeof body;
+      stage = "body_parse_success";
+      console.log("Agent Guild workflow challenge parsed JSON", {
+        stage,
+        parsedJson: body,
+      });
+    } catch (error) {
+      stage = "body_parse_failed";
+      console.error("Agent Guild workflow challenge body parse failed", {
+        stage,
+        rawRequestText,
+        serverError: error instanceof Error ? error.message : error,
+        stackTrace: error instanceof Error ? error.stack : null,
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          stage,
+          error: error instanceof Error && error.message.trim() ? error.message : "Failed to parse JSON body.",
+          rawBodyPreview: rawRequestText.slice(0, 500),
+          stack: error instanceof Error ? error.stack ?? null : null,
+        },
+        { status: 400 }
+      );
+    }
+
     stage = "payload_validated";
     const wallet = normalizeWallet(body.wallet);
     const rawAmount = typeof body.amount === "string" ? body.amount.trim() : "";
@@ -32,6 +62,7 @@ export async function POST(request: Request) {
     let parsedAmount: string | null = null;
     const missingFields = [
       !body.title ? "title" : null,
+      !body.description ? "description" : null,
       !rawAmount ? "amount" : null,
       !wallet ? "wallet" : null,
       parsedChainId === null ? "chainId" : null,
@@ -59,6 +90,7 @@ export async function POST(request: Request) {
           success: false,
           stage,
           error: `Invalid payload. Missing: ${missingFields.join(", ")}`,
+          rawBodyPreview: rawRequestText.slice(0, 500),
           stack: null,
         },
         { status: 400 }
@@ -71,6 +103,7 @@ export async function POST(request: Request) {
           success: false,
           stage,
           error: "MiniPay must be connected to Celo Mainnet (42220).",
+          rawBodyPreview: rawRequestText.slice(0, 500),
           stack: null,
         },
         { status: 400 }
@@ -83,6 +116,7 @@ export async function POST(request: Request) {
           success: false,
           stage,
           error: "Amount must use plain decimal format.",
+          rawBodyPreview: rawRequestText.slice(0, 500),
           stack: null,
         },
         { status: 400 }
@@ -97,6 +131,7 @@ export async function POST(request: Request) {
             success: false,
             stage,
             error: "Amount must be greater than zero.",
+            rawBodyPreview: rawRequestText.slice(0, 500),
             stack: null,
           },
           { status: 400 }
@@ -117,6 +152,7 @@ export async function POST(request: Request) {
           success: false,
           stage,
           error: "Amount is not a valid decimal value.",
+          rawBodyPreview: rawRequestText.slice(0, 500),
           stack: error instanceof Error ? error.stack ?? null : null,
         },
         { status: 400 }
@@ -175,6 +211,7 @@ export async function POST(request: Request) {
           error instanceof Error && error.message.trim()
             ? error.message
             : "Failed to create workflow challenge.",
+        rawBodyPreview: rawRequestText.slice(0, 500),
         stack: error instanceof Error ? error.stack ?? null : null,
       } as const,
       { status: 500 }

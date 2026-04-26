@@ -96,6 +96,7 @@ function ConfiguredClientWorkspacePage() {
   const [generatingContract, setGeneratingContract] = useState(false);
   const [contractStatus, setContractStatus] = useState("");
   const [contractDebugStage, setContractDebugStage] = useState<string | null>(null);
+  const [contractDebugPayload, setContractDebugPayload] = useState<string | null>(null);
   const [contractDebugApiResponse, setContractDebugApiResponse] = useState<string | null>(null);
   const [contractDebugRawError, setContractDebugRawError] = useState<string | null>(null);
   const [contractDebugAiProvider, setContractDebugAiProvider] = useState<string | null>(null);
@@ -315,6 +316,7 @@ function ConfiguredClientWorkspacePage() {
     try {
       setGeneratingContract(true);
       setContractDebugStage("route_entered");
+      setContractDebugPayload(JSON.stringify(workflowPayload, null, 2));
       setContractDebugRawError(null);
       setContractDebugApiResponse(null);
       setContractDebugAiProvider(null);
@@ -827,6 +829,7 @@ function ConfiguredClientWorkspacePage() {
 
                         <WorkspacePanel title="Create contract debug" subtitle="Temporary workflow challenge diagnostics for beta.">
                           <div className="grid gap-3">
+                            <DetailCard label="request payload" value={contractDebugPayload || "No payload captured yet"} />
                             <DetailCard label="amount input" value={amountInput || "No amount entered"} />
                             <DetailCard label="parsed amount" value={parsedWorkflowAmount || "Amount not parsed yet"} />
                             <DetailCard label="workflow stage" value={contractDebugStage || "Not captured yet"} />
