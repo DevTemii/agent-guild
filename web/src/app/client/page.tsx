@@ -27,7 +27,6 @@ import { useAgentWalletSession } from "@/lib/walletSession";
 import {
   createLocalDraftContractFallback,
   createDraftContract,
-  ensureWorkflowSessionForAction,
   getContractsForClient,
   getNotificationsForWallet,
   getWorkflowRefreshEventName,
@@ -74,81 +73,34 @@ type ContractTemplateResponse = {
   payoutTerms: string;
   deliveryWindow: string;
   milestones: string[];
-  generatedBy: "ai" | "local-fallback";
 };
 
 type GenerateContractApiResponse = {
   success?: boolean;
   stage?: string;
+  errorCode?: string;
   error?: string | null;
-  fallback?: ContractTemplateResponse | null;
   contract?: ContractTemplateResponse | null;
-  summary?: string;
-  milestones?: { title: string; amount: number }[];
-  aiDebug?: {
+  debug?: {
     provider?: string | null;
     model?: string | null;
-    status?: string | null;
-    stage?: string | null;
-    fallbackUsed?: boolean;
-    rawError?: string | null;
-    reason?: string | null;
   };
 };
 
 const PROFILE_STORAGE_KEY_PREFIX = "agent-guild-client-profile";
 const GENERATED_CONTRACT_STORAGE_KEY_PREFIX = "agent-guild-generated-contract";
 
-function buildLocalFallbackContract(input: {
-  title: string;
-  description: string;
-  amount: string;
-  amountWei: string;
-}): GenerateContractApiResponse {
-  const totalWei = BigInt(input.amountWei);
+function buildLegacyMilestones(amountWei: string) {
+  const totalWei = BigInt(amountWei);
   const part1 = (totalWei * 30n) / 100n;
   const part2 = (totalWei * 40n) / 100n;
   const part3 = totalWei - part1 - part2;
-  const contract: ContractTemplateResponse = {
-    title: input.title,
-    description: input.description,
-    amount: input.amount,
-    amountWei: input.amountWei,
-    currency: "CELO",
-    deliverable: input.description,
-    payoutTerms: "Client releases funds after submitted work is reviewed.",
-    deliveryWindow: "1 day",
-    milestones: [
-      "Freelancer accepts the deal",
-      "Client secures payment",
-      "Freelancer submits work",
-      "Client confirms payout",
-    ],
-    generatedBy: "local-fallback",
-  };
 
-  return {
-    success: false,
-    stage: "fallback_generated",
-    error: "Using safe contract template",
-    fallback: contract,
-    contract,
-    summary: `Client agrees to pay Freelancer ${input.amount} CELO after successful delivery of ${input.description}.`,
-    milestones: [
-      { title: "Freelancer accepts the deal", amount: Number(formatUnits(part1, 18)) },
-      { title: "Client secures payment", amount: Number(formatUnits(part2, 18)) },
-      { title: "Freelancer submits work", amount: Number(formatUnits(part3, 18)) },
-    ],
-    aiDebug: {
-      provider: null,
-      model: null,
-      status: "fallback",
-      stage: "fallback_generated",
-      fallbackUsed: true,
-      rawError: "Using safe contract template",
-      reason: "Using safe contract template",
-    },
-  };
+  return [
+    { title: "Freelancer accepts the deal", amount: Number(formatUnits(part1, 18)) },
+    { title: "Client secures payment", amount: Number(formatUnits(part2, 18)) },
+    { title: "Freelancer submits work", amount: Number(formatUnits(part3, 18)) },
+  ];
 }
 
 export default function ClientWorkspacePage() {
@@ -184,6 +136,7 @@ function ConfiguredClientWorkspacePage() {
   const [contractDebugStage, setContractDebugStage] = useState<string | null>(null);
   const [contractDebugPayload, setContractDebugPayload] = useState<string | null>(null);
   const [contractDebugApiResponse, setContractDebugApiResponse] = useState<string | null>(null);
+  const [contractDebugErrorCode, setContractDebugErrorCode] = useState<string | null>(null);
   const [contractDebugRawError, setContractDebugRawError] = useState<string | null>(null);
   const [contractDebugAiProvider, setContractDebugAiProvider] = useState<string | null>(null);
   const [contractDebugAiModel, setContractDebugAiModel] = useState<string | null>(null);
@@ -411,13 +364,14 @@ function ConfiguredClientWorkspacePage() {
       setGeneratingContract(true);
       setContractDebugStage("route_entered");
       setContractDebugPayload(JSON.stringify(workflowPayload, null, 2));
+      setContractDebugErrorCode(null);
       setContractDebugRawError(null);
       setContractDebugApiResponse(null);
-      setContractDebugAiProvider(null);
-      setContractDebugAiModel(null);
-      setContractDebugAiStatus(null);
-      setContractDebugFallbackUsed(null);
-      setContractDebugAiRawError(null);
+      setContractDebugAiProvider("groq");
+      setContractDebugAiModel("Loading...");
+      setContractDebugAiStatus("loading");
+      setContractDebugFallbackUsed("false");
+      setContractDebugAiRawError("No AI error captured");
       setContractStatus("Creating the deal...");
       console.log("Agent Guild contract flow wallet debug", {
         isMiniPay: walletSession.isMiniPay,
@@ -440,93 +394,35 @@ function ConfiguredClientWorkspacePage() {
         chainId: resolvedChainId,
       });
 
-      const workflowChallengeResponse = await ensureWorkflowSessionForAction(account, workflowPayload);
-      console.log("Agent Guild workflow challenge response", workflowChallengeResponse);
-      if (workflowChallengeResponse && typeof workflowChallengeResponse === "object" && "stage" in workflowChallengeResponse) {
-        setContractDebugStage(workflowChallengeResponse.stage);
-      }
-      setContractDebugApiResponse(JSON.stringify(workflowChallengeResponse, null, 2));
-
-      let result: GenerateContractApiResponse;
-      try {
-        const res = await fetch("/api/generate-contract", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(workflowPayload),
-        });
-
-        const responseText = await res.text();
-        result = responseText ? (JSON.parse(responseText) as GenerateContractApiResponse) : {};
-
-        if (!res.ok && !result.fallback) {
-          throw new Error(result?.error || `Contract route failed at ${result?.stage ?? "unknown stage"}`);
-        }
-      } catch (error) {
-        const fallbackResult = buildLocalFallbackContract({
-          title: workflowPayload.title,
-          description: workflowPayload.description,
-          amount: workflowPayload.amount,
-          amountWei: workflowPayload.amountWei,
-        });
-        fallbackResult.error =
-          error instanceof Error && error.message.trim()
-            ? error.message
-            : "Using safe contract template";
-        result = fallbackResult;
-      }
-
-      setContractDebugApiResponse(
-        JSON.stringify(
-          {
-            workflowChallengeResponse,
-            generateContractResponse: result,
-          },
-          null,
-          2
-        )
-      );
-      if (typeof result?.stage === "string") {
-        setContractDebugStage(result.stage);
-      }
-
-      const aiDebug = result?.aiDebug as
-        | {
-            provider?: string | null;
-            model?: string | null;
-            status?: string | null;
-            stage?: string | null;
-            fallbackUsed?: boolean;
-            rawError?: string | null;
-            reason?: string | null;
-          }
-        | undefined;
-      setContractDebugStage(aiDebug?.stage ?? contractDebugStage ?? "response_sent");
-      setContractDebugAiProvider(aiDebug?.provider ?? "Not configured");
-      setContractDebugAiModel(aiDebug?.model ?? "Not configured");
-      setContractDebugAiStatus(aiDebug?.status ?? "unknown");
-      setContractDebugFallbackUsed(aiDebug?.fallbackUsed ? "true" : "false");
-      setContractDebugAiRawError(aiDebug?.rawError ?? aiDebug?.reason ?? "No AI error captured");
-
-      console.log("Agent Guild generate contract response", {
-        challengeResponse: workflowChallengeResponse,
-        apiResponse: result,
+      const response = await fetch("/api/workflow/challenge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(workflowPayload),
       });
+      const responseText = await response.text();
+      const result = responseText ? (JSON.parse(responseText) as GenerateContractApiResponse) : {};
 
-      const localFallbackResult = buildLocalFallbackContract({
-        title: workflowPayload.title,
-        description: workflowPayload.description,
-        amount: workflowPayload.amount,
-        amountWei: workflowPayload.amountWei,
-      });
-      const resolvedContract = result.contract ?? result.fallback ?? localFallbackResult.contract!;
+      console.log("Agent Guild workflow contract response", result);
+      setContractDebugApiResponse(JSON.stringify(result, null, 2));
+      setContractDebugStage(result.stage ?? "route_entered");
+      setContractDebugErrorCode(result.errorCode ?? null);
+      setContractDebugAiProvider(result.debug?.provider ?? "groq");
+      setContractDebugAiModel(result.debug?.model ?? "llama-3.1-8b-instant");
+      setContractDebugAiStatus(response.ok && result.success ? "success" : "failed");
+      setContractDebugFallbackUsed("false");
+      setContractDebugAiRawError(result.error ?? "No AI error captured");
 
-      const resolvedSummary =
-        result.summary ||
-        `Client agrees to pay Freelancer ${resolvedContract.amount} CELO after successful delivery of ${resolvedContract.deliverable}.`;
-      const resolvedMilestones =
-        Array.isArray(result.milestones) && result.milestones.length > 0
-          ? result.milestones
-          : localFallbackResult.milestones!;
+      if (!response.ok || !result.success || !result.contract) {
+        throw new Error(
+          result.errorCode
+            ? `${result.errorCode}: ${result.error ?? "Contract generation failed."}`
+            : result.error ?? "Contract generation failed."
+        );
+      }
+
+      const resolvedContract = result.contract;
+      const resolvedSummary = `Client agrees to pay Freelancer ${resolvedContract.amount} CELO after successful delivery of ${resolvedContract.deliverable}.`;
+      const resolvedMilestones = buildLegacyMilestones(resolvedContract.amountWei);
 
       const draftInput = {
         clientWallet: connectedAddress,
@@ -579,11 +475,7 @@ function ConfiguredClientWorkspacePage() {
       }
       setContracts(getContractsForClient(connectedAddress));
       setNotifications(getNotificationsForWallet(connectedAddress));
-      setContractStatus(
-        aiDebug?.fallbackUsed || !result.success
-          ? "Using safe contract template. Deal ready."
-          : "Deal ready. Confirm to continue."
-      );
+      setContractStatus("Deal ready. Confirm to continue.");
       openClientView("deal");
     } catch (error) {
       const rawError = error instanceof Error ? error.message : "Failed to create contract.";
@@ -607,44 +499,7 @@ function ConfiguredClientWorkspacePage() {
       });
       setContractDebugStage(errorStage);
       setContractDebugRawError(rawError);
-      try {
-        const localFallback = buildLocalFallbackContract({
-          title: workflowPayload.title,
-          description: workflowPayload.description,
-          amount: workflowPayload.amount,
-          amountWei: workflowPayload.amountWei,
-        });
-        createLocalDraftContractFallback({
-          clientWallet: connectedAddress,
-          clientName,
-          freelancerWallet,
-          freelancerName,
-          projectBrief,
-          displayBudget: buildDisplayBudgetFromInput(displayBudgetAmountUsd),
-          settlementAmountCelo: null,
-          summary: localFallback.summary ?? `Client agrees to pay Freelancer ${workflowPayload.amount} CELO after successful delivery of ${workflowPayload.description}.`,
-          milestones: localFallback.milestones ?? [],
-        });
-        setContracts(getContractsForClient(connectedAddress));
-        setNotifications(getNotificationsForWallet(connectedAddress));
-        setContractDebugApiResponse(
-          JSON.stringify(
-            {
-              localFallback,
-              error: rawError,
-            },
-            null,
-            2
-          )
-        );
-        setContractDebugFallbackUsed("true");
-        setContractDebugAiStatus("fallback");
-        setContractStatus("Using safe contract template. Deal ready.");
-        openClientView("deal");
-      } catch (fallbackError) {
-        console.error("Agent Guild local fallback draft failed", fallbackError);
-        setContractStatus(rawError);
-      }
+      setContractStatus(rawError);
     } finally {
       setGeneratingContract(false);
     }
@@ -1015,6 +870,7 @@ function ConfiguredClientWorkspacePage() {
                             <DetailCard label="amount input" value={amountInput || "No amount entered"} />
                             <DetailCard label="amountWei" value={parsedWorkflowAmount || "Amount not parsed yet"} />
                             <DetailCard label="workflow stage" value={contractDebugStage || "Not captured yet"} />
+                            <DetailCard label="API errorCode" value={contractDebugErrorCode || "No API error code captured"} />
                             <DetailCard label="AI provider" value={contractDebugAiProvider || "Not captured yet"} />
                             <DetailCard label="AI model" value={contractDebugAiModel || "Not captured yet"} />
                             <DetailCard label="AI status" value={contractDebugAiStatus || "Not captured yet"} />
