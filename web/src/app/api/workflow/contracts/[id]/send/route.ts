@@ -45,6 +45,8 @@ export async function POST(
         clientName?: string;
         freelancerName?: string;
         projectBrief?: string;
+        amount?: string;
+        amountWei?: string;
         displayBudget?: unknown;
         settlementAmountCelo?: string | null;
         summary?: string;
@@ -175,6 +177,8 @@ export async function POST(
       !parsedBody.selectedContract.clientName?.trim() ||
       !parsedBody.selectedContract.freelancerName?.trim() ||
       !parsedBody.selectedContract.projectBrief?.trim() ||
+      !parsedBody.selectedContract.amount?.trim() ||
+      !parsedBody.selectedContract.amountWei?.trim() ||
       !parsedBody.selectedContract.summary?.trim() ||
       !normalizedDisplayBudget ||
       normalizedMilestones.length === 0
@@ -208,6 +212,8 @@ export async function POST(
       clientName: parsedBody.selectedContract.clientName.trim(),
       freelancerName: parsedBody.selectedContract.freelancerName.trim(),
       projectBrief: parsedBody.selectedContract.projectBrief.trim(),
+      amount: parsedBody.selectedContract.amount.trim(),
+      amountWei: parsedBody.selectedContract.amountWei.trim(),
       displayBudget: normalizedDisplayBudget,
       settlementAmountCelo:
         typeof parsedBody.selectedContract.settlementAmountCelo === "string"

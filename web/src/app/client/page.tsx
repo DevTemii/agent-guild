@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { formatUnits, isAddress } from "viem";
+import { isAddress } from "viem";
 import { useReadContract } from "thirdweb/react";
 import { getContract } from "thirdweb";
 import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
@@ -25,8 +25,6 @@ import { agentGuildChain, agentGuildChainId } from "@/lib/networkConfig";
 import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import { useAgentWalletSession } from "@/lib/walletSession";
 import {
-  createLocalDraftContractFallback,
-  createDraftContract,
   getContractsForClient,
   getProductContractById,
   getNotificationsForWallet,
@@ -37,7 +35,6 @@ import {
   syncWorkflowState,
 } from "@/lib/workflowStore";
 import {
-  buildDisplayBudgetFromInput,
   formatDisplayBudget,
   formatSettlementAmountCelo,
   parseWorkflowChallengeAmountToWei,
@@ -64,24 +61,12 @@ type ClientProfile = {
 type ClientView = "home" | "deal" | "profile";
 type ClientStage = "connect" | "create" | "wait" | "fund" | "review";
 
-type ContractTemplateResponse = {
-  title: string;
-  description: string;
-  amount: string;
-  amountWei: string;
-  currency: "CELO";
-  deliverable: string;
-  payoutTerms: string;
-  deliveryWindow: string;
-  milestones: string[];
-};
-
 type GenerateContractApiResponse = {
   success?: boolean;
   stage?: string;
   errorCode?: string;
   error?: string | null;
-  contract?: ContractTemplateResponse | null;
+  contract?: ProductContract | null;
   debug?: {
     provider?: string | null;
     model?: string | null;
@@ -90,19 +75,6 @@ type GenerateContractApiResponse = {
 
 const PROFILE_STORAGE_KEY_PREFIX = "agent-guild-client-profile";
 const GENERATED_CONTRACT_STORAGE_KEY_PREFIX = "agent-guild-generated-contract";
-
-function buildLegacyMilestones(amountWei: string) {
-  const totalWei = BigInt(amountWei);
-  const part1 = (totalWei * 30n) / 100n;
-  const part2 = (totalWei * 40n) / 100n;
-  const part3 = totalWei - part1 - part2;
-
-  return [
-    { title: "Freelancer accepts the deal", amount: Number(formatUnits(part1, 18)) },
-    { title: "Client secures payment", amount: Number(formatUnits(part2, 18)) },
-    { title: "Freelancer submits work", amount: Number(formatUnits(part3, 18)) },
-  ];
-}
 
 export default function ClientWorkspacePage() {
   if (!agentGuildRuntimeConfig.valid || !client) {
@@ -403,15 +375,26 @@ function ConfiguredClientWorkspacePage() {
         chainId: resolvedChainId,
       });
 
-      const response = await fetch("/api/workflow/challenge", {
+      const createPayload = {
+        ...workflowPayload,
+        clientWallet: connectedAddress,
+        clientName: clientName.trim(),
+        freelancerWallet,
+        freelancerName,
+        projectBrief: projectBrief.trim(),
+        displayBudgetAmountUsd: displayBudgetAmountUsd.trim(),
+      };
+
+      const response = await fetch("/api/workflow/contracts/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(workflowPayload),
+        body: JSON.stringify(createPayload),
       });
       const responseText = await response.text();
       const result = responseText ? (JSON.parse(responseText) as GenerateContractApiResponse) : {};
 
       console.log("Agent Guild workflow contract response", result);
+      setContractDebugPayload(JSON.stringify(createPayload, null, 2));
       setContractDebugApiResponse(JSON.stringify(result, null, 2));
       setContractDebugStage(result.stage ?? "route_entered");
       setContractDebugErrorCode(result.errorCode ?? null);
@@ -429,38 +412,7 @@ function ConfiguredClientWorkspacePage() {
         );
       }
 
-      const resolvedContract = result.contract;
-      const resolvedSummary = `Client agrees to pay Freelancer ${resolvedContract.amount} CELO after successful delivery of ${resolvedContract.deliverable}.`;
-      const resolvedMilestones = buildLegacyMilestones(resolvedContract.amountWei);
-
-      const draftInput = {
-        clientWallet: connectedAddress,
-        clientName,
-        freelancerWallet,
-        freelancerName,
-        projectBrief,
-        displayBudget: buildDisplayBudgetFromInput(displayBudgetAmountUsd),
-        settlementAmountCelo: null,
-        summary: resolvedSummary,
-        milestones: resolvedMilestones,
-      };
-
-      let draft: ProductContract;
-      let usedLocalDraftFallback = false;
-      try {
-        draft = await createDraftContract(draftInput, account);
-      } catch (error) {
-        console.error("Agent Guild draft contract fallback", {
-          serverError: error instanceof Error ? error.message : error,
-          stage: contractDebugStage ?? "fallback_generated",
-          draftInput,
-        });
-        setContractDebugRawError(
-          error instanceof Error ? error.message : "Using local draft fallback."
-        );
-        draft = createLocalDraftContractFallback(draftInput);
-        usedLocalDraftFallback = true;
-      }
+      const draft = result.contract;
 
       const generatedContractStorageKey = getContractCacheKey(GENERATED_CONTRACT_STORAGE_KEY_PREFIX, {
         wallet: connectedAddress,
@@ -472,16 +424,14 @@ function ConfiguredClientWorkspacePage() {
           generatedContractStorageKey,
           JSON.stringify({
             ...result,
-            contract: resolvedContract,
-            summary: resolvedSummary,
-            milestones: resolvedMilestones,
+            contract: draft,
+            summary: draft.summary,
+            milestones: draft.milestones,
           })
         );
       }
 
-      if (!usedLocalDraftFallback) {
-        await syncWorkflowState(account);
-      }
+      await syncWorkflowState(account);
       setContracts(getContractsForClient(connectedAddress));
       setNotifications(getNotificationsForWallet(connectedAddress));
       setContractStatus("Deal ready. Confirm to continue.");

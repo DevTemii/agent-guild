@@ -1,6 +1,14 @@
+import { parseUnits } from "viem";
 import { buildDisplayBudget, type DisplayBudget } from "./budget";
 
-export type ContractStatus = "draft" | "sent" | "approved" | "rejected";
+export type ContractStatus =
+  | "draft"
+  | "sent"
+  | "approved"
+  | "rejected"
+  | "funded"
+  | "submitted"
+  | "completed";
 
 export type ContractMilestone = {
   title: string;
@@ -9,6 +17,8 @@ export type ContractMilestone = {
 
 export type ProductContract = {
   id: string;
+  amount: string;
+  amountWei: string;
   clientWallet: string;
   clientName: string;
   freelancerWallet: string;
@@ -29,6 +39,8 @@ export type LegacyProductContract = Omit<
   "displayBudget" | "settlementAmountCelo"
 > & {
   budget?: number;
+  amount?: string;
+  amountWei?: string;
   displayBudget?: DisplayBudget;
   settlementAmountCelo?: string | null;
 };
@@ -95,8 +107,21 @@ export function normalizeDisplayBudget(contract: LegacyProductContract) {
 }
 
 export function normalizeContract(contract: LegacyProductContract): ProductContract {
+  const normalizedAmount = contract.amount?.trim() || "0";
+  const normalizedAmountWei =
+    contract.amountWei?.trim() ||
+    (() => {
+      try {
+        return parseUnits(normalizedAmount, 18).toString();
+      } catch {
+        return "0";
+      }
+    })();
+
   return {
     ...contract,
+    amount: normalizedAmount,
+    amountWei: normalizedAmountWei,
     clientWallet: normalizeWallet(contract.clientWallet),
     freelancerWallet: normalizeWallet(contract.freelancerWallet),
     linkedProjectId: normalizeLinkedProjectId(contract.linkedProjectId),

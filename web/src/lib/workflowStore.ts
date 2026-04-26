@@ -86,6 +86,20 @@ export type SendDealMutationResult = {
   };
 };
 
+export type CreateWorkflowContractInput = {
+  title: string;
+  description: string;
+  amount: string;
+  amountWei: string;
+  clientWallet: string;
+  clientName: string;
+  freelancerWallet: string;
+  freelancerName: string;
+  projectBrief: string;
+  displayBudgetAmountUsd: string;
+  chainId: number;
+};
+
 function getWalletScopedStorageKey(prefix: string, wallet?: string | null) {
   return getWalletCacheKey(prefix, wallet);
 }
@@ -742,6 +756,16 @@ export async function createDraftContract(
 ) {
   return postWorkflowMutation<ProductContract>(account, {
     path: "/api/workflow/contracts",
+    body: input,
+  });
+}
+
+export async function createWorkflowContract(
+  input: CreateWorkflowContractInput,
+  account: Account | null | undefined
+) {
+  return postWorkflowMutation<ProductContract>(account, {
+    path: "/api/workflow/contracts/create",
     body: input,
   });
 }
