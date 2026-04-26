@@ -17,8 +17,6 @@ export async function POST(
   try {
     const { id } = await context.params;
     contractId = id;
-
-    stage = "session_checked";
     const wallet = await getWorkflowSessionWallet();
     if (!wallet) {
       return NextResponse.json(
@@ -34,7 +32,6 @@ export async function POST(
       );
     }
 
-    stage = "body_parse_started";
     const rawBody = await request.text();
     let parsedBody: {
       contractId?: string;
@@ -143,7 +140,7 @@ export async function POST(
       );
     }
 
-    stage = "contract_loaded";
+    stage = "contract_lookup_started";
     const rawDisplayBudget = parsedBody.selectedContract.displayBudget;
     const rawMilestones = parsedBody.selectedContract.milestones;
     const normalizedDisplayBudget =
@@ -242,12 +239,11 @@ export async function POST(
       );
     }
 
-    stage = "status_checked";
     if (selectedContract.status !== "draft") {
       return NextResponse.json(
         {
           success: false,
-          stage,
+          stage: "contract_lookup_started",
           error: `Only draft deals can be sent. Current status: ${selectedContract.status}.`,
           stack: null,
           contractId,
@@ -258,11 +254,18 @@ export async function POST(
       );
     }
 
+    let contract;
+    if (contractId.startsWith("local-")) {
+      const result = await sendWorkflowContractFromPayload(contractId, wallet, selectedContract);
+      if (result.insertedFromPayload) {
+        stage = "contract_not_found_inserted_from_payload";
+      }
+      contract = result.contract;
+    } else {
+      contract = await sendWorkflowContract(contractId, wallet);
+    }
+
     stage = "contract_marked_sent";
-    const contract = contractId.startsWith("local-")
-      ? await sendWorkflowContractFromPayload(contractId, wallet, selectedContract)
-      : await sendWorkflowContract(contractId, wallet);
-    stage = "notification_created";
     return NextResponse.json({
       success: true,
       stage: "response_sent",

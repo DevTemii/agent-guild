@@ -316,6 +316,7 @@ export async function sendWorkflowContractFromPayload(
 
     let contract =
       database.contracts.find((entry) => entry.id === contractId) ?? null;
+    let insertedFromPayload = false;
 
     if (!contract) {
       database.contracts = [
@@ -323,6 +324,7 @@ export async function sendWorkflowContractFromPayload(
         ...database.contracts.filter((entry) => entry.id !== contractId),
       ];
       contract = database.contracts[0] ?? null;
+      insertedFromPayload = true;
     }
 
     if (!contract) {
@@ -353,7 +355,10 @@ export async function sendWorkflowContractFromPayload(
       },
     ]);
 
-    return contract;
+    return {
+      contract,
+      insertedFromPayload,
+    };
   });
 }
 
