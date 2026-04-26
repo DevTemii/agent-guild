@@ -289,18 +289,11 @@ async function ensureBackendWorkflowSession(
     }
   }
 
-  const challengeResponse = await fetch("/api/workflow/challenge", {
+  const challengeResponse = await fetch("/api/workflow/session/challenge", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       wallet: connectedWallet,
-      title: debugContext?.title ?? null,
-      description: debugContext?.description ?? null,
-      amount: debugContext?.amount ?? null,
-      amountWei: debugContext?.amountWei ?? null,
-      chainId: debugContext?.chainId ?? null,
-      role: debugContext?.role ?? null,
-      timestamp: debugContext?.timestamp ?? null,
     }),
   });
 
