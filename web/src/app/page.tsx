@@ -12,7 +12,7 @@ import { useAgentWalletSession } from "@/lib/walletSession";
 type Role = "client" | "freelancer";
 
 const ROLE_STORAGE_KEY = "agent-guild-role";
-const LAST_WALLET_STORAGE_KEY = "agent-guild-last-wallet";
+const LAST_WALLET_STORAGE_KEY = "agent-guild-wallet";
 
 export default function Home() {
   if (!agentGuildRuntimeConfig.valid || !client) {
@@ -51,24 +51,32 @@ function ConfiguredHomeEntry() {
   }, [connectedAddress, pathname, selectedRole]);
 
   function handleContinue() {
-    if (!selectedRole || !connectedAddress) {
+    const resolvedAddress =
+      connectedAddress ||
+      (typeof window !== "undefined" ? window.localStorage.getItem(LAST_WALLET_STORAGE_KEY) : null);
+
+    if (!selectedRole || !resolvedAddress) {
       return;
     }
 
     if (typeof window !== "undefined") {
       window.localStorage.setItem(ROLE_STORAGE_KEY, selectedRole);
-      window.localStorage.setItem(LAST_WALLET_STORAGE_KEY, connectedAddress);
+      window.localStorage.setItem(LAST_WALLET_STORAGE_KEY, resolvedAddress);
     }
 
     const nextRoute = selectedRole === "client" ? "/client" : "/freelancer";
-    console.log("wallet sheet continue clicked", {
+    console.log("continue clicked", {
       selectedRole,
-      connectedAddress,
+      address: resolvedAddress,
+    });
+    console.log("agent guild entry route debug", {
+      selectedRole,
+      connectedAddress: resolvedAddress,
       currentPath: pathname,
       redirectReason: `continue_clicked:${selectedRole}`,
     });
+    setSelectedRole(null);
     router.push(nextRoute);
-    router.refresh();
   }
 
   return (

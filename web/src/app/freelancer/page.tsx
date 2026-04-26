@@ -51,7 +51,7 @@ type FreelancerView = "home" | "deal" | "profile";
 type FreelancerStage = "connect" | "review" | "wait" | "submit" | "ready";
 
 const ROLE_STORAGE_KEY = "agent-guild-role";
-const LAST_WALLET_STORAGE_KEY = "agent-guild-last-wallet";
+const LAST_WALLET_STORAGE_KEY = "agent-guild-wallet";
 
 function extractRawErrorMessage(error: unknown): string {
   const messages: string[] = [];

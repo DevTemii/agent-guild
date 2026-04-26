@@ -27,6 +27,7 @@ export function MiniPayWalletSheet({
   const walletSession = useAgentWalletSession();
   const { isMiniPay, walletConnected, refreshSession } = walletSession;
   const [localError, setLocalError] = useState<string | null>(null);
+  const [continueClickCount, setContinueClickCount] = useState(0);
 
   const shortenedAddress = walletSession.address
     ? `${walletSession.address.slice(0, 6)}...${walletSession.address.slice(-4)}`
@@ -79,7 +80,12 @@ export function MiniPayWalletSheet({
   }
 
   function handleContinueClick() {
-    console.log("wallet sheet continue clicked", selectedRole, walletSession.address);
+    const nextCount = continueClickCount + 1;
+    setContinueClickCount(nextCount);
+    console.log("continue clicked", {
+      selectedRole,
+      address: walletSession.address,
+    });
     onContinue?.();
   }
 
@@ -141,6 +147,12 @@ export function MiniPayWalletSheet({
           </div>
         ) : null}
 
+        <div className="mt-4 rounded-[18px] border border-[#1d1d1d] bg-[#090909] px-4 py-4 text-sm leading-6 text-[#c9c9d1]">
+          <div>role: {selectedRole || "none"}</div>
+          <div>address: {walletSession.address || "not connected"}</div>
+          <div>click count: {continueClickCount}</div>
+        </div>
+
         <div className="mt-6 space-y-3">
           {!shortenedAddress ? (
             <>
@@ -193,7 +205,7 @@ export function MiniPayWalletSheet({
                   type="button"
                   onClick={handleContinueClick}
                   disabled={!walletSession.address}
-                  className="min-h-[56px] w-full rounded-[18px] bg-[#d72638] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#b91f30]"
+                  className="relative z-20 min-h-[56px] w-full rounded-[18px] bg-[#d72638] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#b91f30] disabled:cursor-not-allowed disabled:opacity-55"
                 >
                   {continueLabel}
                 </button>
