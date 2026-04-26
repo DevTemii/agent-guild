@@ -518,12 +518,30 @@ function ConfiguredClientWorkspacePage() {
     const selectedContract = getProductContractById(contractId);
     const normalizedClientWallet = normalizeWallet(connectedAddress);
     const normalizedFreelancerWallet = normalizeWallet(selectedContract?.freelancerWallet);
+    const sendPayload = selectedContract
+      ? {
+          contractId,
+          clientWallet: normalizedClientWallet || "",
+          freelancerWallet: normalizedFreelancerWallet || "",
+          selectedContract: {
+            id: selectedContract.id,
+            status: selectedContract.status,
+            clientWallet: normalizeWallet(selectedContract.clientWallet),
+            freelancerWallet: normalizeWallet(selectedContract.freelancerWallet),
+            clientName: selectedContract.clientName,
+            freelancerName: selectedContract.freelancerName,
+          },
+        }
+      : null;
+    const sendApiUrl = `/api/workflow/contracts/${contractId}/send`;
     const sendDebugPayload = {
+      url: sendApiUrl,
       contractId,
       clientWallet: normalizedClientWallet || null,
       freelancerWallet: normalizedFreelancerWallet || null,
       selectedContract,
       currentStatusBeforeSend: selectedContract?.status ?? "missing",
+      payload: sendPayload,
     };
 
     try {
@@ -556,7 +574,21 @@ function ConfiguredClientWorkspacePage() {
         throw new Error(`Only draft deals can be sent. Current status: ${selectedContract.status}.`);
       }
 
-      const next = await sendProductContract(contractId, account);
+      const result = await sendProductContract(contractId, account, sendPayload ?? undefined);
+      setSendDealDebugResponse(
+        JSON.stringify(
+          {
+            status: result.debug.responseStatus,
+            ok: result.debug.responseOk,
+            body: result.debug.responseBody,
+          },
+          null,
+          2
+        )
+      );
+
+      const next = result.contract;
+      console.log("Agent Guild send deal response", next);
       if (!next) {
         setContractStatus(
           "Unable to send this deal. Confirm the freelancer wallet is saved correctly."
@@ -564,13 +596,13 @@ function ConfiguredClientWorkspacePage() {
         return;
       }
 
-      console.log("Agent Guild send deal response", next);
-      setSendDealDebugResponse(JSON.stringify(next, null, 2));
-
       if (next.status !== "sent") {
         throw new Error(`Send deal did not complete. Returned status: ${next.status}.`);
       }
 
+      setContracts((current) =>
+        current.map((contract) => (contract.id === contractId ? next : contract))
+      );
       await syncWorkflowState(account);
       setContracts(getContractsForClient(connectedAddress));
       setNotifications(getNotificationsForWallet(connectedAddress));
@@ -587,6 +619,17 @@ function ConfiguredClientWorkspacePage() {
         rawProviderChainId: walletSession.rawProviderChainId,
         providerChainId: walletSession.providerChainId,
       });
+      setSendDealDebugResponse(
+        JSON.stringify(
+          {
+            status: "request_failed",
+            ok: false,
+            body: message,
+          },
+          null,
+          2
+        )
+      );
       setSendDealDebugRawError(message);
       setContractStatus(message);
     }

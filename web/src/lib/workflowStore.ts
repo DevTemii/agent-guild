@@ -74,6 +74,18 @@ export type WorkflowSessionDebugResult = {
   } | null;
 };
 
+export type SendDealMutationResult = {
+  contract: ProductContract;
+  debug: {
+    url: string;
+    contractId: string;
+    requestPayload: string;
+    responseStatus: number;
+    responseOk: boolean;
+    responseBody: string;
+  };
+};
+
 function getWalletScopedStorageKey(prefix: string, wallet?: string | null) {
   return getWalletCacheKey(prefix, wallet);
 }
@@ -611,6 +623,38 @@ function isLocalWorkflowDraftId(id: string) {
   return id.startsWith("local-");
 }
 
+function sanitizeJsonValue(value: unknown): unknown {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeJsonValue(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, entry]) => entry !== undefined)
+        .map(([key, entry]) => [key, sanitizeJsonValue(entry)])
+    );
+  }
+
+  return value;
+}
+
+async function parseJsonFromText<T>(text: string) {
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 function buildDraftContractInputFromContract(
   contract: ProductContract
 ): Omit<ProductContract, "id" | "status" | "createdAt" | "updatedAt"> {
@@ -801,8 +845,21 @@ export async function linkProductContractToProject(
 
 export async function sendProductContract(
   id: string,
-  account: Account | null | undefined
-) {
+  account: Account | null | undefined,
+  payload?: {
+    contractId: string;
+    clientWallet: string;
+    freelancerWallet: string;
+    selectedContract: {
+      id: string;
+      status: ContractStatus;
+      clientWallet: string;
+      freelancerWallet: string;
+      clientName: string;
+      freelancerName: string;
+    };
+  }
+): Promise<SendDealMutationResult> {
   if (isLocalWorkflowDraftId(id)) {
     const localDraft = getProductContractById(id);
     if (!localDraft) {
@@ -815,14 +872,80 @@ export async function sendProductContract(
     );
     replaceLocalDraftCache(id, remoteDraft);
 
-    return postWorkflowMutation<ProductContract>(account, {
-      path: `/api/workflow/contracts/${remoteDraft.id}/send`,
+    return sendProductContract(remoteDraft.id, account, {
+      contractId: remoteDraft.id,
+      clientWallet: remoteDraft.clientWallet,
+      freelancerWallet: remoteDraft.freelancerWallet,
+      selectedContract: {
+        id: remoteDraft.id,
+        status: remoteDraft.status,
+        clientWallet: remoteDraft.clientWallet,
+        freelancerWallet: remoteDraft.freelancerWallet,
+        clientName: remoteDraft.clientName,
+        freelancerName: remoteDraft.freelancerName,
+      },
     });
   }
 
-  return postWorkflowMutation<ProductContract>(account, {
-    path: `/api/workflow/contracts/${id}/send`,
+  const wallet = await resolveWorkflowWalletAddress(account);
+  if (!wallet) {
+    throw new Error("Reconnect Wallet");
+  }
+
+  await ensureBackendWorkflowSession(account);
+
+  const path = `/api/workflow/contracts/${id}/send`;
+  const cleanPayload =
+    payload === undefined
+      ? undefined
+      : (sanitizeJsonValue(payload) as Record<string, unknown>);
+  const requestPayload = cleanPayload ? JSON.stringify(cleanPayload) : "";
+
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: requestPayload || undefined,
   });
+
+  const responseText = await response.text();
+  const responsePayload = await parseJsonFromText<{
+    success?: boolean;
+    error?: string;
+    contract?: ProductContract;
+  }>(responseText);
+
+  if (!response.ok) {
+    const errorBody = responseText || "No response body returned.";
+    const errorMessage =
+      responsePayload?.error || `Send deal failed with status ${response.status}.`;
+    throw new Error(`[${response.status}] ${errorMessage} :: ${errorBody}`);
+  }
+
+  const contract = responsePayload?.contract
+    ? normalizeContract(responsePayload.contract)
+    : responsePayload
+      ? normalizeContract(responsePayload as unknown as ProductContract)
+      : null;
+
+  if (!contract) {
+    throw new Error(`Send deal returned an empty response. :: ${responseText || "No response body returned."}`);
+  }
+
+  await refreshWorkflowSnapshot(account);
+
+  return {
+    contract,
+    debug: {
+      url: path,
+      contractId: contract.id,
+      requestPayload,
+      responseStatus: response.status,
+      responseOk: response.ok,
+      responseBody: responseText,
+    },
+  } satisfies SendDealMutationResult;
 }
 
 export async function getProjectSubmission(
