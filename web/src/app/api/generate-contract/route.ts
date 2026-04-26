@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { buildDisplayBudget, parseUsdAmountInput } from "@/lib/budget";
 
+export const runtime = "nodejs";
+
 type ContractResponse = {
   clientName: string;
   projectDescription: string;
@@ -20,6 +22,7 @@ type AiDebugPayload = {
   provider: string | null;
   model: string | null;
   status: "success" | "fallback";
+  stage: string;
   fallbackUsed: boolean;
   rawError: string | null;
   rawResponse: string | null;
@@ -254,8 +257,18 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  let stage = "route_entered";
+  console.log("create workflow handler entered");
+
   try {
-    const body = (await request.json()) as {
+    const rawRequestText = await request.text();
+    console.log("Agent Guild create workflow handler body", {
+      stage,
+      typeofBody: typeof rawRequestText,
+      rawRequestText,
+    });
+
+    const body = (rawRequestText ? JSON.parse(rawRequestText) : {}) as {
       clientName?: string;
       projectDescription?: string;
       displayBudgetAmountUsd?: string | number;
@@ -265,6 +278,7 @@ export async function POST(request: Request) {
       wallet?: string;
       chainId?: number | string;
     };
+    stage = "payload_validated";
 
     const clientName = body.clientName;
     const projectDescription = body.projectDescription;
@@ -274,6 +288,7 @@ export async function POST(request: Request) {
         : String(body.displayBudgetAmountUsd ?? "");
 
     console.log("Agent Guild AI generation request", {
+      stage,
       incomingWorkflowPayload: body,
       amountRawValue: displayBudgetAmountInput,
       walletAddress: body.wallet ?? null,
@@ -308,10 +323,13 @@ export async function POST(request: Request) {
 
     const aiConfig = resolveAiConfig();
     const providerConfigError = getAiProviderError(aiConfig);
+    stage = "ai_provider_loaded";
 
     console.log("Agent Guild AI generation config", {
+      stage,
       selectedAiProvider: aiConfig.provider,
       modelName: aiConfig.model,
+      hasWorkflowSessionSecret: Boolean(process.env.WORKFLOW_SESSION_SECRET),
       hasGroqKey: Boolean(aiConfig.groqApiKey),
       hasOpenAiKey: Boolean(aiConfig.openAiApiKey),
       prompt,
@@ -327,6 +345,7 @@ export async function POST(request: Request) {
           provider: aiConfig.provider,
           model: aiConfig.model,
           status: "fallback",
+          stage,
           fallbackUsed: true,
           rawError: providerConfigError,
           rawResponse: null,
@@ -336,6 +355,7 @@ export async function POST(request: Request) {
 
       console.error("Agent Guild AI generation fallback", {
         incomingWorkflowPayload: body,
+        stage,
         selectedAiProvider: aiConfig.provider,
         modelName: aiConfig.model,
         generatedAiPrompt: prompt,
@@ -350,14 +370,17 @@ export async function POST(request: Request) {
     try {
       const provider = aiConfig.provider as "groq" | "openai";
       const apiKey = provider === "groq" ? aiConfig.groqApiKey! : aiConfig.openAiApiKey!;
+      stage = "ai_generation_started";
       const aiResponse = await requestAiContract({
         provider,
         model: aiConfig.model!,
         apiKey,
         prompt,
       });
+      stage = "ai_generation_finished";
 
       console.log("Agent Guild AI generation raw response", {
+        stage,
         selectedAiProvider: provider,
         modelName: aiConfig.model,
         rawAiResponse: aiResponse.rawAiResponse,
@@ -370,15 +393,18 @@ export async function POST(request: Request) {
       try {
         const parsedContract = parseAiContractResponse(aiResponse.content);
         console.log("Agent Guild AI generation parsed response", {
+          stage,
           parsedContractResponse: parsedContract,
         });
 
+        stage = "response_sent";
         return NextResponse.json({
           ...parsedContract,
           aiDebug: {
             provider,
             model: aiConfig.model,
             status: "success",
+            stage,
             fallbackUsed: false,
             rawError: null,
             rawResponse: JSON.stringify(aiResponse.rawAiResponse),
@@ -387,6 +413,7 @@ export async function POST(request: Request) {
         } satisfies GenerateContractResponse);
       } catch (error) {
         console.error("Agent Guild AI response parse failed", {
+          stage,
           generatedAiPrompt: prompt,
           rawAiResponse: aiResponse.rawAiResponse,
           jsonParseError: error instanceof Error ? error.message : error,
@@ -412,6 +439,7 @@ export async function POST(request: Request) {
           provider: aiConfig.provider,
           model: aiConfig.model,
           status: "fallback",
+          stage,
           fallbackUsed: true,
           rawError: fallbackReason,
           rawResponse: null,
@@ -421,6 +449,7 @@ export async function POST(request: Request) {
 
       console.error("Agent Guild AI generation fallback", {
         incomingWorkflowPayload: body,
+        stage,
         generatedAiPrompt: prompt,
         selectedAiProvider: aiConfig.provider,
         modelName: aiConfig.model,
@@ -434,15 +463,19 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     console.error("Agent Guild generate-contract route error", {
+      stage,
       serverError: error instanceof Error ? error.message : error,
       stackTrace: error instanceof Error ? error.stack : null,
     });
     return NextResponse.json(
       {
+        success: false,
+        stage,
         error:
           error instanceof Error && error.message.trim()
             ? error.message
             : "Unexpected server error.",
+        stack: error instanceof Error ? error.stack ?? null : null,
       },
       { status: 500 }
     );

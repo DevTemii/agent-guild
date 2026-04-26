@@ -95,6 +95,7 @@ function ConfiguredClientWorkspacePage() {
   const [displayBudgetAmountUsd, setDisplayBudgetAmountUsd] = useState("");
   const [generatingContract, setGeneratingContract] = useState(false);
   const [contractStatus, setContractStatus] = useState("");
+  const [contractDebugStage, setContractDebugStage] = useState<string | null>(null);
   const [contractDebugApiResponse, setContractDebugApiResponse] = useState<string | null>(null);
   const [contractDebugRawError, setContractDebugRawError] = useState<string | null>(null);
   const [contractDebugAiProvider, setContractDebugAiProvider] = useState<string | null>(null);
@@ -313,6 +314,7 @@ function ConfiguredClientWorkspacePage() {
 
     try {
       setGeneratingContract(true);
+      setContractDebugStage("route_entered");
       setContractDebugRawError(null);
       setContractDebugApiResponse(null);
       setContractDebugAiProvider(null);
@@ -344,6 +346,9 @@ function ConfiguredClientWorkspacePage() {
 
       const workflowChallengeResponse = await ensureWorkflowSessionForAction(account, workflowPayload);
       console.log("Agent Guild workflow challenge response", workflowChallengeResponse);
+      if (workflowChallengeResponse && typeof workflowChallengeResponse === "object" && "stage" in workflowChallengeResponse) {
+        setContractDebugStage(workflowChallengeResponse.stage);
+      }
       setContractDebugApiResponse(JSON.stringify(workflowChallengeResponse, null, 2));
 
       const res = await fetch("/api/generate-contract", {
@@ -356,6 +361,19 @@ function ConfiguredClientWorkspacePage() {
         }),
       });
       const result = await res.json();
+      setContractDebugApiResponse(
+        JSON.stringify(
+          {
+            workflowChallengeResponse,
+            generateContractResponse: result,
+          },
+          null,
+          2
+        )
+      );
+      if (typeof result?.stage === "string") {
+        setContractDebugStage(result.stage);
+      }
       if (!res.ok) {
         throw new Error(result?.error || result?.message || "Failed to generate contract.");
       }
@@ -365,11 +383,13 @@ function ConfiguredClientWorkspacePage() {
             provider?: string | null;
             model?: string | null;
             status?: string | null;
+            stage?: string | null;
             fallbackUsed?: boolean;
             rawError?: string | null;
             reason?: string | null;
           }
         | undefined;
+      setContractDebugStage(aiDebug?.stage ?? contractDebugStage ?? "response_sent");
       setContractDebugAiProvider(aiDebug?.provider ?? "Not configured");
       setContractDebugAiModel(aiDebug?.model ?? "Not configured");
       setContractDebugAiStatus(aiDebug?.status ?? "unknown");
@@ -416,16 +436,25 @@ function ConfiguredClientWorkspacePage() {
       openClientView("deal");
     } catch (error) {
       const rawError = error instanceof Error ? error.message : "Failed to create contract.";
+      const errorStage =
+        error &&
+        typeof error === "object" &&
+        "stage" in error &&
+        typeof (error as { stage?: unknown }).stage === "string"
+          ? ((error as { stage: string }).stage)
+          : contractDebugStage ?? "route_entered";
       console.error("Agent Guild create contract failed", {
         incomingPayload: workflowPayload,
         amountRawValue: amountInput,
         parsedAmount: parsedWorkflowAmount,
         walletAddress: connectedAddress,
         chainId: resolvedChainId,
+        stage: errorStage,
         challengeResponse: contractDebugApiResponse,
         serverError: rawError,
         stackTrace: error instanceof Error ? error.stack : null,
       });
+      setContractDebugStage(errorStage);
       setContractDebugRawError(rawError);
       const nextStatus =
         error instanceof Error
@@ -800,6 +829,7 @@ function ConfiguredClientWorkspacePage() {
                           <div className="grid gap-3">
                             <DetailCard label="amount input" value={amountInput || "No amount entered"} />
                             <DetailCard label="parsed amount" value={parsedWorkflowAmount || "Amount not parsed yet"} />
+                            <DetailCard label="workflow stage" value={contractDebugStage || "Not captured yet"} />
                             <DetailCard label="AI provider" value={contractDebugAiProvider || "Not captured yet"} />
                             <DetailCard label="AI model" value={contractDebugAiModel || "Not captured yet"} />
                             <DetailCard label="AI status" value={contractDebugAiStatus || "Not captured yet"} />

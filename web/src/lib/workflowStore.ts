@@ -60,6 +60,7 @@ export type WorkflowSessionDebugResult = {
   chainId: number | null;
   amountRawValue: string | null;
   parsedAmount: string | null;
+  stage: string;
   usedExistingSession: boolean;
   challengeResponse: {
     tokenPresent: boolean;
@@ -268,6 +269,7 @@ async function ensureBackendWorkflowSession(
         chainId: debugContext?.chainId ?? null,
         amountRawValue: debugContext?.amount?.trim() || null,
         parsedAmount: null,
+        stage: "session_initialized",
         usedExistingSession: true,
         challengeResponse: null,
       } satisfies WorkflowSessionDebugResult;
@@ -300,6 +302,8 @@ async function ensureBackendWorkflowSession(
   }
 
   const challenge = (await challengeResponse.json()) as {
+    success?: boolean;
+    stage?: string;
     token: string;
     message: string;
     parsedAmount?: string | null;
@@ -336,6 +340,7 @@ async function ensureBackendWorkflowSession(
     chainId: challenge.chainId ?? debugContext?.chainId ?? null,
     amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
     parsedAmount: challenge.parsedAmount ?? null,
+    stage: challenge.stage ?? "challenge_created",
     usedExistingSession: false,
     challengeResponse: {
       tokenPresent: Boolean(challenge.token),
