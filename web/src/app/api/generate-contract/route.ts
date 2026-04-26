@@ -2,97 +2,76 @@ import { NextResponse } from "next/server";
 import { buildDisplayBudget, parseUsdAmountInput } from "@/lib/budget";
 
 type ContractResponse = {
-    clientName: string;
-    projectDescription: string;
-    displayBudget: {
-        amount: number;
-        currency: "USD";
-        label: string;
-    };
-    summary: string;
-    milestones: {
-        title: string;
-        amount: number;
-    }[];
+  clientName: string;
+  projectDescription: string;
+  displayBudget: {
+    amount: number;
+    currency: "USD";
+    label: string;
+  };
+  summary: string;
+  milestones: {
+    title: string;
+    amount: number;
+  }[];
 };
 
-function fallbackContract(
-    clientName: string,
-    projectDescription: string,
-    displayBudgetAmountUsd: number
-): ContractResponse {
-    const part1 = Math.floor(displayBudgetAmountUsd * 0.3);
-    const part2 = Math.floor(displayBudgetAmountUsd * 0.4);
-    const part3 = displayBudgetAmountUsd - part1 - part2;
+type AiDebugPayload = {
+  provider: string | null;
+  model: string | null;
+  status: "success" | "fallback";
+  fallbackUsed: boolean;
+  rawError: string | null;
+  rawResponse: string | null;
+  reason: string | null;
+};
 
-    return {
-        clientName,
-        projectDescription,
-        displayBudget: buildDisplayBudget(displayBudgetAmountUsd),
-        summary:
-            "This freelance engagement is structured into three milestones covering planning, execution, and final delivery.",
-        milestones: [
-            { title: "Discovery and planning", amount: part1 },
-            { title: "Core execution", amount: part2 },
-            { title: "Final delivery and revisions", amount: part3 },
-        ],
-    };
+type GenerateContractResponse = ContractResponse & {
+  aiDebug: AiDebugPayload;
+};
+
+const AI_TIMEOUT_MS = 10_000;
+
+function splitIntoMilestones(displayBudgetAmountUsd: number) {
+  const cents = BigInt(Math.round(displayBudgetAmountUsd * 100));
+  const part1 = cents * 30n / 100n;
+  const part2 = cents * 40n / 100n;
+  const part3 = cents - part1 - part2;
+
+  return [part1, part2, part3].map((value, index) => ({
+    title:
+      index === 0
+        ? "Discovery and planning"
+        : index === 1
+          ? "Core execution"
+          : "Final delivery and revisions",
+    amount: Number(value) / 100,
+  }));
 }
 
-export async function GET() {
-    return NextResponse.json({
-        ok: true,
-        message: "generate-contract endpoint is live. Please use POST.",
-    });
+function createFallbackContract(
+  clientName: string,
+  projectDescription: string,
+  displayBudgetAmountUsd: number,
+  rawAmountInput: string,
+  aiDebug: AiDebugPayload
+): GenerateContractResponse {
+  return {
+    clientName,
+    projectDescription,
+    displayBudget: buildDisplayBudget(displayBudgetAmountUsd),
+    summary: `Client agrees to pay Freelancer ${rawAmountInput} CELO after successful delivery of ${projectDescription}.`,
+    milestones: splitIntoMilestones(displayBudgetAmountUsd),
+    aiDebug,
+  };
 }
 
-export async function POST(request: Request) {
-    try {
-        const body = await request.json();
-        const clientName = body.clientName;
-        const projectDescription = body.projectDescription;
-        const displayBudgetAmountInput =
-            typeof body.displayBudgetAmountUsd === "string"
-                ? body.displayBudgetAmountUsd
-                : String(body.displayBudgetAmountUsd ?? "");
-
-        if (!clientName || !projectDescription || !displayBudgetAmountInput.trim()) {
-            return NextResponse.json(
-                { error: "Missing required fields." },
-                { status: 400 }
-            );
-        }
-
-        let parsedDisplayBudgetAmountUsd;
-        try {
-            parsedDisplayBudgetAmountUsd = parseUsdAmountInput(displayBudgetAmountInput);
-        } catch (error) {
-            return NextResponse.json(
-                {
-                    error:
-                        error instanceof Error
-                            ? error.message
-                            : "Contract value must be a valid USD amount like 0.01 or 25.",
-                },
-                { status: 400 }
-            );
-        }
-
-        const displayBudgetAmountUsd = parsedDisplayBudgetAmountUsd.amount;
-
-        const groqKey = process.env.GROQ_API_KEY;
-
-        if (!groqKey) {
-            return NextResponse.json(
-                fallbackContract(
-                    clientName,
-                    projectDescription,
-                    displayBudgetAmountUsd
-                )
-            );
-        }
-
-        const prompt = `
+function buildContractPrompt(input: {
+  clientName: string;
+  projectDescription: string;
+  displayBudgetAmountUsd: number;
+}) {
+  return `
 Return ONLY valid JSON in this exact format:
 {
   "clientName": "string",
@@ -120,84 +99,352 @@ Rules:
 - no backticks
 
 Inputs:
-Client name: ${clientName}
-Project description: ${projectDescription}
-Contract value: ${displayBudgetAmountUsd} USD
-`;
+Client name: ${input.clientName}
+Project description: ${input.projectDescription}
+Contract value: ${input.displayBudgetAmountUsd} USD
+`.trim();
+}
 
-        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: {
-                Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                model: "llama3-8b-8192",
-                temperature: 0.2,
-                messages: [
-                    {
-                        role: "user",
-                        content: prompt,
-                    },
-                ],
-            }),
+function resolveAiConfig() {
+  const provider = process.env.AI_PROVIDER?.trim().toLowerCase() || null;
+  const model = process.env.AI_MODEL?.trim() || null;
+  const groqApiKey = process.env.GROQ_API_KEY?.trim() || null;
+  const openAiApiKey = process.env.OPENAI_API_KEY?.trim() || null;
+
+  return {
+    provider,
+    model,
+    groqApiKey,
+    openAiApiKey,
+  };
+}
+
+function getAiProviderError(config: ReturnType<typeof resolveAiConfig>) {
+  if (!config.provider || !config.model) {
+    return "Missing AI provider configuration";
+  }
+
+  if (config.provider === "groq" && !config.groqApiKey) {
+    return "Missing AI provider configuration";
+  }
+
+  if (config.provider === "openai" && !config.openAiApiKey) {
+    return "Missing AI provider configuration";
+  }
+
+  if (config.provider !== "groq" && config.provider !== "openai") {
+    return `Unsupported AI provider: ${config.provider}`;
+  }
+
+  return null;
+}
+
+async function requestAiContract(input: {
+  provider: "groq" | "openai";
+  model: string;
+  apiKey: string;
+  prompt: string;
+}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  const endpoint =
+    input.provider === "groq"
+      ? "https://api.groq.com/openai/v1/chat/completions"
+      : "https://api.openai.com/v1/chat/completions";
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: input.model,
+        temperature: 0.2,
+        messages: [
+          {
+            role: "user",
+            content: input.prompt,
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    const rawBody = await response.text();
+    let parsedBody: unknown = null;
+
+    try {
+      parsedBody = rawBody ? JSON.parse(rawBody) : null;
+    } catch (error) {
+      console.error("Agent Guild AI provider returned malformed JSON", {
+        provider: input.provider,
+        model: input.model,
+        rawAiResponse: rawBody,
+        jsonParseError: error instanceof Error ? error.message : error,
+        stackTrace: error instanceof Error ? error.stack : null,
+      });
+      throw new Error("Malformed JSON from AI provider");
+    }
+
+    if (!response.ok) {
+      console.error("Agent Guild AI provider request failed", {
+        provider: input.provider,
+        model: input.model,
+        rawAiResponse: parsedBody,
+        status: response.status,
+      });
+      const errorMessage =
+        typeof parsedBody === "object" &&
+        parsedBody !== null &&
+        "error" in parsedBody &&
+        typeof (parsedBody as { error?: { message?: string } }).error?.message === "string"
+          ? (parsedBody as { error: { message: string } }).error.message
+          : `Provider unavailable (${response.status})`;
+      throw new Error(errorMessage);
+    }
+
+    return {
+      rawAiResponse: parsedBody,
+      content:
+        typeof parsedBody === "object" &&
+        parsedBody !== null &&
+        "choices" in parsedBody
+          ? ((parsedBody as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content ??
+              "")
+          : "",
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("AI provider timeout");
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function parseAiContractResponse(text: string) {
+  let normalizedText = text.trim();
+  if (normalizedText.startsWith("```")) {
+    normalizedText = normalizedText.replace(/```json/g, "").replace(/```/g, "").trim();
+  }
+
+  const parsed = JSON.parse(normalizedText) as ContractResponse;
+  if (
+    !parsed?.displayBudget ||
+    typeof parsed.displayBudget.amount !== "number" ||
+    parsed.displayBudget.currency !== "USD" ||
+    typeof parsed.displayBudget.label !== "string" ||
+    !Array.isArray(parsed.milestones)
+  ) {
+    throw new Error("Invalid AI response shape");
+  }
+
+  return parsed;
+}
+
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    message: "generate-contract endpoint is live. Please use POST.",
+  });
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json()) as {
+      clientName?: string;
+      projectDescription?: string;
+      displayBudgetAmountUsd?: string | number;
+      title?: string;
+      description?: string;
+      amount?: string;
+      wallet?: string;
+      chainId?: number | string;
+    };
+
+    const clientName = body.clientName;
+    const projectDescription = body.projectDescription;
+    const displayBudgetAmountInput =
+      typeof body.displayBudgetAmountUsd === "string"
+        ? body.displayBudgetAmountUsd
+        : String(body.displayBudgetAmountUsd ?? "");
+
+    console.log("Agent Guild AI generation request", {
+      incomingWorkflowPayload: body,
+      amountRawValue: displayBudgetAmountInput,
+      walletAddress: body.wallet ?? null,
+      chainId: body.chainId ?? null,
+    });
+
+    if (!clientName || !projectDescription || !displayBudgetAmountInput.trim()) {
+      return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+    }
+
+    let parsedDisplayBudgetAmountUsd;
+    try {
+      parsedDisplayBudgetAmountUsd = parseUsdAmountInput(displayBudgetAmountInput);
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Contract value must be a valid USD amount like 0.01 or 25.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const displayBudgetAmountUsd = parsedDisplayBudgetAmountUsd.amount;
+    const prompt = buildContractPrompt({
+      clientName,
+      projectDescription,
+      displayBudgetAmountUsd,
+    });
+
+    const aiConfig = resolveAiConfig();
+    const providerConfigError = getAiProviderError(aiConfig);
+
+    console.log("Agent Guild AI generation config", {
+      selectedAiProvider: aiConfig.provider,
+      modelName: aiConfig.model,
+      hasGroqKey: Boolean(aiConfig.groqApiKey),
+      hasOpenAiKey: Boolean(aiConfig.openAiApiKey),
+      prompt,
+    });
+
+    if (providerConfigError) {
+      const fallbackResponse = createFallbackContract(
+        clientName,
+        projectDescription,
+        displayBudgetAmountUsd,
+        displayBudgetAmountInput.trim(),
+        {
+          provider: aiConfig.provider,
+          model: aiConfig.model,
+          status: "fallback",
+          fallbackUsed: true,
+          rawError: providerConfigError,
+          rawResponse: null,
+          reason: providerConfigError,
+        }
+      );
+
+      console.error("Agent Guild AI generation fallback", {
+        incomingWorkflowPayload: body,
+        selectedAiProvider: aiConfig.provider,
+        modelName: aiConfig.model,
+        generatedAiPrompt: prompt,
+        rawAiResponse: null,
+        parsedContractResponse: fallbackResponse,
+        serverError: providerConfigError,
+      });
+
+      return NextResponse.json(fallbackResponse);
+    }
+
+    try {
+      const provider = aiConfig.provider as "groq" | "openai";
+      const apiKey = provider === "groq" ? aiConfig.groqApiKey! : aiConfig.openAiApiKey!;
+      const aiResponse = await requestAiContract({
+        provider,
+        model: aiConfig.model!,
+        apiKey,
+        prompt,
+      });
+
+      console.log("Agent Guild AI generation raw response", {
+        selectedAiProvider: provider,
+        modelName: aiConfig.model,
+        rawAiResponse: aiResponse.rawAiResponse,
+      });
+
+      if (!aiResponse.content.trim()) {
+        throw new Error("Provider returned an empty response");
+      }
+
+      try {
+        const parsedContract = parseAiContractResponse(aiResponse.content);
+        console.log("Agent Guild AI generation parsed response", {
+          parsedContractResponse: parsedContract,
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
-            console.error("Groq API error:", data);
-            return NextResponse.json(
-                fallbackContract(
-                    clientName,
-                    projectDescription,
-                    displayBudgetAmountUsd
-                )
-            );
-        }
-
-        let text = data?.choices?.[0]?.message?.content?.trim();
-
-        if (!text) {
-            return NextResponse.json(
-                fallbackContract(
-                    clientName,
-                    projectDescription,
-                    displayBudgetAmountUsd
-                )
-            );
-        }
-
-        if (text.startsWith("```")) {
-            text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-        }
-
-        try {
-            const parsed = JSON.parse(text);
-            if (
-                !parsed?.displayBudget ||
-                typeof parsed.displayBudget.amount !== "number" ||
-                parsed.displayBudget.currency !== "USD" ||
-                typeof parsed.displayBudget.label !== "string"
-            ) {
-                throw new Error("Invalid display budget response shape");
-            }
-            return NextResponse.json(parsed);
-        } catch {
-            console.error("Invalid JSON from Groq:", text);
-            return NextResponse.json(
-                fallbackContract(
-                    clientName,
-                    projectDescription,
-                    displayBudgetAmountUsd
-                )
-            );
-        }
-    } catch (error) {
-        console.error("Route error:", error);
-        return NextResponse.json(
-            { error: "Unexpected server error." },
-            { status: 500 }
+        return NextResponse.json({
+          ...parsedContract,
+          aiDebug: {
+            provider,
+            model: aiConfig.model,
+            status: "success",
+            fallbackUsed: false,
+            rawError: null,
+            rawResponse: JSON.stringify(aiResponse.rawAiResponse),
+            reason: null,
+          },
+        } satisfies GenerateContractResponse);
+      } catch (error) {
+        console.error("Agent Guild AI response parse failed", {
+          generatedAiPrompt: prompt,
+          rawAiResponse: aiResponse.rawAiResponse,
+          jsonParseError: error instanceof Error ? error.message : error,
+          stackTrace: error instanceof Error ? error.stack : null,
+        });
+        throw new Error(
+          error instanceof Error && error.message.trim()
+            ? `Malformed JSON: ${error.message}`
+            : "Malformed JSON"
         );
+      }
+    } catch (error) {
+      const fallbackReason =
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Provider unavailable";
+      const fallbackResponse = createFallbackContract(
+        clientName,
+        projectDescription,
+        displayBudgetAmountUsd,
+        displayBudgetAmountInput.trim(),
+        {
+          provider: aiConfig.provider,
+          model: aiConfig.model,
+          status: "fallback",
+          fallbackUsed: true,
+          rawError: fallbackReason,
+          rawResponse: null,
+          reason: fallbackReason,
+        }
+      );
+
+      console.error("Agent Guild AI generation fallback", {
+        incomingWorkflowPayload: body,
+        generatedAiPrompt: prompt,
+        selectedAiProvider: aiConfig.provider,
+        modelName: aiConfig.model,
+        rawAiResponse: null,
+        parsedContractResponse: fallbackResponse,
+        serverError: fallbackReason,
+        stackTrace: error instanceof Error ? error.stack : null,
+      });
+
+      return NextResponse.json(fallbackResponse);
     }
+  } catch (error) {
+    console.error("Agent Guild generate-contract route error", {
+      serverError: error instanceof Error ? error.message : error,
+      stackTrace: error instanceof Error ? error.stack : null,
+    });
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : "Unexpected server error.",
+      },
+      { status: 500 }
+    );
+  }
 }

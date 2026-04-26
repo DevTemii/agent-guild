@@ -97,6 +97,11 @@ function ConfiguredClientWorkspacePage() {
   const [contractStatus, setContractStatus] = useState("");
   const [contractDebugApiResponse, setContractDebugApiResponse] = useState<string | null>(null);
   const [contractDebugRawError, setContractDebugRawError] = useState<string | null>(null);
+  const [contractDebugAiProvider, setContractDebugAiProvider] = useState<string | null>(null);
+  const [contractDebugAiModel, setContractDebugAiModel] = useState<string | null>(null);
+  const [contractDebugAiStatus, setContractDebugAiStatus] = useState<string | null>(null);
+  const [contractDebugFallbackUsed, setContractDebugFallbackUsed] = useState<string | null>(null);
+  const [contractDebugAiRawError, setContractDebugAiRawError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<string[]>([]);
   const [freelancerSearch, setFreelancerSearch] = useState("");
   const [selectedFreelancerWallet, setSelectedFreelancerWallet] = useState("");
@@ -310,6 +315,11 @@ function ConfiguredClientWorkspacePage() {
       setGeneratingContract(true);
       setContractDebugRawError(null);
       setContractDebugApiResponse(null);
+      setContractDebugAiProvider(null);
+      setContractDebugAiModel(null);
+      setContractDebugAiStatus(null);
+      setContractDebugFallbackUsed(null);
+      setContractDebugAiRawError(null);
       setContractStatus("Creating the deal...");
       console.log("Agent Guild contract flow wallet debug", {
         isMiniPay: walletSession.isMiniPay,
@@ -350,6 +360,22 @@ function ConfiguredClientWorkspacePage() {
         throw new Error(result?.error || result?.message || "Failed to generate contract.");
       }
 
+      const aiDebug = result?.aiDebug as
+        | {
+            provider?: string | null;
+            model?: string | null;
+            status?: string | null;
+            fallbackUsed?: boolean;
+            rawError?: string | null;
+            reason?: string | null;
+          }
+        | undefined;
+      setContractDebugAiProvider(aiDebug?.provider ?? "Not configured");
+      setContractDebugAiModel(aiDebug?.model ?? "Not configured");
+      setContractDebugAiStatus(aiDebug?.status ?? "unknown");
+      setContractDebugFallbackUsed(aiDebug?.fallbackUsed ? "true" : "false");
+      setContractDebugAiRawError(aiDebug?.rawError ?? aiDebug?.reason ?? "No AI error captured");
+
       console.log("Agent Guild generate contract response", {
         challengeResponse: workflowChallengeResponse,
         apiResponse: result,
@@ -382,7 +408,11 @@ function ConfiguredClientWorkspacePage() {
       await syncWorkflowState(account);
       setContracts(getContractsForClient(connectedAddress));
       setNotifications(getNotificationsForWallet(connectedAddress));
-      setContractStatus("Deal created. Send it when you are ready.");
+      setContractStatus(
+        aiDebug?.fallbackUsed
+          ? `Deal created with fallback contract template. ${aiDebug.rawError ?? "AI provider unavailable."}`
+          : "Deal created. Send it when you are ready."
+      );
       openClientView("deal");
     } catch (error) {
       const rawError = error instanceof Error ? error.message : "Failed to create contract.";
@@ -400,7 +430,7 @@ function ConfiguredClientWorkspacePage() {
       const nextStatus =
         error instanceof Error
           ? error.message
-          : "AI contract generation failed.";
+          : "Could not create the deal.";
       setContractStatus(nextStatus);
     } finally {
       setGeneratingContract(false);
@@ -770,6 +800,11 @@ function ConfiguredClientWorkspacePage() {
                           <div className="grid gap-3">
                             <DetailCard label="amount input" value={amountInput || "No amount entered"} />
                             <DetailCard label="parsed amount" value={parsedWorkflowAmount || "Amount not parsed yet"} />
+                            <DetailCard label="AI provider" value={contractDebugAiProvider || "Not captured yet"} />
+                            <DetailCard label="AI model" value={contractDebugAiModel || "Not captured yet"} />
+                            <DetailCard label="AI status" value={contractDebugAiStatus || "Not captured yet"} />
+                            <DetailCard label="fallback used" value={contractDebugFallbackUsed || "Not captured yet"} />
+                            <DetailCard label="AI raw error" value={contractDebugAiRawError || "No AI error captured"} />
                             <DetailCard
                               label="API response"
                               value={contractDebugApiResponse || "No workflow challenge response captured yet"}
