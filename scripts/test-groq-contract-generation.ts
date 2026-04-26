@@ -1,8 +1,13 @@
-import "dotenv/config";
+import { config as loadEnv } from "dotenv";
 import {
   generateContractWithGroq,
   getGroqModel,
 } from "../web/src/lib/server/groqContractGenerator.ts";
+
+loadEnv({ path: ".env.local" });
+if (!process.env.GROQ_API_KEY) {
+  loadEnv({ path: "web/.env.local" });
+}
 
 async function main() {
   const input = {
