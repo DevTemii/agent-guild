@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ConfigErrorPanel } from "@/components/ConfigErrorScreen";
 import { MiniPayWalletSheet } from "@/components/wallet/MiniPayWalletSheet";
@@ -28,6 +28,7 @@ function ConfiguredHomeEntry() {
   const walletSession = useAgentWalletSession();
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const connectedAddress = walletSession.address;
+  const resumeRedirectInFlightRef = useRef(false);
 
   const continueLabel = useMemo(() => {
     if (!selectedRole) {
@@ -49,6 +50,42 @@ function ConfiguredHomeEntry() {
       redirectReason: null,
     });
   }, [connectedAddress, pathname, selectedRole]);
+
+  useEffect(() => {
+    if (pathname !== "/" || resumeRedirectInFlightRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    const storedRole = window.localStorage.getItem(ROLE_STORAGE_KEY) as Role | null;
+    const storedWallet = window.localStorage.getItem(LAST_WALLET_STORAGE_KEY);
+    const resolvedAddress = connectedAddress || storedWallet;
+
+    if (!storedRole || !resolvedAddress) {
+      return;
+    }
+
+    const nextRoute = storedRole === "client" ? "/client" : "/freelancer";
+    resumeRedirectInFlightRef.current = true;
+    console.log("agent guild entry route debug", {
+      selectedRole: storedRole,
+      connectedAddress: resolvedAddress,
+      currentPath: pathname,
+      redirectReason: `resume_role_route:${storedRole}`,
+    });
+    router.replace(nextRoute);
+
+    const fallbackTimer = window.setTimeout(() => {
+      if (window.location.pathname === "/") {
+        window.location.assign(nextRoute);
+      }
+      resumeRedirectInFlightRef.current = false;
+    }, 250);
+
+    return () => {
+      window.clearTimeout(fallbackTimer);
+      resumeRedirectInFlightRef.current = false;
+    };
+  }, [connectedAddress, pathname, router]);
 
   function handleContinue() {
     const resolvedAddress =
@@ -77,6 +114,13 @@ function ConfiguredHomeEntry() {
     });
     setSelectedRole(null);
     router.push(nextRoute);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => {
+        if (window.location.pathname === "/") {
+          window.location.assign(nextRoute);
+        }
+      }, 200);
+    }
   }
 
   return (
