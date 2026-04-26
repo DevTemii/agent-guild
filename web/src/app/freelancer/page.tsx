@@ -223,6 +223,12 @@ function ConfiguredFreelancerWorkspacePage() {
       const nextContracts = getContractsForFreelancer(connectedAddress);
       const nextNotifications = getNotificationsForWallet(connectedAddress);
 
+      console.log("Agent Guild freelancer inbox sync", {
+        wallet: connectedAddress,
+        pendingCount: nextContracts.filter((entry) => entry.status === "sent").length,
+        contractIds: nextContracts.map((entry) => entry.id),
+      });
+
       setContracts(nextContracts);
       setNotifications(nextNotifications);
     };

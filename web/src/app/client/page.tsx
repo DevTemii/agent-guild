@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { formatUnits } from "viem";
+import { formatUnits, isAddress } from "viem";
 import { useReadContract } from "thirdweb/react";
 import { getContract } from "thirdweb";
 import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
@@ -28,6 +28,7 @@ import {
   createLocalDraftContractFallback,
   createDraftContract,
   getContractsForClient,
+  getProductContractById,
   getNotificationsForWallet,
   getWorkflowRefreshEventName,
   normalizeWallet,
@@ -143,6 +144,9 @@ function ConfiguredClientWorkspacePage() {
   const [contractDebugAiStatus, setContractDebugAiStatus] = useState<string | null>(null);
   const [contractDebugFallbackUsed, setContractDebugFallbackUsed] = useState<string | null>(null);
   const [contractDebugAiRawError, setContractDebugAiRawError] = useState<string | null>(null);
+  const [sendDealDebugPayload, setSendDealDebugPayload] = useState<string | null>(null);
+  const [sendDealDebugResponse, setSendDealDebugResponse] = useState<string | null>(null);
+  const [sendDealDebugRawError, setSendDealDebugRawError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<string[]>([]);
   const [freelancerSearch, setFreelancerSearch] = useState("");
   const [selectedFreelancerWallet, setSelectedFreelancerWallet] = useState("");
@@ -332,6 +336,11 @@ function ConfiguredClientWorkspacePage() {
       return;
     }
 
+    if (!isAddress(freelancerWallet)) {
+      setContractStatus("Enter a real freelancer wallet address before creating the deal.");
+      return;
+    }
+
     const displayBudgetError = validateUsdAmountInput(displayBudgetAmountUsd);
     if (displayBudgetError) {
       setContractStatus(displayBudgetError);
@@ -506,13 +515,46 @@ function ConfiguredClientWorkspacePage() {
   }
 
   async function sendContract(contractId: string) {
+    const selectedContract = getProductContractById(contractId);
+    const normalizedClientWallet = normalizeWallet(connectedAddress);
+    const normalizedFreelancerWallet = normalizeWallet(selectedContract?.freelancerWallet);
+    const sendDebugPayload = {
+      contractId,
+      clientWallet: normalizedClientWallet || null,
+      freelancerWallet: normalizedFreelancerWallet || null,
+      selectedContract,
+      currentStatusBeforeSend: selectedContract?.status ?? "missing",
+    };
+
     try {
       console.log("Agent Guild send deal clicked", {
-        contractId,
-        connectedAddress,
+        ...sendDebugPayload,
         walletSource: walletSession.walletSource,
         sessionActive: walletSession.sessionActive,
       });
+      setSendDealDebugPayload(JSON.stringify(sendDebugPayload, null, 2));
+      setSendDealDebugResponse(null);
+      setSendDealDebugRawError(null);
+
+      if (!selectedContract) {
+        throw new Error("This deal could not be found in the shared workflow.");
+      }
+
+      if (!normalizedClientWallet) {
+        throw new Error("Reconnect Wallet");
+      }
+
+      if (normalizeWallet(selectedContract.clientWallet) !== normalizedClientWallet) {
+        throw new Error("Only the client wallet that created this deal can send it.");
+      }
+
+      if (!normalizedFreelancerWallet || !isAddress(normalizedFreelancerWallet)) {
+        throw new Error("Save a valid freelancer wallet before sending this deal.");
+      }
+
+      if (selectedContract.status !== "draft") {
+        throw new Error(`Only draft deals can be sent. Current status: ${selectedContract.status}.`);
+      }
 
       const next = await sendProductContract(contractId, account);
       if (!next) {
@@ -520,6 +562,13 @@ function ConfiguredClientWorkspacePage() {
           "Unable to send this deal. Confirm the freelancer wallet is saved correctly."
         );
         return;
+      }
+
+      console.log("Agent Guild send deal response", next);
+      setSendDealDebugResponse(JSON.stringify(next, null, 2));
+
+      if (next.status !== "sent") {
+        throw new Error(`Send deal did not complete. Returned status: ${next.status}.`);
       }
 
       await syncWorkflowState(account);
@@ -538,6 +587,7 @@ function ConfiguredClientWorkspacePage() {
         rawProviderChainId: walletSession.rawProviderChainId,
         providerChainId: walletSession.providerChainId,
       });
+      setSendDealDebugRawError(message);
       setContractStatus(message);
     }
   }
@@ -905,6 +955,18 @@ function ConfiguredClientWorkspacePage() {
                               value={contractDebugApiResponse || "No workflow challenge response captured yet"}
                             />
                             <DetailCard label="raw error" value={contractDebugRawError || "No error captured"} />
+                            <DetailCard
+                              label="send deal payload"
+                              value={sendDealDebugPayload || "No send deal payload captured yet"}
+                            />
+                            <DetailCard
+                              label="send deal response"
+                              value={sendDealDebugResponse || "No send deal response captured yet"}
+                            />
+                            <DetailCard
+                              label="send deal raw error"
+                              value={sendDealDebugRawError || "No send deal error captured"}
+                            />
                           </div>
                         </WorkspacePanel>
 
