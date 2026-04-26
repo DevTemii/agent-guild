@@ -506,16 +506,40 @@ function ConfiguredClientWorkspacePage() {
   }
 
   async function sendContract(contractId: string) {
-    const next = await sendProductContract(contractId, account);
-    if (!next) {
-      setContractStatus("Unable to send this deal. Confirm the freelancer wallet is saved correctly.");
-      return;
-    }
+    try {
+      console.log("Agent Guild send deal clicked", {
+        contractId,
+        connectedAddress,
+        walletSource: walletSession.walletSource,
+        sessionActive: walletSession.sessionActive,
+      });
 
-    await syncWorkflowState(account);
-    setContracts(getContractsForClient(connectedAddress));
-    setNotifications(getNotificationsForWallet(connectedAddress));
-    setContractStatus(`Deal sent to ${next.freelancerName}.`);
+      const next = await sendProductContract(contractId, account);
+      if (!next) {
+        setContractStatus(
+          "Unable to send this deal. Confirm the freelancer wallet is saved correctly."
+        );
+        return;
+      }
+
+      await syncWorkflowState(account);
+      setContracts(getContractsForClient(connectedAddress));
+      setNotifications(getNotificationsForWallet(connectedAddress));
+      setContractStatus(`Deal sent to ${next.freelancerName}.`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to send this deal right now.";
+      console.error("Agent Guild send deal failed", {
+        contractId,
+        connectedAddress,
+        message,
+        walletSource: walletSession.walletSource,
+        sessionActive: walletSession.sessionActive,
+        rawProviderChainId: walletSession.rawProviderChainId,
+        providerChainId: walletSession.providerChainId,
+      });
+      setContractStatus(message);
+    }
   }
 
   const sortedContracts = [...contracts].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));

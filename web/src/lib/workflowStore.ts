@@ -607,6 +607,45 @@ async function postWorkflowMutation<T>(
   return payload;
 }
 
+function isLocalWorkflowDraftId(id: string) {
+  return id.startsWith("local-");
+}
+
+function buildDraftContractInputFromContract(
+  contract: ProductContract
+): Omit<ProductContract, "id" | "status" | "createdAt" | "updatedAt"> {
+  return {
+    clientWallet: contract.clientWallet,
+    clientName: contract.clientName,
+    freelancerWallet: contract.freelancerWallet,
+    freelancerName: contract.freelancerName,
+    projectBrief: contract.projectBrief,
+    displayBudget: contract.displayBudget,
+    settlementAmountCelo: contract.settlementAmountCelo,
+    summary: contract.summary,
+    milestones: contract.milestones,
+    linkedProjectId: contract.linkedProjectId ?? null,
+  };
+}
+
+function replaceLocalDraftCache(localDraftId: string, remoteDraft: ProductContract) {
+  const wallet = normalizeWallet(remoteDraft.clientWallet);
+  if (!wallet) {
+    return;
+  }
+
+  const currentContracts = getCachedContractsForWallet(wallet);
+  const nextContracts = [
+    remoteDraft,
+    ...currentContracts.filter(
+      (contract) => contract.id !== localDraftId && contract.id !== remoteDraft.id
+    ),
+  ];
+
+  setCachedContracts(wallet, nextContracts);
+  emitWorkflowRefresh();
+}
+
 export function getWorkflowRefreshEventName() {
   return WORKFLOW_REFRESH_EVENT;
 }
@@ -764,6 +803,23 @@ export async function sendProductContract(
   id: string,
   account: Account | null | undefined
 ) {
+  if (isLocalWorkflowDraftId(id)) {
+    const localDraft = getProductContractById(id);
+    if (!localDraft) {
+      throw new Error("This draft only exists on this device. Recreate the deal and try again.");
+    }
+
+    const remoteDraft = await createDraftContract(
+      buildDraftContractInputFromContract(localDraft),
+      account
+    );
+    replaceLocalDraftCache(id, remoteDraft);
+
+    return postWorkflowMutation<ProductContract>(account, {
+      path: `/api/workflow/contracts/${remoteDraft.id}/send`,
+    });
+  }
+
   return postWorkflowMutation<ProductContract>(account, {
     path: `/api/workflow/contracts/${id}/send`,
   });
