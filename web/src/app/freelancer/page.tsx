@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useReadContract } from "thirdweb/react";
 import { getContract, prepareContractCall, sendTransaction, waitForReceipt } from "thirdweb";
 import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
@@ -48,6 +49,9 @@ type Agent = {
 
 type FreelancerView = "home" | "deal" | "profile";
 type FreelancerStage = "connect" | "review" | "wait" | "submit" | "ready";
+
+const ROLE_STORAGE_KEY = "agent-guild-role";
+const LAST_WALLET_STORAGE_KEY = "agent-guild-last-wallet";
 
 function extractRawErrorMessage(error: unknown): string {
   const messages: string[] = [];
@@ -130,6 +134,7 @@ export default function FreelancerWorkspacePage() {
 }
 
 function ConfiguredFreelancerWorkspacePage() {
+  const pathname = usePathname();
   const thirdwebClient = client!;
   const walletSession = useAgentWalletSession();
   const account = walletSession.thirdwebAccount;
@@ -147,6 +152,9 @@ function ConfiguredFreelancerWorkspacePage() {
   const [profileStatus, setProfileStatus] = useState("");
   const [profileTxHash, setProfileTxHash] = useState<string | null>(null);
   const [profileRawError, setProfileRawError] = useState<string | null>(null);
+  const [storedRole, setStoredRole] = useState<string | null>(null);
+  const [storedWalletAddress, setStoredWalletAddress] = useState<string | null>(null);
+  const [redirectReason, setRedirectReason] = useState<string>("freelancer_route_loaded");
   const [notifications, setNotifications] = useState<string[]>([]);
   const [contracts, setContracts] = useState<ProductContract[]>([]);
   const [activeView, setActiveView] = useState<FreelancerView>("home");
@@ -166,6 +174,43 @@ function ConfiguredFreelancerWorkspacePage() {
   const { data, refetch } = useReadContract({ contract, method: "getAgents", params: [] });
 
   const resolvedChainId = walletSession.isMiniPay ? providerChainId : activeChainId;
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const nextStoredRole = window.localStorage.getItem(ROLE_STORAGE_KEY);
+    const nextStoredWallet = normalizeWallet(window.localStorage.getItem(LAST_WALLET_STORAGE_KEY));
+    setStoredRole(nextStoredRole);
+    setStoredWalletAddress(nextStoredWallet);
+
+    if (walletSession.isMiniPay) {
+      setRedirectReason("minipay_provider_available");
+      return;
+    }
+
+    if (connectedAddress) {
+      setRedirectReason("connected_wallet_available");
+      return;
+    }
+
+    if (nextStoredWallet) {
+      setRedirectReason("stored_wallet_available");
+      return;
+    }
+
+    setRedirectReason("awaiting_wallet_connection");
+  }, [connectedAddress, walletSession.isMiniPay]);
+
+  useEffect(() => {
+    console.log("agent guild freelancer route debug", {
+      selectedRole: storedRole,
+      connectedAddress,
+      currentPath: pathname,
+      redirectReason,
+    });
+  }, [connectedAddress, pathname, redirectReason, storedRole]);
 
   useEffect(() => {
     const syncWorkflow = async () => {
@@ -708,6 +753,10 @@ function ConfiguredFreelancerWorkspacePage() {
                       label="normalized chainId"
                       value={walletSession.normalizedChainId ? `${walletSession.normalizedChainId}` : "Not detected"}
                     />
+                    <DetailCard label="Current path" value={pathname} />
+                    <DetailCard label="Stored role" value={storedRole || "Not stored"} />
+                    <DetailCard label="Stored wallet" value={storedWalletAddress || "Not stored"} />
+                    <DetailCard label="redirect reason" value={redirectReason} />
                     <DetailCard label="Registry in use" value={AGENT_REGISTRY_ADDRESS} />
                     <DetailCard label="Registry address" value={AGENT_REGISTRY_ADDRESS} />
                     <DetailCard label="Function" value={AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE} />

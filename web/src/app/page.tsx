@@ -1,8 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { ConfigErrorPanel } from "@/components/ConfigErrorScreen";
 import { MiniPayWalletSheet } from "@/components/wallet/MiniPayWalletSheet";
 import { client } from "@/lib/client";
@@ -10,6 +10,9 @@ import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import { useAgentWalletSession } from "@/lib/walletSession";
 
 type Role = "client" | "freelancer";
+
+const ROLE_STORAGE_KEY = "agent-guild-role";
+const LAST_WALLET_STORAGE_KEY = "agent-guild-last-wallet";
 
 export default function Home() {
   if (!agentGuildRuntimeConfig.valid || !client) {
@@ -21,6 +24,7 @@ export default function Home() {
 
 function ConfiguredHomeEntry() {
   const router = useRouter();
+  const pathname = usePathname();
   const walletSession = useAgentWalletSession();
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const connectedAddress = walletSession.address;
@@ -37,15 +41,34 @@ function ConfiguredHomeEntry() {
     setSelectedRole(role);
   }
 
+  useEffect(() => {
+    console.log("agent guild entry route debug", {
+      selectedRole,
+      connectedAddress,
+      currentPath: pathname,
+      redirectReason: null,
+    });
+  }, [connectedAddress, pathname, selectedRole]);
+
   function handleContinue() {
     if (!selectedRole || !connectedAddress) {
       return;
     }
 
-    console.log("wallet sheet continue clicked", selectedRole, connectedAddress);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(ROLE_STORAGE_KEY, selectedRole);
+      window.localStorage.setItem(LAST_WALLET_STORAGE_KEY, connectedAddress);
+    }
+
     const nextRoute = selectedRole === "client" ? "/client" : "/freelancer";
-    setSelectedRole(null);
+    console.log("wallet sheet continue clicked", {
+      selectedRole,
+      connectedAddress,
+      currentPath: pathname,
+      redirectReason: `continue_clicked:${selectedRole}`,
+    });
     router.push(nextRoute);
+    router.refresh();
   }
 
   return (
