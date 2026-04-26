@@ -9,6 +9,7 @@ type MiniPayWalletSheetProps = {
   title?: string;
   description?: string;
   continueLabel?: string;
+  selectedRole?: "client" | "freelancer" | null;
   onContinue?: () => void;
   configErrors?: string[];
 };
@@ -19,6 +20,7 @@ export function MiniPayWalletSheet({
   title = "Connect MiniPay wallet",
   description = "Use your MiniPay wallet to manage this deal.",
   continueLabel,
+  selectedRole = null,
   onContinue,
   configErrors,
 }: MiniPayWalletSheetProps) {
@@ -76,6 +78,11 @@ export function MiniPayWalletSheet({
     await walletSession.disconnectWallet();
   }
 
+  function handleContinueClick() {
+    console.log("wallet sheet continue clicked", selectedRole, walletSession.address);
+    onContinue?.();
+  }
+
   if (!open) {
     return null;
   }
@@ -85,14 +92,14 @@ export function MiniPayWalletSheet({
       <button
         type="button"
         aria-label="Close wallet sheet"
-        className="absolute inset-0 cursor-default"
+        className="absolute inset-0 z-0 cursor-default"
         onClick={() => {
           setLocalError(null);
           onClose();
         }}
       />
 
-      <div className="relative w-full max-w-[420px] overflow-hidden rounded-[28px] border border-[#2a1116] bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.18),transparent_38%),linear-gradient(180deg,#111111_0%,#080808_100%)] p-5 text-[#f7f4ef] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+      <div className="pointer-events-auto relative z-10 w-full max-w-[420px] overflow-hidden rounded-[28px] border border-[#2a1116] bg-[radial-gradient(circle_at_top,rgba(215,38,56,0.18),transparent_38%),linear-gradient(180deg,#111111_0%,#080808_100%)] p-5 text-[#f7f4ef] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#2a2a2a]" />
 
         <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#f2b6be]">
@@ -184,7 +191,8 @@ export function MiniPayWalletSheet({
               {continueLabel && onContinue ? (
                 <button
                   type="button"
-                  onClick={onContinue}
+                  onClick={handleContinueClick}
+                  disabled={!walletSession.address}
                   className="min-h-[56px] w-full rounded-[18px] bg-[#d72638] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#b91f30]"
                 >
                   {continueLabel}

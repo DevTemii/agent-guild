@@ -42,7 +42,10 @@ function ConfiguredHomeEntry() {
       return;
     }
 
-    router.push(selectedRole === "client" ? "/client" : "/freelancer");
+    console.log("wallet sheet continue clicked", selectedRole, connectedAddress);
+    const nextRoute = selectedRole === "client" ? "/client" : "/freelancer";
+    setSelectedRole(null);
+    router.push(nextRoute);
   }
 
   return (
@@ -52,6 +55,7 @@ function ConfiguredHomeEntry() {
         open={selectedRole !== null}
         onClose={() => setSelectedRole(null)}
         continueLabel={continueLabel}
+        selectedRole={selectedRole}
         onContinue={handleContinue}
       />
     </>
