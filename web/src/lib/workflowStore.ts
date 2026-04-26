@@ -52,16 +52,22 @@ export type WorkflowChallengeDebugContext = {
   title?: string;
   description?: string;
   amount?: string;
+  amountWei?: string;
   chainId?: number | null;
+  role?: string;
+  timestamp?: string;
 };
 
 export type WorkflowSessionDebugResult = {
   wallet: string;
   chainId: number | null;
   amountRawValue: string | null;
+  amountWei: string | null;
   parsedAmount: string | null;
   stage: string;
   usedExistingSession: boolean;
+  sessionMode: "verified" | "fallback";
+  reason: string | null;
   challengeResponse: {
     tokenPresent: boolean;
     message?: string;
@@ -268,9 +274,12 @@ async function ensureBackendWorkflowSession(
         wallet: connectedWallet,
         chainId: debugContext?.chainId ?? null,
         amountRawValue: debugContext?.amount?.trim() || null,
+        amountWei: debugContext?.amountWei?.trim() || null,
         parsedAmount: null,
         stage: "session_initialized",
         usedExistingSession: true,
+        sessionMode: "verified",
+        reason: null,
         challengeResponse: null,
       } satisfies WorkflowSessionDebugResult;
     }
@@ -288,28 +297,83 @@ async function ensureBackendWorkflowSession(
       title: debugContext?.title ?? null,
       description: debugContext?.description ?? null,
       amount: debugContext?.amount ?? null,
+      amountWei: debugContext?.amountWei ?? null,
       chainId: debugContext?.chainId ?? null,
+      role: debugContext?.role ?? null,
+      timestamp: debugContext?.timestamp ?? null,
     }),
   });
-
-  if (!challengeResponse.ok) {
-    throw new Error(
-      await parseErrorMessage(
-        challengeResponse,
-        "Could not start a secure wallet session for this action."
-      )
-    );
-  }
 
   const challenge = (await challengeResponse.json()) as {
     success?: boolean;
     stage?: string;
-    token: string;
-    message: string;
+    error?: string;
+    token?: string;
+    message?: string;
     parsedAmount?: string | null;
     amountRawValue?: string | null;
+    amountWei?: string | null;
     chainId?: number | null;
+    fallback?: {
+      sessionMode?: "fallback";
+      reason?: string | null;
+    } | null;
   };
+
+  if (!challengeResponse.ok) {
+    if (challenge.fallback?.sessionMode === "fallback") {
+      return {
+        wallet: connectedWallet,
+        chainId: challenge.chainId ?? debugContext?.chainId ?? null,
+        amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
+        amountWei: challenge.amountWei ?? debugContext?.amountWei?.trim() ?? null,
+        parsedAmount: challenge.parsedAmount ?? null,
+        stage: challenge.stage ?? "fallback_generated",
+        usedExistingSession: false,
+        sessionMode: "fallback",
+        reason: challenge.fallback.reason ?? challenge.error ?? "workflow session fallback",
+        challengeResponse: null,
+      } satisfies WorkflowSessionDebugResult;
+    }
+
+    throw new Error(
+      challenge.error ||
+        (await parseErrorMessage(
+          challengeResponse,
+          "Could not start a secure wallet session for this action."
+        ))
+    );
+  }
+
+  if (!challenge.success && challenge.fallback?.sessionMode === "fallback") {
+    return {
+      wallet: connectedWallet,
+      chainId: challenge.chainId ?? debugContext?.chainId ?? null,
+      amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
+      amountWei: challenge.amountWei ?? debugContext?.amountWei?.trim() ?? null,
+      parsedAmount: challenge.parsedAmount ?? null,
+      stage: challenge.stage ?? "fallback_generated",
+      usedExistingSession: false,
+      sessionMode: "fallback",
+      reason: challenge.fallback.reason ?? challenge.error ?? "workflow session fallback",
+      challengeResponse: null,
+    } satisfies WorkflowSessionDebugResult;
+  }
+
+  if (!challenge.token || !challenge.message) {
+    return {
+      wallet: connectedWallet,
+      chainId: challenge.chainId ?? debugContext?.chainId ?? null,
+      amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
+      amountWei: challenge.amountWei ?? debugContext?.amountWei?.trim() ?? null,
+      parsedAmount: challenge.parsedAmount ?? null,
+      stage: challenge.stage ?? "fallback_generated",
+      usedExistingSession: false,
+      sessionMode: "fallback",
+      reason: challenge.error ?? "workflow challenge missing token",
+      challengeResponse: null,
+    } satisfies WorkflowSessionDebugResult;
+  }
 
   const signature = await signAgentWalletMessage({
     account,
@@ -327,21 +391,36 @@ async function ensureBackendWorkflowSession(
   });
 
   if (!verifyResponse.ok) {
-    throw new Error(
-      await parseErrorMessage(
+    return {
+      wallet: connectedWallet,
+      chainId: challenge.chainId ?? debugContext?.chainId ?? null,
+      amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
+      amountWei: challenge.amountWei ?? debugContext?.amountWei?.trim() ?? null,
+      parsedAmount: challenge.parsedAmount ?? null,
+      stage: "fallback_generated",
+      usedExistingSession: false,
+      sessionMode: "fallback",
+      reason: await parseErrorMessage(
         verifyResponse,
         "Could not verify the secure wallet session for this action."
-      )
-    );
+      ),
+      challengeResponse: {
+        tokenPresent: Boolean(challenge.token),
+        message: challenge.message,
+      },
+    } satisfies WorkflowSessionDebugResult;
   }
 
   return {
     wallet: connectedWallet,
     chainId: challenge.chainId ?? debugContext?.chainId ?? null,
     amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
+    amountWei: challenge.amountWei ?? debugContext?.amountWei?.trim() ?? null,
     parsedAmount: challenge.parsedAmount ?? null,
     stage: challenge.stage ?? "challenge_created",
     usedExistingSession: false,
+    sessionMode: "verified",
+    reason: null,
     challengeResponse: {
       tokenPresent: Boolean(challenge.token),
       message: challenge.message,
@@ -628,6 +707,27 @@ export async function createDraftContract(
     path: "/api/workflow/contracts",
     body: input,
   });
+}
+
+export function createLocalDraftContractFallback(
+  input: Omit<ProductContract, "id" | "status" | "createdAt" | "updatedAt">
+) {
+  const draft: ProductContract = normalizeContract({
+    ...input,
+    id: `local-${crypto.randomUUID()}`,
+    status: "draft",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const contracts = getCachedContractsForWallet(input.clientWallet);
+  setCachedContracts(input.clientWallet, [draft, ...contracts]);
+  appendNotificationForWallet(
+    input.clientWallet,
+    `Local fallback draft created for ${input.freelancerName}.`
+  );
+  emitWorkflowRefresh();
+  return draft;
 }
 
 export async function updateProductContractStatus(

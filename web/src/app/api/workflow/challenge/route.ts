@@ -25,7 +25,10 @@ export async function POST(request: Request) {
       title?: string;
       description?: string;
       amount?: string;
+      amountWei?: string;
       chainId?: number | string;
+      role?: string;
+      timestamp?: string;
     } = {};
 
     try {
@@ -58,12 +61,14 @@ export async function POST(request: Request) {
     stage = "payload_validated";
     const wallet = normalizeWallet(body.wallet);
     const rawAmount = typeof body.amount === "string" ? body.amount.trim() : "";
+    const amountWei = typeof body.amountWei === "string" ? body.amountWei.trim() : "";
     const parsedChainId = normalizeChainId(body.chainId);
     let parsedAmount: string | null = null;
     const missingFields = [
       !body.title ? "title" : null,
       !body.description ? "description" : null,
       !rawAmount ? "amount" : null,
+      !amountWei ? "amountWei" : null,
       !wallet ? "wallet" : null,
       parsedChainId === null ? "chainId" : null,
     ].filter((value): value is string => Boolean(value));
@@ -80,6 +85,7 @@ export async function POST(request: Request) {
       parsedJson: body,
       missingFields,
       walletAddress: wallet,
+      amountWei,
       rawChainResponse: body.chainId ?? null,
       normalizedChainValue: parsedChainId,
     });
@@ -159,12 +165,26 @@ export async function POST(request: Request) {
       );
     }
 
+    if (parsedAmount !== amountWei) {
+      return NextResponse.json(
+        {
+          success: false,
+          stage,
+          error: "Amount and amountWei do not match.",
+          rawBodyPreview: rawRequestText.slice(0, 500),
+          stack: null,
+        },
+        { status: 400 }
+      );
+    }
+
     console.log("Agent Guild workflow challenge request", {
       stage,
       incomingPayload: body,
       title: body.title ?? null,
       description: body.description ?? null,
       amountRawValue: rawAmount,
+      amountWei,
       parsedAmount,
       walletAddress: wallet,
       rawChainResponse: body.chainId ?? null,
@@ -172,7 +192,29 @@ export async function POST(request: Request) {
       validationResult: parsedChainId === 42220,
     });
 
-    stage = "session_initialized";
+    stage = "session_checked";
+    const hasWorkflowSessionSecret =
+      Boolean(process.env.WORKFLOW_SESSION_SECRET) || process.env.NODE_ENV !== "production";
+    if (!hasWorkflowSessionSecret) {
+      stage = "fallback_generated";
+      return NextResponse.json({
+        success: false,
+        stage,
+        error: "Missing workflow secret",
+        fallback: {
+          sessionMode: "fallback",
+          reason: "missing workflow secret",
+        },
+        debug: {
+          wallet,
+          chainId: parsedChainId,
+          amount: rawAmount,
+          amountWei,
+          hasWorkflowSessionSecret,
+        },
+      });
+    }
+
     const challenge = createWorkflowChallenge(wallet);
     stage = "challenge_created";
 
@@ -195,6 +237,7 @@ export async function POST(request: Request) {
       wallet,
       chainId: parsedChainId,
       amountRawValue: rawAmount,
+      amountWei,
       parsedAmount,
     });
   } catch (error) {
