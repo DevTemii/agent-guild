@@ -524,12 +524,9 @@ function ConfiguredClientWorkspacePage() {
           clientWallet: normalizedClientWallet || "",
           freelancerWallet: normalizedFreelancerWallet || "",
           selectedContract: {
-            id: selectedContract.id,
-            status: selectedContract.status,
+            ...selectedContract,
             clientWallet: normalizeWallet(selectedContract.clientWallet),
             freelancerWallet: normalizeWallet(selectedContract.freelancerWallet),
-            clientName: selectedContract.clientName,
-            freelancerName: selectedContract.freelancerName,
           },
         }
       : null;

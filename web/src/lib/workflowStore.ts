@@ -619,10 +619,6 @@ async function postWorkflowMutation<T>(
   return payload;
 }
 
-function isLocalWorkflowDraftId(id: string) {
-  return id.startsWith("local-");
-}
-
 function sanitizeJsonValue(value: unknown): unknown {
   if (typeof value === "bigint") {
     return value.toString();
@@ -653,41 +649,6 @@ async function parseJsonFromText<T>(text: string) {
   } catch {
     return null;
   }
-}
-
-function buildDraftContractInputFromContract(
-  contract: ProductContract
-): Omit<ProductContract, "id" | "status" | "createdAt" | "updatedAt"> {
-  return {
-    clientWallet: contract.clientWallet,
-    clientName: contract.clientName,
-    freelancerWallet: contract.freelancerWallet,
-    freelancerName: contract.freelancerName,
-    projectBrief: contract.projectBrief,
-    displayBudget: contract.displayBudget,
-    settlementAmountCelo: contract.settlementAmountCelo,
-    summary: contract.summary,
-    milestones: contract.milestones,
-    linkedProjectId: contract.linkedProjectId ?? null,
-  };
-}
-
-function replaceLocalDraftCache(localDraftId: string, remoteDraft: ProductContract) {
-  const wallet = normalizeWallet(remoteDraft.clientWallet);
-  if (!wallet) {
-    return;
-  }
-
-  const currentContracts = getCachedContractsForWallet(wallet);
-  const nextContracts = [
-    remoteDraft,
-    ...currentContracts.filter(
-      (contract) => contract.id !== localDraftId && contract.id !== remoteDraft.id
-    ),
-  ];
-
-  setCachedContracts(wallet, nextContracts);
-  emitWorkflowRefresh();
 }
 
 export function getWorkflowRefreshEventName() {
@@ -850,43 +811,9 @@ export async function sendProductContract(
     contractId: string;
     clientWallet: string;
     freelancerWallet: string;
-    selectedContract: {
-      id: string;
-      status: ContractStatus;
-      clientWallet: string;
-      freelancerWallet: string;
-      clientName: string;
-      freelancerName: string;
-    };
+    selectedContract: ProductContract;
   }
 ): Promise<SendDealMutationResult> {
-  if (isLocalWorkflowDraftId(id)) {
-    const localDraft = getProductContractById(id);
-    if (!localDraft) {
-      throw new Error("This draft only exists on this device. Recreate the deal and try again.");
-    }
-
-    const remoteDraft = await createDraftContract(
-      buildDraftContractInputFromContract(localDraft),
-      account
-    );
-    replaceLocalDraftCache(id, remoteDraft);
-
-    return sendProductContract(remoteDraft.id, account, {
-      contractId: remoteDraft.id,
-      clientWallet: remoteDraft.clientWallet,
-      freelancerWallet: remoteDraft.freelancerWallet,
-      selectedContract: {
-        id: remoteDraft.id,
-        status: remoteDraft.status,
-        clientWallet: remoteDraft.clientWallet,
-        freelancerWallet: remoteDraft.freelancerWallet,
-        clientName: remoteDraft.clientName,
-        freelancerName: remoteDraft.freelancerName,
-      },
-    });
-  }
-
   const wallet = await resolveWorkflowWalletAddress(account);
   if (!wallet) {
     throw new Error("Reconnect Wallet");

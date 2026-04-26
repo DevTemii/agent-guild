@@ -288,6 +288,75 @@ export async function sendWorkflowContract(contractId: string, wallet: string) {
   });
 }
 
+export async function sendWorkflowContractFromPayload(
+  contractId: string,
+  wallet: string,
+  selectedContract: ProductContract
+) {
+  return mutateWorkflowDatabase((database) => {
+    const normalizedWallet = normalizeWallet(wallet);
+    const normalizedPayload = normalizeContract({
+      ...selectedContract,
+      id: contractId,
+      clientWallet: normalizeWallet(selectedContract.clientWallet),
+      freelancerWallet: normalizeWallet(selectedContract.freelancerWallet),
+      status: "draft",
+      updatedAt: nowIso(),
+    });
+
+    if (!normalizedPayload) {
+      throw new Error("Selected contract payload is invalid.");
+    }
+
+    requireWalletMatch(
+      normalizedWallet,
+      normalizedPayload.clientWallet,
+      "Only the client wallet can send this contract."
+    );
+
+    let contract =
+      database.contracts.find((entry) => entry.id === contractId) ?? null;
+
+    if (!contract) {
+      database.contracts = [
+        normalizedPayload,
+        ...database.contracts.filter((entry) => entry.id !== contractId),
+      ];
+      contract = database.contracts[0] ?? null;
+    }
+
+    if (!contract) {
+      throw new Error("Contract not found.");
+    }
+
+    requireWalletMatch(
+      normalizedWallet,
+      contract.clientWallet,
+      "Only the client wallet can send this contract."
+    );
+
+    if (contract.status !== "draft") {
+      throw new Error("Only draft contracts can be sent.");
+    }
+
+    contract.status = "sent";
+    touchContract(contract);
+
+    appendNotifications(database, [
+      {
+        wallet: contract.clientWallet,
+        message: `Contract sent to ${contract.freelancerName} for approval.`,
+      },
+      {
+        wallet: contract.freelancerWallet,
+        message: `New contract received from ${contract.clientName}. Review and approve before escrow begins.`,
+      },
+    ]);
+
+    return contract;
+  });
+}
+
 export async function respondToWorkflowContract(
   contractId: string,
   wallet: string,
