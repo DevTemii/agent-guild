@@ -22,6 +22,16 @@ type WorkflowSessionPayload = {
   expiresAt: number;
 };
 
+type WorkflowAuthGlobalScope = typeof globalThis & {
+  __agentGuildSessions?: Map<string, WorkflowSessionPayload>;
+};
+
+function getWorkflowSessionStore() {
+  const scope = globalThis as WorkflowAuthGlobalScope;
+  scope.__agentGuildSessions ||= new Map<string, WorkflowSessionPayload>();
+  return scope.__agentGuildSessions;
+}
+
 function getWorkflowSessionSecret() {
   if (process.env.WORKFLOW_SESSION_SECRET) {
     return process.env.WORKFLOW_SESSION_SECRET;
@@ -139,6 +149,9 @@ function createWorkflowSessionToken(wallet: string) {
 export async function setWorkflowSession(wallet: string) {
   const token = createWorkflowSessionToken(wallet);
   const payload = decodeSignedToken<WorkflowSessionPayload>(token);
+  if (payload) {
+    getWorkflowSessionStore().set(payload.sessionId, payload);
+  }
   const cookieStore = await cookies();
   cookieStore.set(WORKFLOW_SESSION_COOKIE, token, {
     httpOnly: true,
@@ -153,6 +166,13 @@ export async function setWorkflowSession(wallet: string) {
 
 export async function clearWorkflowSession() {
   const cookieStore = await cookies();
+  const token = cookieStore.get(WORKFLOW_SESSION_COOKIE)?.value;
+  if (token) {
+    const payload = decodeSignedToken<WorkflowSessionPayload>(token);
+    if (payload?.sessionId) {
+      getWorkflowSessionStore().delete(payload.sessionId);
+    }
+  }
   cookieStore.delete(WORKFLOW_SESSION_COOKIE);
 }
 
@@ -166,8 +186,13 @@ export async function getWorkflowSession() {
   const payload = decodeSignedToken<WorkflowSessionPayload>(token);
   if (!payload || payload.expiresAt < Date.now()) {
     cookieStore.delete(WORKFLOW_SESSION_COOKIE);
+    if (payload?.sessionId) {
+      getWorkflowSessionStore().delete(payload.sessionId);
+    }
     return null;
   }
+
+  getWorkflowSessionStore().set(payload.sessionId, payload);
 
   return {
     ...payload,

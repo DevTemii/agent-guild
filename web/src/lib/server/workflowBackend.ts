@@ -1,5 +1,3 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
 import {
   type ContractStatus,
   type WorkflowProjectIndexEntry,
@@ -28,47 +26,61 @@ type WorkflowDraftInput = Omit<
   "id" | "status" | "createdAt" | "updatedAt"
 >;
 
-const WORKFLOW_DB_PATH = path.join(process.cwd(), ".data", "workflow-store.json");
 const MAX_NOTIFICATIONS_PER_WALLET = 12;
 
 let writeQueue = Promise.resolve();
 
-async function ensureWorkflowDbDir() {
-  await mkdir(path.dirname(WORKFLOW_DB_PATH), { recursive: true });
+type WorkflowGlobalScope = typeof globalThis & {
+  __agentGuildContracts?: Map<string, ProductContract>;
+  __agentGuildNotifications?: Map<string, WorkflowNotification>;
+  __agentGuildSubmissions?: Map<number, ProjectSubmission>;
+  __agentGuildProjects?: Map<number, WorkflowProjectIndexEntry>;
+  __agentGuildSessions?: Map<string, unknown>;
+};
+
+function getWorkflowGlobals() {
+  const scope = globalThis as WorkflowGlobalScope;
+  scope.__agentGuildContracts ||= new Map<string, ProductContract>();
+  scope.__agentGuildNotifications ||= new Map<string, WorkflowNotification>();
+  scope.__agentGuildSubmissions ||= new Map<number, ProjectSubmission>();
+  scope.__agentGuildProjects ||= new Map<number, WorkflowProjectIndexEntry>();
+  scope.__agentGuildSessions ||= new Map<string, unknown>();
+  return scope;
 }
 
 async function readWorkflowDatabase(): Promise<WorkflowDatabase> {
-  try {
-    const raw = await readFile(WORKFLOW_DB_PATH, "utf8");
-    const parsed = JSON.parse(raw) as Partial<WorkflowDatabase>;
-
-    return {
-      contracts: (parsed.contracts ?? []).map(normalizeContract),
-      notifications: (parsed.notifications ?? [])
-        .map((entry) => normalizeNotification(entry))
-        .filter((entry): entry is WorkflowNotification => entry !== null),
-      submissions: (parsed.submissions ?? [])
-        .map((entry) => normalizeProjectSubmission(entry))
-        .filter((entry): entry is ProjectSubmission => entry !== null),
-      projects: (parsed.projects ?? [])
-        .map((entry) => normalizeWorkflowProjectIndexEntry(entry))
-        .filter((entry): entry is WorkflowProjectIndexEntry => entry !== null),
-    };
-  } catch {
-    return {
-      contracts: [],
-      notifications: [],
-      submissions: [],
-      projects: [],
-    };
-  }
+  const globals = getWorkflowGlobals();
+  return {
+    contracts: Array.from(globals.__agentGuildContracts!.values()).map(normalizeContract),
+    notifications: Array.from(globals.__agentGuildNotifications!.values())
+      .map((entry) => normalizeNotification(entry))
+      .filter((entry): entry is WorkflowNotification => entry !== null),
+    submissions: Array.from(globals.__agentGuildSubmissions!.values())
+      .map((entry) => normalizeProjectSubmission(entry))
+      .filter((entry): entry is ProjectSubmission => entry !== null),
+    projects: Array.from(globals.__agentGuildProjects!.values())
+      .map((entry) => normalizeWorkflowProjectIndexEntry(entry))
+      .filter((entry): entry is WorkflowProjectIndexEntry => entry !== null),
+  };
 }
 
 async function writeWorkflowDatabase(database: WorkflowDatabase) {
-  await ensureWorkflowDbDir();
-  const tempPath = `${WORKFLOW_DB_PATH}.tmp`;
-  await writeFile(tempPath, JSON.stringify(database, null, 2), "utf8");
-  await rename(tempPath, WORKFLOW_DB_PATH);
+  const globals = getWorkflowGlobals();
+  globals.__agentGuildContracts = new Map(
+    database.contracts.map((contract) => [contract.id, normalizeContract(contract)] as const)
+  );
+  globals.__agentGuildNotifications = new Map(
+    database.notifications.map((notification) => [
+      notification.id,
+      notification,
+    ] as const)
+  );
+  globals.__agentGuildSubmissions = new Map(
+    database.submissions.map((submission) => [submission.projectId, submission] as const)
+  );
+  globals.__agentGuildProjects = new Map(
+    database.projects.map((project) => [project.projectId, project] as const)
+  );
 }
 
 async function mutateWorkflowDatabase<T>(
