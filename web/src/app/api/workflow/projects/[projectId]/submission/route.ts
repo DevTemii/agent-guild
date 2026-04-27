@@ -3,13 +3,13 @@ import {
   getWorkflowSubmission,
   upsertWorkflowSubmission,
 } from "@/lib/server/workflowBackend";
-import { getWorkflowSessionWallet } from "@/lib/server/workflowAuth";
+import { resolveWorkflowRequestWallet } from "@/lib/server/workflowAuth";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ projectId: string }> }
 ) {
-  const wallet = await getWorkflowSessionWallet();
+  const wallet = await resolveWorkflowRequestWallet(request);
   if (!wallet) {
     return NextResponse.json({ error: "Workflow session required." }, { status: 401 });
   }
@@ -29,21 +29,24 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ projectId: string }> }
 ) {
-  const wallet = await getWorkflowSessionWallet();
-  if (!wallet) {
-    return NextResponse.json({ error: "Workflow session required." }, { status: 401 });
-  }
-
+  let stage = "route_entered";
   try {
+    stage = "body_parsed";
     const body = (await request.json()) as {
       deliveryUrl?: string;
       clientWallet?: string;
       freelancerWallet?: string;
       txHash?: string | null;
+      wallet?: string;
     };
 
     if (!body.deliveryUrl?.trim()) {
-      return NextResponse.json({ error: "Delivery URL is required." }, { status: 400 });
+      return NextResponse.json({ success: false, stage, error: "Delivery URL is required.", stack: null }, { status: 400 });
+    }
+
+    const wallet = await resolveWorkflowRequestWallet(request, body.wallet);
+    if (!wallet) {
+      return NextResponse.json({ success: false, stage, error: "Wallet is required.", stack: null }, { status: 401 });
     }
 
     const { projectId } = await context.params;
@@ -56,10 +59,10 @@ export async function POST(
       txHash: body.txHash ?? null,
     });
 
-    return NextResponse.json(submission);
+    return NextResponse.json({ success: true, stage: "response_sent", submission });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to save project submission.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ success: false, stage, error: message, stack: error instanceof Error ? error.stack ?? null : null }, { status: 400 });
   }
 }

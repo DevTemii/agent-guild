@@ -13,13 +13,11 @@ import {
   normalizeWallet,
   nowIso,
 } from "@/lib/workflowTypes";
-
-type WorkflowDatabase = {
-  contracts: ProductContract[];
-  notifications: WorkflowNotification[];
-  submissions: ProjectSubmission[];
-  projects: WorkflowProjectIndexEntry[];
-};
+import {
+  readWorkflowMemoryDatabase,
+  writeWorkflowMemoryDatabase,
+  type WorkflowDatabase,
+} from "@/lib/server/workflowMemoryStore";
 
 type WorkflowDraftInput = Omit<
   ProductContract,
@@ -30,57 +28,28 @@ const MAX_NOTIFICATIONS_PER_WALLET = 12;
 
 let writeQueue = Promise.resolve();
 
-type WorkflowGlobalScope = typeof globalThis & {
-  __agentGuildContracts?: Map<string, ProductContract>;
-  __agentGuildNotifications?: Map<string, WorkflowNotification>;
-  __agentGuildSubmissions?: Map<number, ProjectSubmission>;
-  __agentGuildProjects?: Map<number, WorkflowProjectIndexEntry>;
-  __agentGuildSessions?: Map<string, unknown>;
-};
-
-function getWorkflowGlobals() {
-  const scope = globalThis as WorkflowGlobalScope;
-  scope.__agentGuildContracts ||= new Map<string, ProductContract>();
-  scope.__agentGuildNotifications ||= new Map<string, WorkflowNotification>();
-  scope.__agentGuildSubmissions ||= new Map<number, ProjectSubmission>();
-  scope.__agentGuildProjects ||= new Map<number, WorkflowProjectIndexEntry>();
-  scope.__agentGuildSessions ||= new Map<string, unknown>();
-  return scope;
-}
-
 async function readWorkflowDatabase(): Promise<WorkflowDatabase> {
-  const globals = getWorkflowGlobals();
   return {
-    contracts: Array.from(globals.__agentGuildContracts!.values()).map(normalizeContract),
-    notifications: Array.from(globals.__agentGuildNotifications!.values())
+    contracts: readWorkflowMemoryDatabase().contracts.map(normalizeContract),
+    notifications: readWorkflowMemoryDatabase().notifications
       .map((entry) => normalizeNotification(entry))
       .filter((entry): entry is WorkflowNotification => entry !== null),
-    submissions: Array.from(globals.__agentGuildSubmissions!.values())
+    submissions: readWorkflowMemoryDatabase().submissions
       .map((entry) => normalizeProjectSubmission(entry))
       .filter((entry): entry is ProjectSubmission => entry !== null),
-    projects: Array.from(globals.__agentGuildProjects!.values())
+    projects: readWorkflowMemoryDatabase().projects
       .map((entry) => normalizeWorkflowProjectIndexEntry(entry))
       .filter((entry): entry is WorkflowProjectIndexEntry => entry !== null),
   };
 }
 
 async function writeWorkflowDatabase(database: WorkflowDatabase) {
-  const globals = getWorkflowGlobals();
-  globals.__agentGuildContracts = new Map(
-    database.contracts.map((contract) => [contract.id, normalizeContract(contract)] as const)
-  );
-  globals.__agentGuildNotifications = new Map(
-    database.notifications.map((notification) => [
-      notification.id,
-      notification,
-    ] as const)
-  );
-  globals.__agentGuildSubmissions = new Map(
-    database.submissions.map((submission) => [submission.projectId, submission] as const)
-  );
-  globals.__agentGuildProjects = new Map(
-    database.projects.map((project) => [project.projectId, project] as const)
-  );
+  writeWorkflowMemoryDatabase({
+    contracts: database.contracts.map(normalizeContract),
+    notifications: database.notifications,
+    submissions: database.submissions,
+    projects: database.projects,
+  });
 }
 
 async function mutateWorkflowDatabase<T>(
@@ -247,6 +216,33 @@ export async function listWorkflowProjectsForWallet(wallet: string) {
     .sort((a, b) => b.projectId - a.projectId);
 }
 
+export async function listWorkflowInboxForWallet(wallet: string) {
+  const normalizedWallet = normalizeWallet(wallet);
+  const database = await readWorkflowDatabase();
+  repairProjectIndex(database);
+
+  const inboxStatuses: ContractStatus[] = [
+    "sent",
+    "approved",
+    "funded",
+    "submitted",
+    "completed",
+  ];
+
+  return {
+    contracts: database.contracts
+      .filter(
+        (contract) =>
+          contract.freelancerWallet === normalizedWallet &&
+          inboxStatuses.includes(contract.status)
+      )
+      .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)),
+    notifications: database.notifications
+      .filter((notification) => notification.wallet === normalizedWallet)
+      .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
+  };
+}
+
 export async function createWorkflowDraft(wallet: string, input: WorkflowDraftInput) {
   const normalizedWallet = normalizeWallet(wallet);
 
@@ -273,10 +269,21 @@ export async function createWorkflowDraft(wallet: string, input: WorkflowDraftIn
   });
 }
 
-export async function sendWorkflowContract(contractId: string, wallet: string) {
+export async function sendWorkflowContract(
+  contractId: string,
+  wallet: string,
+  freelancerWallet?: string | null
+) {
   return mutateWorkflowDatabase((database) => {
     const contract = getContractOrThrow(database, contractId);
     requireWalletMatch(wallet, contract.clientWallet, "Only the client wallet can send this contract.");
+    if (freelancerWallet) {
+      requireWalletMatch(
+        freelancerWallet,
+        contract.freelancerWallet,
+        "Freelancer wallet does not match the persisted contract."
+      );
+    }
 
     if (contract.status !== "draft") {
       throw new Error("Only draft contracts can be sent.");
@@ -297,80 +304,6 @@ export async function sendWorkflowContract(contractId: string, wallet: string) {
     ]);
 
     return contract;
-  });
-}
-
-export async function sendWorkflowContractFromPayload(
-  contractId: string,
-  wallet: string,
-  selectedContract: ProductContract
-) {
-  return mutateWorkflowDatabase((database) => {
-    const normalizedWallet = normalizeWallet(wallet);
-    const normalizedPayload = normalizeContract({
-      ...selectedContract,
-      id: contractId,
-      clientWallet: normalizeWallet(selectedContract.clientWallet),
-      freelancerWallet: normalizeWallet(selectedContract.freelancerWallet),
-      status: "draft",
-      updatedAt: nowIso(),
-    });
-
-    if (!normalizedPayload) {
-      throw new Error("Selected contract payload is invalid.");
-    }
-
-    requireWalletMatch(
-      normalizedWallet,
-      normalizedPayload.clientWallet,
-      "Only the client wallet can send this contract."
-    );
-
-    let contract =
-      database.contracts.find((entry) => entry.id === contractId) ?? null;
-    let insertedFromPayload = false;
-
-    if (!contract) {
-      database.contracts = [
-        normalizedPayload,
-        ...database.contracts.filter((entry) => entry.id !== contractId),
-      ];
-      contract = database.contracts[0] ?? null;
-      insertedFromPayload = true;
-    }
-
-    if (!contract) {
-      throw new Error("Contract not found.");
-    }
-
-    requireWalletMatch(
-      normalizedWallet,
-      contract.clientWallet,
-      "Only the client wallet can send this contract."
-    );
-
-    if (contract.status !== "draft") {
-      throw new Error("Only draft contracts can be sent.");
-    }
-
-    contract.status = "sent";
-    touchContract(contract);
-
-    appendNotifications(database, [
-      {
-        wallet: contract.clientWallet,
-        message: `Contract sent to ${contract.freelancerName} for approval.`,
-      },
-      {
-        wallet: contract.freelancerWallet,
-        message: `New contract received from ${contract.clientName}. Review and approve before escrow begins.`,
-      },
-    ]);
-
-    return {
-      contract,
-      insertedFromPayload,
-    };
   });
 }
 

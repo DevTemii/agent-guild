@@ -10,7 +10,6 @@ import {
   type WorkflowProjectIndexEntry,
   type WorkflowNotification,
   normalizeContract,
-  normalizeNotification,
   normalizeProjectSubmission,
   normalizeWorkflowProjectIndexEntry,
   normalizeWallet,
@@ -27,12 +26,9 @@ export type {
 } from "./workflowTypes";
 export { normalizeWallet } from "./workflowTypes";
 
-const LEGACY_CONTRACTS_STORAGE_KEY = "agent-guild-product-contracts";
-const LEGACY_NOTIFICATION_STORAGE_KEY_PREFIX = "agent-guild-notifications";
 const CONTRACT_CACHE_STORAGE_KEY_PREFIX = "agent-guild-contract-cache";
 const NOTIFICATION_CACHE_STORAGE_KEY_PREFIX = "agent-guild-notification-cache";
 const PROJECT_INDEX_CACHE_STORAGE_KEY_PREFIX = "agent-guild-project-index-cache";
-const MIGRATION_MARKER_STORAGE_KEY_PREFIX = "agent-guild-workflow-migrated";
 const WORKFLOW_SESSION_STORAGE_KEY_PREFIX = "agent-guild-workflow-session";
 const WORKFLOW_REFRESH_EVENT = "agent-guild:workflow-refresh";
 
@@ -259,7 +255,9 @@ function getCachedContractsForWallet(wallet?: string | null) {
   );
   if (!storageKey) return [];
 
-  const storedContracts = readJson<ProductContract[]>(storageKey, []).map(normalizeContract);
+  const storedContracts = readJson<ProductContract[]>(storageKey, [])
+    .map(normalizeContract)
+    .filter((contract) => !contract.id.startsWith("local-"));
   cachedContractsByWallet.set(normalizedWallet, storedContracts);
   return storedContracts;
 }
@@ -311,23 +309,6 @@ function hydrateWorkflowSnapshot(wallet: string, snapshot: WorkflowSnapshot) {
   setCachedNotifications(wallet, snapshot.notifications);
   emitWorkflowRefresh();
   return snapshot;
-}
-
-function getLegacyContracts() {
-  return readJson<ProductContract[]>(LEGACY_CONTRACTS_STORAGE_KEY, []).map(normalizeContract);
-}
-
-function getLegacyNotificationsForWallet(wallet?: string | null) {
-  const storageKey = getWalletScopedStorageKey(
-    LEGACY_NOTIFICATION_STORAGE_KEY_PREFIX,
-    wallet
-  );
-  if (!storageKey) return [];
-  return readJson<string[]>(storageKey, []);
-}
-
-function getMigrationMarkerKey(wallet?: string | null) {
-  return getWalletScopedStorageKey(MIGRATION_MARKER_STORAGE_KEY_PREFIX, wallet);
 }
 
 async function parseErrorMessage(response: Response, fallback: string) {
@@ -547,58 +528,6 @@ async function ensureBackendWorkflowSession(
   }
 }
 
-async function importLegacyWorkflowIfNeeded(account?: Account | null) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const normalizedWallet = await resolveWorkflowWalletAddress(account);
-  if (!normalizedWallet) {
-    return;
-  }
-  const markerKey = getMigrationMarkerKey(normalizedWallet);
-  if (!markerKey || window.localStorage.getItem(markerKey) === "done") {
-    return;
-  }
-
-  const legacyContracts = getLegacyContracts().filter((contract) => {
-    return (
-      contract.clientWallet === normalizedWallet || contract.freelancerWallet === normalizedWallet
-    );
-  });
-  const legacyNotifications = getLegacyNotificationsForWallet(normalizedWallet).map(
-    (message) =>
-      normalizeNotification({
-        id: crypto.randomUUID(),
-        wallet: normalizedWallet,
-        message,
-        createdAt: new Date().toISOString(),
-      })
-  );
-
-  if (legacyContracts.length === 0 && legacyNotifications.every((entry) => entry === null)) {
-    window.localStorage.setItem(markerKey, "done");
-    return;
-  }
-
-  const response = await fetch("/api/workflow/import", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contracts: legacyContracts,
-      notifications: legacyNotifications.filter(
-        (entry): entry is WorkflowNotification => entry !== null
-      ),
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(await parseErrorMessage(response, "Failed to import legacy workflow."));
-  }
-
-  window.localStorage.setItem(markerKey, "done");
-}
-
 async function fetchWorkflowSnapshot(account?: Account | null) {
   const wallet = await resolveWorkflowWalletAddress(account);
   if (!wallet) {
@@ -608,10 +537,7 @@ async function fetchWorkflowSnapshot(account?: Account | null) {
     } satisfies WorkflowSnapshot;
   }
 
-  await ensureBackendWorkflowSession(account);
-  await importLegacyWorkflowIfNeeded(account);
-
-  const response = await fetch("/api/workflow/state", {
+  const response = await fetch(`/api/workflow/state?wallet=${encodeURIComponent(wallet)}`, {
     cache: "no-store",
   });
 
@@ -659,10 +585,7 @@ async function fetchWorkflowProjects(account?: Account | null) {
     } satisfies WorkflowProjectSnapshot;
   }
 
-  await ensureBackendWorkflowSession(account);
-  await importLegacyWorkflowIfNeeded(account);
-
-  const response = await fetch("/api/workflow/projects", {
+  const response = await fetch(`/api/workflow/projects?wallet=${encodeURIComponent(wallet)}`, {
     cache: "no-store",
   });
 
@@ -714,23 +637,44 @@ async function postWorkflowMutation<T>(
     throw new Error("Reconnect Wallet");
   }
 
-  await ensureBackendWorkflowSession(account);
-
   const response = await fetch(input.path, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: input.body === undefined ? undefined : JSON.stringify(input.body),
+    body:
+      input.body === undefined
+        ? JSON.stringify({ wallet })
+        : JSON.stringify({
+            ...(input.body as Record<string, unknown>),
+            wallet,
+          }),
   });
 
   if (!response.ok) {
     throw new Error(await parseErrorMessage(response, "Workflow request failed."));
   }
 
-  const payload = (await response.json()) as T;
+  const payload = (await response.json()) as
+    | T
+    | {
+        success?: boolean;
+        contract?: T;
+        submission?: T;
+      };
   await refreshWorkflowSnapshot(account);
-  return payload;
+
+  if (payload && typeof payload === "object") {
+    if ("contract" in payload && payload.contract) {
+      return payload.contract;
+    }
+
+    if ("submission" in payload && payload.submission) {
+      return payload.submission;
+    }
+  }
+
+  return payload as T;
 }
 
 function sanitizeJsonValue(value: unknown): unknown {
@@ -877,27 +821,6 @@ export async function createWorkflowContract(
   });
 }
 
-export function createLocalDraftContractFallback(
-  input: Omit<ProductContract, "id" | "status" | "createdAt" | "updatedAt">
-) {
-  const draft: ProductContract = normalizeContract({
-    ...input,
-    id: `local-${crypto.randomUUID()}`,
-    status: "draft",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  });
-
-  const contracts = getCachedContractsForWallet(input.clientWallet);
-  setCachedContracts(input.clientWallet, [draft, ...contracts]);
-  appendNotificationForWallet(
-    input.clientWallet,
-    `Local fallback draft created for ${input.freelancerName}.`
-  );
-  emitWorkflowRefresh();
-  return draft;
-}
-
 export async function updateProductContractStatus(
   id: string,
   status: ContractStatus,
@@ -939,18 +862,14 @@ export async function sendProductContract(
   id: string,
   account: Account | null | undefined,
   payload?: {
-    contractId: string;
     clientWallet: string;
-    freelancerWallet: string;
-    selectedContract: ProductContract;
+    freelancerWallet?: string;
   }
 ): Promise<SendDealMutationResult> {
   const wallet = await resolveWorkflowWalletAddress(account);
   if (!wallet) {
     throw new Error("Reconnect Wallet");
   }
-
-  await ensureBackendWorkflowSession(account);
 
   const path = `/api/workflow/contracts/${id}/send`;
   const cleanPayload =
@@ -1010,15 +929,17 @@ export async function getProjectSubmission(
   projectId: number,
   account: Account | null | undefined
 ) {
-  if (!account) {
+  const wallet = await resolveWorkflowWalletAddress(account);
+  if (!wallet) {
     return null;
   }
 
-  await ensureBackendWorkflowSession(account);
-
-  const response = await fetch(`/api/workflow/projects/${projectId}/submission`, {
+  const response = await fetch(
+    `/api/workflow/projects/${projectId}/submission?wallet=${encodeURIComponent(wallet)}`,
+    {
     cache: "no-store",
-  });
+    }
+  );
 
   if (!response.ok) {
     if (response.status === 404) {
@@ -1056,6 +977,55 @@ export async function saveProjectSubmission(
     path: `/api/workflow/projects/${input.projectId}/submission`,
     body: input,
   }).then((submission) => normalizeProjectSubmission(submission));
+}
+
+async function fetchFreelancerInbox(account?: Account | null) {
+  const wallet = await resolveWorkflowWalletAddress(account);
+  if (!wallet) {
+    return {
+      contracts: [],
+      notifications: [],
+    } satisfies WorkflowSnapshot;
+  }
+
+  const response = await fetch(`/api/workflow/inbox/${wallet}`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response, "Failed to load workflow inbox."));
+  }
+
+  const payload = (await response.json()) as {
+    contracts: ProductContract[];
+    notifications: WorkflowNotification[];
+  };
+
+  return {
+    contracts: (payload.contracts ?? []).map(normalizeContract),
+    notifications: (payload.notifications ?? []).map((entry) => entry.message),
+  } satisfies WorkflowSnapshot;
+}
+
+export async function syncFreelancerInbox(account?: Account | null) {
+  const wallet = await resolveWorkflowWalletAddress(account);
+  if (!wallet) {
+    return {
+      contracts: [],
+      notifications: [],
+    } satisfies WorkflowSnapshot;
+  }
+
+  try {
+    const snapshot = await fetchFreelancerInbox(account);
+    return hydrateWorkflowSnapshot(wallet, snapshot);
+  } catch (error) {
+    console.error("Failed to refresh freelancer inbox", error);
+    return {
+      contracts: getCachedContractsForWallet(wallet),
+      notifications: getCachedNotificationsForWallet(wallet),
+    } satisfies WorkflowSnapshot;
+  }
 }
 
 export function getContractsForClient(wallet?: string | null) {

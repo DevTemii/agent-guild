@@ -522,14 +522,8 @@ function ConfiguredClientWorkspacePage() {
     const normalizedFreelancerWallet = normalizeWallet(selectedContract?.freelancerWallet);
     const sendPayload = selectedContract
       ? {
-          contractId,
           clientWallet: normalizedClientWallet || "",
           freelancerWallet: normalizedFreelancerWallet || "",
-          selectedContract: {
-            ...selectedContract,
-            clientWallet: normalizeWallet(selectedContract.clientWallet),
-            freelancerWallet: normalizeWallet(selectedContract.freelancerWallet),
-          },
         }
       : null;
     const sendApiUrl = `/api/workflow/contracts/${contractId}/send`;

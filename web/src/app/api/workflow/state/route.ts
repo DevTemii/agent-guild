@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { listWorkflowStateForWallet } from "@/lib/server/workflowBackend";
-import { getWorkflowSessionWallet } from "@/lib/server/workflowAuth";
+import { resolveWorkflowRequestWallet } from "@/lib/server/workflowAuth";
 
-export async function GET() {
-  const wallet = await getWorkflowSessionWallet();
+export async function GET(request: Request) {
+  const wallet = await resolveWorkflowRequestWallet(request);
   if (!wallet) {
     return NextResponse.json({ error: "Workflow session required." }, { status: 401 });
   }

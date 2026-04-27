@@ -35,7 +35,7 @@ import {
   initializeWorkflowSession,
   normalizeWallet,
   ProductContract,
-  syncWorkflowState,
+  syncFreelancerInbox,
   updateProductContractStatus,
 } from "@/lib/workflowStore";
 
@@ -272,7 +272,7 @@ function ConfiguredFreelancerWorkspacePage() {
         setContracts([]);
         return;
       }
-      await syncWorkflowState(account);
+      await syncFreelancerInbox(account);
       const nextContracts = getContractsForFreelancer(connectedAddress);
       const nextNotifications = getNotificationsForWallet(connectedAddress);
 
@@ -340,7 +340,7 @@ function ConfiguredFreelancerWorkspacePage() {
   async function approveContract(contractId: string) {
     const next = await updateProductContractStatus(contractId, "approved", account);
     if (!next) return;
-    await syncWorkflowState(account);
+    await syncFreelancerInbox(account);
     if (connectedAddress) setContracts(getContractsForFreelancer(connectedAddress));
     if (connectedAddress) setNotifications(getNotificationsForWallet(connectedAddress));
   }
@@ -348,7 +348,7 @@ function ConfiguredFreelancerWorkspacePage() {
   async function rejectContract(contractId: string) {
     const next = await updateProductContractStatus(contractId, "rejected", account);
     if (!next) return;
-    await syncWorkflowState(account);
+    await syncFreelancerInbox(account);
     if (connectedAddress) setContracts(getContractsForFreelancer(connectedAddress));
     if (connectedAddress) setNotifications(getNotificationsForWallet(connectedAddress));
   }

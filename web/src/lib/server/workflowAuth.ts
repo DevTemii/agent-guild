@@ -5,6 +5,7 @@ import { client } from "@/lib/client";
 import { agentGuildChain } from "@/lib/networkConfig";
 import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import { normalizeWallet } from "@/lib/workflowTypes";
+import { getWorkflowSessionMemoryStore } from "@/lib/server/workflowMemoryStore";
 
 const WORKFLOW_SESSION_COOKIE = "agent-guild-workflow-session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -22,14 +23,8 @@ type WorkflowSessionPayload = {
   expiresAt: number;
 };
 
-type WorkflowAuthGlobalScope = typeof globalThis & {
-  __agentGuildSessions?: Map<string, WorkflowSessionPayload>;
-};
-
 function getWorkflowSessionStore() {
-  const scope = globalThis as WorkflowAuthGlobalScope;
-  scope.__agentGuildSessions ||= new Map<string, WorkflowSessionPayload>();
-  return scope.__agentGuildSessions;
+  return getWorkflowSessionMemoryStore() as Map<string, WorkflowSessionPayload>;
 }
 
 function getWorkflowSessionSecret() {
@@ -203,4 +198,26 @@ export async function getWorkflowSession() {
 export async function getWorkflowSessionWallet() {
   const session = await getWorkflowSession();
   return session?.wallet ?? null;
+}
+
+export async function resolveWorkflowRequestWallet(
+  request: Request,
+  explicitWallet?: string | null
+) {
+  const directWallet = normalizeWallet(explicitWallet);
+  if (directWallet) {
+    return directWallet;
+  }
+
+  try {
+    const url = new URL(request.url);
+    const queryWallet = normalizeWallet(url.searchParams.get("wallet"));
+    if (queryWallet) {
+      return queryWallet;
+    }
+  } catch {
+    // ignore URL parse failure and fall through to session lookup
+  }
+
+  return getWorkflowSessionWallet();
 }
