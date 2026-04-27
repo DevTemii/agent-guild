@@ -325,7 +325,7 @@ function ConfiguredClientWorkspacePage() {
       setContractStatus("Add the client name, project brief, and contract value first.");
       return;
     }
-    if (!connectedAddress || !walletSession.walletConnected || !walletSession.sessionActive) {
+    if (!connectedAddress || !walletSession.walletConnected) {
       setContractStatus("Reconnect Wallet");
       return;
     }
@@ -394,31 +394,6 @@ function ConfiguredClientWorkspacePage() {
     };
 
     try {
-      const sessionResult = await initializeWorkflowSession(account, {
-        amount: amountInput,
-        amountWei: parsedWorkflowAmount,
-        chainId: resolvedChainId,
-        role: "client",
-        timestamp: new Date().toISOString(),
-      });
-      const sessionState = getStoredWorkflowSessionState(connectedAddress);
-      if (sessionState) {
-        setWorkflowSessionExists(sessionState.sessionExists ? "true" : "false");
-        setWorkflowSessionId(sessionState.sessionId || "Not captured yet");
-        setWorkflowSessionInitialized(sessionState.sessionInitialized ? "true" : "false");
-        setWorkflowSessionRestored(sessionState.sessionRestoredFromStorage ? "true" : "false");
-        setWorkflowSessionExpired(sessionState.sessionExpired ? "true" : "false");
-        setWorkflowSessionLastError(sessionState.lastSessionError || "No workflow session error captured");
-      }
-      if (!sessionResult || sessionResult.sessionMode !== "verified") {
-        const sessionError =
-          sessionResult && typeof sessionResult === "object"
-            ? sessionResult.reason
-            : "Workflow session could not be initialized.";
-        setContractStatus(sessionError || "Workflow session could not be initialized.");
-        return;
-      }
-
       setGeneratingContract(true);
       setContractDebugStage("route_entered");
       setContractDebugPayload(JSON.stringify(workflowPayload, null, 2));

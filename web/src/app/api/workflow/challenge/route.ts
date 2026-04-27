@@ -4,6 +4,7 @@ import {
   generateContractWithGroq,
   getGroqModel,
   type GroqGeneratedContract,
+  GroqContractGeneratorError,
 } from "@/lib/server/groqContractGenerator";
 import { normalizeChainId } from "@/lib/chainId";
 import { normalizeWallet } from "@/lib/workflowTypes";
@@ -16,57 +17,35 @@ type WorkflowChallengePayload = {
   amount?: string;
   amountWei?: string;
   wallet?: string;
-  freelancerWallet?: string;
   chainId?: number | string;
 };
 
-type ChallengeJsonFailure = {
+type FailureBody = {
   success: false;
   stage: string;
   error: string;
   stack: string | null;
-  provider: string;
+  provider: "groq";
   model: string;
   errorCode?: string;
-  debug?: Record<string, unknown> | null;
+  rawBodyPreview?: string;
+  rawResponsePreview?: string;
+  missingFields?: string[];
 };
 
-type ChallengeJsonSuccess = {
+type SuccessBody = {
   success: true;
   stage: "response_sent";
   contract: GroqGeneratedContract;
-  provider: string;
-  model: string;
-  debug?: Record<string, unknown> | null;
+  debug: {
+    provider: "groq";
+    model: string;
+  };
 };
 
-function createFallbackContract(input: {
-  title: string;
-  description: string;
-  amount: string;
-  amountWei: string;
-}): GroqGeneratedContract {
-  return {
-    title: input.title,
-    description: input.description,
-    amount: input.amount,
-    amountWei: input.amountWei,
-    currency: "CELO",
-    deliverable: input.description,
-    payoutTerms: "Client releases funds after submitted work is reviewed.",
-    deliveryWindow: "1 day",
-    milestones: [
-      "Freelancer accepts the deal",
-      "Client secures payment",
-      "Freelancer submits work",
-      "Client confirms payout",
-    ],
-  };
-}
-
 function jsonFailure(
-  input: Omit<ChallengeJsonFailure, "success" | "provider" | "model"> & {
-    provider?: string;
+  body: Omit<FailureBody, "success" | "provider" | "model"> & {
+    provider?: "groq";
     model?: string;
   },
   status: number
@@ -74,109 +53,117 @@ function jsonFailure(
   return NextResponse.json(
     {
       success: false,
-      stage: input.stage,
-      error: input.error,
-      stack: input.stack,
-      provider: input.provider ?? "groq",
-      model: input.model ?? getGroqModel(),
-      errorCode: input.errorCode,
-      debug: input.debug ?? null,
-    } satisfies ChallengeJsonFailure,
+      stage: body.stage,
+      error: body.error,
+      stack: body.stack,
+      provider: body.provider ?? "groq",
+      model: body.model ?? getGroqModel(),
+      errorCode: body.errorCode,
+      rawBodyPreview: body.rawBodyPreview,
+      rawResponsePreview: body.rawResponsePreview,
+      missingFields: body.missingFields,
+    } satisfies FailureBody,
     { status }
   );
 }
 
-function jsonSuccess(
-  contract: GroqGeneratedContract,
-  input?: {
-    provider?: string;
-    model?: string;
-    debug?: Record<string, unknown>;
-  }
-) {
+function jsonSuccess(contract: GroqGeneratedContract, model: string) {
   return NextResponse.json({
     success: true,
     stage: "response_sent",
     contract,
-    provider: input?.provider ?? "groq",
-    model: input?.model ?? getGroqModel(),
-    debug: input?.debug ?? null,
-  } satisfies ChallengeJsonSuccess);
+    debug: {
+      provider: "groq",
+      model,
+    },
+  } satisfies SuccessBody);
 }
 
-function safeJsonParse(rawBody: string) {
+function parsePayload(rawBody: string) {
   try {
     return {
       ok: true as const,
-      value: (rawBody ? JSON.parse(rawBody) : {}) as WorkflowChallengePayload,
+      payload: (rawBody ? JSON.parse(rawBody) : {}) as WorkflowChallengePayload,
     };
   } catch (error) {
     return {
       ok: false as const,
-      error: error instanceof Error ? error.message : "Failed to parse request body.",
+      error: error instanceof Error ? error.message : "Invalid JSON payload.",
       stack: error instanceof Error ? error.stack ?? null : null,
     };
+  }
+}
+
+function validateAmount(amount: string) {
+  if (!/^\d+(\.\d+)?$/.test(amount)) {
+    return "Amount must use plain decimal format.";
+  }
+
+  const decimals = amount.split(".")[1]?.length ?? 0;
+  if (decimals > 18) {
+    return "Amount supports up to 18 decimal places.";
+  }
+
+  try {
+    const amountWei = parseUnits(amount, 18).toString();
+    if (amountWei === "0") {
+      return "Amount must be greater than zero.";
+    }
+    return null;
+  } catch {
+    return "Amount could not be converted to wei.";
   }
 }
 
 export async function POST(request: Request) {
   let stage:
     | "route_entered"
+    | "body_parse_started"
+    | "body_parse_success"
     | "payload_validated"
-    | "groq_client_initialized"
-    | "ai_request_started"
-    | "ai_response_received"
+    | "groq_env_checked"
+    | "groq_request_started"
+    | "groq_response_received"
     | "contract_parsed"
     | "response_sent"
     | "route_failed" = "route_entered";
 
-  const provider = "groq";
+  const provider = "groq" as const;
   const model = getGroqModel();
-  console.log("workflow challenge route entered");
 
   try {
-    const hasGroqApiKey = Boolean(process.env.GROQ_API_KEY?.trim());
-    const hasWorkflowSessionSecret = Boolean(process.env.WORKFLOW_SESSION_SECRET?.trim());
-    const rawBody = await request.text().catch((error) => {
-      throw new Error(
-        error instanceof Error ? error.message : "Failed to read request body."
-      );
-    });
+    console.log("workflow challenge route entered", { stage });
 
-    const parsedBodyResult = safeJsonParse(rawBody);
-    if (!parsedBodyResult.ok) {
-      stage = "route_failed";
+    stage = "body_parse_started";
+    const rawBody = await request.text();
+    const parsed = parsePayload(rawBody);
+
+    if (!parsed.ok) {
       console.error("Agent Guild workflow challenge body parse failed", {
-        stage,
-        error: parsedBodyResult.error,
-        stack: parsedBodyResult.stack,
+        stage: "body_parse_failed",
+        error: parsed.error,
+        stack: parsed.stack,
       });
       return jsonFailure(
         {
-          stage,
-          error: parsedBodyResult.error,
-          stack: parsedBodyResult.stack,
-          provider,
-          model,
+          stage: "body_parse_failed",
+          error: parsed.error,
+          stack: parsed.stack,
           errorCode: "INVALID_JSON_BODY",
-          debug: {
-            rawBodyPreview: rawBody.slice(0, 500),
-            hasGroqApiKey,
-            hasWorkflowSessionSecret,
-          },
+          rawBodyPreview: rawBody.slice(0, 500),
         },
         400
       );
     }
 
-    const body = parsedBodyResult.value;
+    stage = "body_parse_success";
+    const body = parsed.payload ?? {};
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const description =
       typeof body.description === "string" ? body.description.trim() : "";
     const amount = typeof body.amount === "string" ? body.amount.trim() : "";
     const amountWei = typeof body.amountWei === "string" ? body.amountWei.trim() : "";
     const wallet = normalizeWallet(body.wallet);
-    const freelancerWallet = normalizeWallet(body.freelancerWallet);
     const chainId = normalizeChainId(body.chainId);
 
     stage = "payload_validated";
@@ -184,183 +171,160 @@ export async function POST(request: Request) {
       !title ? "title" : null,
       !description ? "description" : null,
       !amount ? "amount" : null,
+      !amountWei ? "amountWei" : null,
       !wallet ? "wallet" : null,
+      chainId === null ? "chainId" : null,
     ].filter((value): value is string => Boolean(value));
 
     if (missingFields.length > 0) {
       console.error("Agent Guild workflow challenge payload invalid", {
         stage,
         missingFields,
-        body,
       });
       return jsonFailure(
         {
           stage,
           error: `Missing required fields: ${missingFields.join(", ")}`,
           stack: null,
-          provider,
-          model,
           errorCode: "INVALID_PAYLOAD",
-          debug: {
-            rawBodyPreview: rawBody.slice(0, 500),
-            missingFields,
-          },
+          missingFields,
+          rawBodyPreview: rawBody.slice(0, 500),
         },
         400
       );
     }
 
-    if (!/^\d+(\.\d+)?$/.test(amount)) {
+    if (chainId !== 42220) {
       return jsonFailure(
         {
           stage,
-          error: "Amount must use plain decimal format.",
+          error: "MiniPay must be connected to Celo Mainnet (42220).",
           stack: null,
-          provider,
-          model,
+          errorCode: "INVALID_CHAIN_ID",
+        },
+        400
+      );
+    }
+
+    const amountError = validateAmount(amount);
+    if (amountError) {
+      return jsonFailure(
+        {
+          stage,
+          error: amountError,
+          stack: null,
           errorCode: "INVALID_AMOUNT",
         },
         400
       );
     }
 
-    const decimals = amount.split(".")[1]?.length ?? 0;
-    if (decimals > 18) {
-      return jsonFailure(
-        {
-          stage,
-          error: "Amount supports up to 18 decimal places.",
-          stack: null,
-          provider,
-          model,
-          errorCode: "INVALID_AMOUNT_PRECISION",
-        },
-        400
-      );
-    }
-
-    let parsedAmountWei = amountWei;
+    let parsedAmountWei: string;
     try {
-      parsedAmountWei = amountWei || parseUnits(amount, 18).toString();
+      parsedAmountWei = parseUnits(amount, 18).toString();
     } catch (error) {
       return jsonFailure(
         {
           stage,
           error: "Amount could not be converted to wei.",
           stack: error instanceof Error ? error.stack ?? null : null,
-          provider,
-          model,
           errorCode: "INVALID_AMOUNT",
         },
         400
       );
     }
 
-    if (parsedAmountWei === "0") {
+    if (parsedAmountWei !== amountWei) {
       return jsonFailure(
         {
           stage,
-          error: "Amount must be greater than zero.",
+          error: "Amount and amountWei do not match.",
           stack: null,
-          provider,
-          model,
-          errorCode: "INVALID_AMOUNT",
+          errorCode: "INVALID_AMOUNT_WEI",
         },
         400
       );
     }
 
-    stage = "groq_client_initialized";
-    if (!hasGroqApiKey || !hasWorkflowSessionSecret) {
-      const fallback = createFallbackContract({
-        title,
-        description,
-        amount,
-        amountWei: parsedAmountWei,
-      });
-      console.error("Agent Guild workflow challenge using fallback due to missing env", {
-        stage,
-        hasGroqApiKey,
-        hasWorkflowSessionSecret,
-      });
-      stage = "response_sent";
-      return jsonSuccess(fallback, {
-        provider,
-        model,
-        debug: {
-          fallbackUsed: true,
-          fallbackReason: !hasGroqApiKey
-            ? "Missing GROQ_API_KEY"
-            : "Missing WORKFLOW_SESSION_SECRET",
-          hasGroqApiKey,
-          hasWorkflowSessionSecret,
-          wallet,
-          freelancerWallet,
-          chainId,
+    stage = "groq_env_checked";
+    if (!process.env.GROQ_API_KEY?.trim()) {
+      return jsonFailure(
+        {
+          stage,
+          errorCode: "GROQ_API_KEY_MISSING",
+          error: "GROQ_API_KEY is required.",
+          stack: null,
         },
-      });
+        500
+      );
     }
 
-    let contract = createFallbackContract({
-      title,
-      description,
-      amount,
-      amountWei: parsedAmountWei,
-    });
-
+    stage = "groq_request_started";
+    let contract: GroqGeneratedContract;
     try {
-      stage = "ai_request_started";
-      const generated = await generateContractWithGroq({
+      contract = await generateContractWithGroq({
         title,
         description,
         amount,
-        amountWei: parsedAmountWei,
+        amountWei,
         clientWallet: wallet,
-        freelancerWallet: freelancerWallet || undefined,
-        chainId: chainId ?? 42220,
+        chainId,
       });
-      stage = "ai_response_received";
-      contract = generated;
-      stage = "contract_parsed";
     } catch (error) {
-      console.error("Agent Guild workflow challenge Groq generation failed", {
+      stage = "route_failed";
+      if (error instanceof GroqContractGeneratorError) {
+        console.error("Agent Guild workflow challenge Groq request failed", {
+          stage,
+          errorCode: error.code,
+          error: error.message,
+          stack: error.stack ?? null,
+        });
+        return jsonFailure(
+          {
+            stage,
+            error: error.message,
+            stack: error.stack ?? null,
+            errorCode: error.code,
+          },
+          error.code === "MISSING_GROQ_API_KEY" ? 500 : 502
+        );
+      }
+
+      console.error("Agent Guild workflow challenge unexpected Groq failure", {
         stage,
-        provider,
-        model,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack ?? null : null,
       });
+      return jsonFailure(
+        {
+          stage,
+          error:
+            error instanceof Error ? error.message : "Groq request failed unexpectedly.",
+          stack: error instanceof Error ? error.stack ?? null : null,
+          errorCode: "GROQ_REQUEST_FAILED",
+        },
+        502
+      );
     }
 
+    stage = "groq_response_received";
+    stage = "contract_parsed";
     stage = "response_sent";
-    return jsonSuccess(contract, {
-      provider,
-      model,
-      debug: {
-        fallbackUsed: contract.deliverable === description,
-        hasGroqApiKey,
-        hasWorkflowSessionSecret,
-        wallet,
-        freelancerWallet,
-        chainId,
-      },
-    });
+    return jsonSuccess(contract, model);
   } catch (error) {
     stage = "route_failed";
     console.error("Agent Guild workflow challenge route failed", {
       stage,
-      provider,
-      model,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack ?? null : null,
+      provider,
+      model,
     });
     return jsonFailure(
       {
         stage,
         error: error instanceof Error ? error.message : "Unexpected server error.",
         stack: error instanceof Error ? error.stack ?? null : null,
-        provider,
-        model,
         errorCode: "UNEXPECTED_SERVER_ERROR",
       },
       500

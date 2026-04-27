@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { parseUnits } from "viem";
-import { buildDisplayBudgetFromInput, validateUsdAmountInput, validateWorkflowChallengeAmountInput } from "@/lib/budget";
+import {
+  buildDisplayBudgetFromInput,
+  validateUsdAmountInput,
+  validateWorkflowChallengeAmountInput,
+} from "@/lib/budget";
 import {
   generateContractWithGroq,
   getGroqModel,
   GroqContractGeneratorError,
 } from "@/lib/server/groqContractGenerator";
 import { createWorkflowDraft } from "@/lib/server/workflowBackend";
-import { getWorkflowSessionWallet } from "@/lib/server/workflowAuth";
 import { normalizeChainId } from "@/lib/chainId";
 import { normalizeWallet } from "@/lib/workflowTypes";
 
@@ -57,14 +60,25 @@ function buildMilestones(amountWei: string, milestoneTitles: string[]) {
 }
 
 export async function POST(request: Request) {
-  let stage = "route_entered";
+  let stage:
+    | "route_entered"
+    | "body_parse_started"
+    | "body_parse_success"
+    | "payload_validated"
+    | "groq_env_checked"
+    | "groq_request_started"
+    | "groq_response_received"
+    | "contract_parsed"
+    | "response_sent"
+    | "route_failed" = "route_entered";
+
+  const provider = "groq";
+  const model = getGroqModel();
 
   try {
-    const wallet = await getWorkflowSessionWallet();
-    if (!wallet) {
-      return createErrorResponse(stage, "Workflow session required.", 401);
-    }
+    console.log("workflow contract create route entered", { stage });
 
+    stage = "body_parse_started";
     const rawBody = await request.text();
     let body: CreateContractPayload = {};
 
@@ -73,10 +87,11 @@ export async function POST(request: Request) {
     } catch (error) {
       return createErrorResponse("body_parse_failed", "Invalid JSON payload.", 400, {
         stack: error instanceof Error ? error.stack : null,
+        rawBodyPreview: rawBody.slice(0, 500),
       });
     }
 
-    stage = "payload_validated";
+    stage = "body_parse_success";
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const description =
       typeof body.description === "string" ? body.description.trim() : "";
@@ -95,6 +110,7 @@ export async function POST(request: Request) {
         : "";
     const chainId = normalizeChainId(body.chainId);
 
+    stage = "payload_validated";
     const missingFields = [
       !title ? "title" : null,
       !description ? "description" : null,
@@ -110,33 +126,62 @@ export async function POST(request: Request) {
     ].filter((value): value is string => Boolean(value));
 
     if (missingFields.length > 0) {
-      return createErrorResponse(stage, `Missing required fields: ${missingFields.join(", ")}`, 400);
-    }
-
-    if (wallet !== clientWallet) {
-      return createErrorResponse(stage, "Only the connected client wallet can create this contract.", 403);
+      return createErrorResponse(
+        stage,
+        `Missing required fields: ${missingFields.join(", ")}`,
+        400,
+        {
+          missingFields,
+        }
+      );
     }
 
     if (chainId !== 42220) {
-      return createErrorResponse(stage, "MiniPay must be connected to Celo Mainnet (42220).", 400);
+      return createErrorResponse(stage, "MiniPay must be connected to Celo Mainnet (42220).", 400, {
+        errorCode: "INVALID_CHAIN_ID",
+      });
     }
 
     const workflowAmountError = validateWorkflowChallengeAmountInput(amount);
     if (workflowAmountError) {
-      return createErrorResponse(stage, workflowAmountError, 400);
+      return createErrorResponse(stage, workflowAmountError, 400, {
+        errorCode: "INVALID_AMOUNT",
+      });
     }
 
     const displayBudgetError = validateUsdAmountInput(displayBudgetAmountUsd);
     if (displayBudgetError) {
-      return createErrorResponse(stage, displayBudgetError, 400);
+      return createErrorResponse(stage, displayBudgetError, 400, {
+        errorCode: "INVALID_DISPLAY_BUDGET",
+      });
     }
 
-    const parsedAmountWei = parseUnits(amount, 18).toString();
+    let parsedAmountWei: string;
+    try {
+      parsedAmountWei = parseUnits(amount, 18).toString();
+    } catch (error) {
+      return createErrorResponse(stage, "Amount could not be converted to wei.", 400, {
+        errorCode: "INVALID_AMOUNT",
+        stack: error instanceof Error ? error.stack : null,
+      });
+    }
+
     if (parsedAmountWei !== amountWei) {
-      return createErrorResponse(stage, "Amount and amountWei do not match.", 400);
+      return createErrorResponse(stage, "Amount and amountWei do not match.", 400, {
+        errorCode: "INVALID_AMOUNT_WEI",
+      });
     }
 
-    stage = "ai_generation_started";
+    stage = "groq_env_checked";
+    if (!process.env.GROQ_API_KEY?.trim()) {
+      return createErrorResponse(stage, "GROQ_API_KEY is required.", 500, {
+        errorCode: "GROQ_API_KEY_MISSING",
+        provider,
+        model,
+      });
+    }
+
+    stage = "groq_request_started";
     const generatedContract = await generateContractWithGroq({
       title,
       description,
@@ -147,9 +192,10 @@ export async function POST(request: Request) {
       chainId,
     });
 
-    stage = "contract_persisted";
+    stage = "groq_response_received";
+    stage = "contract_parsed";
     const summary = `Client agrees to pay Freelancer ${generatedContract.amount} CELO after successful delivery of ${generatedContract.deliverable}.`;
-    const contract = await createWorkflowDraft(wallet, {
+    const contract = await createWorkflowDraft(clientWallet, {
       amount: generatedContract.amount,
       amountWei: generatedContract.amountWei,
       clientWallet,
@@ -164,24 +210,51 @@ export async function POST(request: Request) {
       linkedProjectId: null,
     });
 
+    stage = "response_sent";
     return NextResponse.json({
       success: true,
       stage: "response_sent",
       contract,
       debug: {
-        provider: "groq",
-        model: getGroqModel(),
+        provider,
+        model,
       },
     });
   } catch (error) {
     if (error instanceof GroqContractGeneratorError) {
+      console.error("Agent Guild workflow contract create Groq failure", {
+        stage,
+        provider,
+        model,
+        errorCode: error.code,
+        error: error.message,
+        stack: error.stack ?? null,
+      });
       return createErrorResponse(stage, error.message, error.code === "MISSING_GROQ_API_KEY" ? 500 : 502, {
         errorCode: error.code,
+        provider,
+        model,
       });
     }
 
-    return createErrorResponse(stage, error instanceof Error ? error.message : "Unexpected server error.", 500, {
+    stage = "route_failed";
+    console.error("Agent Guild workflow contract create route failed", {
+      stage,
+      provider,
+      model,
+      error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : null,
     });
+    return createErrorResponse(
+      stage,
+      error instanceof Error ? error.message : "Unexpected server error.",
+      500,
+      {
+        stack: error instanceof Error ? error.stack : null,
+        errorCode: "UNEXPECTED_SERVER_ERROR",
+        provider,
+        model,
+      }
+    );
   }
 }
