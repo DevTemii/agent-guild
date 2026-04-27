@@ -30,7 +30,9 @@ import { getReputationForWallet } from "@/lib/reputationStore";
 import {
   getContractsForFreelancer,
   getNotificationsForWallet,
+  getStoredWorkflowSessionState,
   getWorkflowRefreshEventName,
+  initializeWorkflowSession,
   normalizeWallet,
   ProductContract,
   syncWorkflowState,
@@ -152,6 +154,12 @@ function ConfiguredFreelancerWorkspacePage() {
   const [profileStatus, setProfileStatus] = useState("");
   const [profileTxHash, setProfileTxHash] = useState<string | null>(null);
   const [profileRawError, setProfileRawError] = useState<string | null>(null);
+  const [workflowSessionExists, setWorkflowSessionExists] = useState("false");
+  const [workflowSessionId, setWorkflowSessionId] = useState("Not captured yet");
+  const [workflowSessionInitialized, setWorkflowSessionInitialized] = useState("false");
+  const [workflowSessionRestored, setWorkflowSessionRestored] = useState("false");
+  const [workflowSessionExpired, setWorkflowSessionExpired] = useState("false");
+  const [workflowSessionLastError, setWorkflowSessionLastError] = useState("No workflow session error captured");
   const [storedRole, setStoredRole] = useState<string | null>(null);
   const [storedWalletAddress, setStoredWalletAddress] = useState<string | null>(null);
   const [redirectReason, setRedirectReason] = useState<string>("freelancer_route_loaded");
@@ -211,6 +219,51 @@ function ConfiguredFreelancerWorkspacePage() {
       redirectReason,
     });
   }, [connectedAddress, pathname, redirectReason, storedRole]);
+
+  useEffect(() => {
+    if (!connectedAddress || !walletSession.walletConnected || !walletSession.sessionActive) {
+      return;
+    }
+
+    const storedSession = getStoredWorkflowSessionState(connectedAddress);
+    if (storedSession) {
+      setWorkflowSessionExists(storedSession.sessionExists ? "true" : "false");
+      setWorkflowSessionId(storedSession.sessionId || "Not captured yet");
+      setWorkflowSessionInitialized(storedSession.sessionInitialized ? "true" : "false");
+      setWorkflowSessionRestored(storedSession.sessionRestoredFromStorage ? "true" : "false");
+      setWorkflowSessionExpired(storedSession.sessionExpired ? "true" : "false");
+      setWorkflowSessionLastError(storedSession.lastSessionError || "No workflow session error captured");
+    }
+
+    void initializeWorkflowSession(account, {
+      chainId: resolvedChainId,
+      role: "freelancer",
+      timestamp: new Date().toISOString(),
+    })
+      .then(() => {
+        const sessionState = getStoredWorkflowSessionState(connectedAddress);
+        if (!sessionState) {
+          return;
+        }
+        setWorkflowSessionExists(sessionState.sessionExists ? "true" : "false");
+        setWorkflowSessionId(sessionState.sessionId || "Not captured yet");
+        setWorkflowSessionInitialized(sessionState.sessionInitialized ? "true" : "false");
+        setWorkflowSessionRestored(sessionState.sessionRestoredFromStorage ? "true" : "false");
+        setWorkflowSessionExpired(sessionState.sessionExpired ? "true" : "false");
+        setWorkflowSessionLastError(sessionState.lastSessionError || "No workflow session error captured");
+      })
+      .catch((error) => {
+        setWorkflowSessionLastError(
+          error instanceof Error ? error.message : "Failed to initialize workflow session."
+        );
+      });
+  }, [
+    account,
+    connectedAddress,
+    resolvedChainId,
+    walletSession.sessionActive,
+    walletSession.walletConnected,
+  ]);
 
   useEffect(() => {
     const syncWorkflow = async () => {
@@ -768,6 +821,12 @@ function ConfiguredFreelancerWorkspacePage() {
                     <DetailCard label="Function" value={AGENT_REGISTRY_REGISTER_AGENT_SIGNATURE} />
                     <DetailCard label="Tx hash" value={profileTxHash || "No profile tx submitted yet"} />
                     <DetailCard label="session active" value={walletSession.sessionActive ? "true" : "false"} />
+                    <DetailCard label="session exists" value={workflowSessionExists} />
+                    <DetailCard label="session id" value={workflowSessionId} />
+                    <DetailCard label="session initialized" value={workflowSessionInitialized} />
+                    <DetailCard label="session restored from storage" value={workflowSessionRestored} />
+                    <DetailCard label="session expired" value={workflowSessionExpired} />
+                    <DetailCard label="last session error" value={workflowSessionLastError} />
                     <DetailCard label="Raw error" value={profileRawError || walletSession.rawWalletError || "No error captured"} />
                   </div>
                 </WorkspacePanel>

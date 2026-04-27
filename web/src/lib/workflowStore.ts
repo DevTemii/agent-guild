@@ -33,11 +33,14 @@ const CONTRACT_CACHE_STORAGE_KEY_PREFIX = "agent-guild-contract-cache";
 const NOTIFICATION_CACHE_STORAGE_KEY_PREFIX = "agent-guild-notification-cache";
 const PROJECT_INDEX_CACHE_STORAGE_KEY_PREFIX = "agent-guild-project-index-cache";
 const MIGRATION_MARKER_STORAGE_KEY_PREFIX = "agent-guild-workflow-migrated";
+const WORKFLOW_SESSION_STORAGE_KEY_PREFIX = "agent-guild-workflow-session";
 const WORKFLOW_REFRESH_EVENT = "agent-guild:workflow-refresh";
 
 const cachedContractsByWallet = new Map<string, ProductContract[]>();
 const cachedNotificationsByWallet = new Map<string, string[]>();
 const cachedProjectsByWallet = new Map<string, WorkflowProjectIndexEntry[]>();
+const cachedWorkflowSessionsByWallet = new Map<string, WorkflowClientSessionState>();
+const workflowSessionInitPromises = new Map<string, Promise<WorkflowSessionDebugResult | false>>();
 
 type WorkflowSnapshot = {
   contracts: ProductContract[];
@@ -74,6 +77,18 @@ export type WorkflowSessionDebugResult = {
   } | null;
 };
 
+export type WorkflowClientSessionState = {
+  wallet: string;
+  sessionExists: boolean;
+  sessionId: string | null;
+  sessionInitialized: boolean;
+  sessionRestoredFromStorage: boolean;
+  sessionExpired: boolean;
+  lastSessionError: string | null;
+  initializedAt: string | null;
+  expiresAt: number | null;
+};
+
 export type SendDealMutationResult = {
   contract: ProductContract;
   debug: {
@@ -104,6 +119,10 @@ function getWalletScopedStorageKey(prefix: string, wallet?: string | null) {
   return getWalletCacheKey(prefix, wallet);
 }
 
+function getWorkflowSessionStorageKey(wallet?: string | null) {
+  return getWalletScopedStorageKey(WORKFLOW_SESSION_STORAGE_KEY_PREFIX, wallet);
+}
+
 function readJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   const raw = window.localStorage.getItem(key);
@@ -120,6 +139,52 @@ function readJson<T>(key: string, fallback: T): T {
 function writeJson<T>(key: string, value: T) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function getWorkflowSessionState(wallet?: string | null) {
+  const normalizedWallet = normalizeWallet(wallet);
+  if (!normalizedWallet) {
+    return null;
+  }
+
+  const cachedState = cachedWorkflowSessionsByWallet.get(normalizedWallet);
+  if (cachedState) {
+    return cachedState;
+  }
+
+  const storageKey = getWorkflowSessionStorageKey(normalizedWallet);
+  if (!storageKey) {
+    return null;
+  }
+
+  const storedState = readJson<WorkflowClientSessionState | null>(storageKey, null);
+  if (!storedState || normalizeWallet(storedState.wallet) !== normalizedWallet) {
+    return null;
+  }
+
+  cachedWorkflowSessionsByWallet.set(normalizedWallet, storedState);
+  return storedState;
+}
+
+function persistWorkflowSessionState(state: WorkflowClientSessionState | null) {
+  const normalizedWallet = normalizeWallet(state?.wallet);
+  if (!normalizedWallet || !state) {
+    return;
+  }
+
+  const nextState = {
+    ...state,
+    wallet: normalizedWallet,
+  } satisfies WorkflowClientSessionState;
+  cachedWorkflowSessionsByWallet.set(normalizedWallet, nextState);
+  const storageKey = getWorkflowSessionStorageKey(normalizedWallet);
+  if (storageKey) {
+    writeJson(storageKey, nextState);
+  }
+}
+
+export function getStoredWorkflowSessionState(wallet?: string | null) {
+  return getWorkflowSessionState(wallet);
 }
 
 function emitWorkflowRefresh() {
@@ -287,164 +352,199 @@ async function ensureBackendWorkflowSession(
   if (!connectedWallet) {
     return false;
   }
-
-  const sessionResponse = await fetch("/api/workflow/session", {
-    cache: "no-store",
-  });
-
-  if (sessionResponse.ok) {
-    const session = (await sessionResponse.json()) as { wallet?: string | null };
-    const sessionWallet = normalizeWallet(session.wallet);
-    if (sessionWallet === connectedWallet) {
-      return {
-        wallet: connectedWallet,
-        chainId: debugContext?.chainId ?? null,
-        amountRawValue: debugContext?.amount?.trim() || null,
-        amountWei: debugContext?.amountWei?.trim() || null,
-        parsedAmount: null,
-        stage: "session_initialized",
-        usedExistingSession: true,
-        sessionMode: "verified",
-        reason: null,
-        challengeResponse: null,
-      } satisfies WorkflowSessionDebugResult;
-    }
-
-    if (sessionWallet && sessionWallet !== connectedWallet) {
-      await fetch("/api/workflow/session", { method: "DELETE" });
-    }
+  const activeInit = workflowSessionInitPromises.get(connectedWallet);
+  if (activeInit) {
+    return activeInit;
   }
 
-  const challengeResponse = await fetch("/api/workflow/session/challenge", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      wallet: connectedWallet,
-    }),
-  });
+  const initializer = (async () => {
+    const storedState = getWorkflowSessionState(connectedWallet);
+    const restoredFromStorage = Boolean(
+      storedState?.sessionExists &&
+        storedState.expiresAt &&
+        storedState.expiresAt > Date.now()
+    );
 
-  const challenge = (await challengeResponse.json()) as {
-    success?: boolean;
-    stage?: string;
-    error?: string;
-    token?: string;
-    message?: string;
-    parsedAmount?: string | null;
-    amountRawValue?: string | null;
-    amountWei?: string | null;
-    chainId?: number | null;
-    fallback?: {
-      sessionMode?: "fallback";
-      reason?: string | null;
-    } | null;
-  };
+    const sessionResponse = await fetch("/api/workflow/session", {
+      cache: "no-store",
+    });
 
-  if (!challengeResponse.ok) {
-    if (challenge.fallback?.sessionMode === "fallback") {
-      return {
-        wallet: connectedWallet,
-        chainId: challenge.chainId ?? debugContext?.chainId ?? null,
-        amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
-        amountWei: challenge.amountWei ?? debugContext?.amountWei?.trim() ?? null,
-        parsedAmount: challenge.parsedAmount ?? null,
-        stage: challenge.stage ?? "fallback_generated",
-        usedExistingSession: false,
-        sessionMode: "fallback",
-        reason: challenge.fallback.reason ?? challenge.error ?? "workflow session fallback",
-        challengeResponse: null,
-      } satisfies WorkflowSessionDebugResult;
+    if (sessionResponse.ok) {
+      const session = (await sessionResponse.json()) as {
+        wallet?: string | null;
+        sessionId?: string | null;
+        expiresAt?: number | null;
+      };
+      const sessionWallet = normalizeWallet(session.wallet);
+      if (sessionWallet === connectedWallet) {
+        persistWorkflowSessionState({
+          wallet: connectedWallet,
+          sessionExists: true,
+          sessionId: session.sessionId?.trim() || null,
+          sessionInitialized: true,
+          sessionRestoredFromStorage: restoredFromStorage,
+          sessionExpired: false,
+          lastSessionError: null,
+          initializedAt: new Date().toISOString(),
+          expiresAt: typeof session.expiresAt === "number" ? session.expiresAt : null,
+        });
+
+        return {
+          wallet: connectedWallet,
+          chainId: debugContext?.chainId ?? null,
+          amountRawValue: debugContext?.amount?.trim() || null,
+          amountWei: debugContext?.amountWei?.trim() || null,
+          parsedAmount: null,
+          stage: "session_initialized",
+          usedExistingSession: true,
+          sessionMode: "verified",
+          reason: null,
+          challengeResponse: null,
+        } satisfies WorkflowSessionDebugResult;
+      }
+
+      if (sessionWallet && sessionWallet !== connectedWallet) {
+        await fetch("/api/workflow/session", { method: "DELETE" });
+      }
     }
 
-    throw new Error(
-      challenge.error ||
+    const challengeResponse = await fetch("/api/workflow/session/challenge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        wallet: connectedWallet,
+      }),
+    });
+
+    const challenge = (await challengeResponse.json()) as {
+      success?: boolean;
+      stage?: string;
+      error?: string;
+      token?: string;
+      message?: string;
+      parsedAmount?: string | null;
+      amountRawValue?: string | null;
+      amountWei?: string | null;
+      chainId?: number | null;
+      fallback?: {
+        sessionMode?: "fallback";
+        reason?: string | null;
+      } | null;
+    };
+
+    if (!challengeResponse.ok) {
+      const errorMessage =
+        challenge.error ||
         (await parseErrorMessage(
           challengeResponse,
           "Could not start a secure wallet session for this action."
-        ))
-    );
-  }
+        ));
+      persistWorkflowSessionState({
+        wallet: connectedWallet,
+        sessionExists: false,
+        sessionId: null,
+        sessionInitialized: false,
+        sessionRestoredFromStorage: restoredFromStorage,
+        sessionExpired: false,
+        lastSessionError: errorMessage,
+        initializedAt: storedState?.initializedAt ?? null,
+        expiresAt: storedState?.expiresAt ?? null,
+      });
+      throw new Error(errorMessage);
+    }
 
-  if (!challenge.success && challenge.fallback?.sessionMode === "fallback") {
+    if (!challenge.success || !challenge.token || !challenge.message) {
+      const errorMessage = challenge.error ?? "Workflow challenge is missing token or message.";
+      persistWorkflowSessionState({
+        wallet: connectedWallet,
+        sessionExists: false,
+        sessionId: null,
+        sessionInitialized: false,
+        sessionRestoredFromStorage: restoredFromStorage,
+        sessionExpired: false,
+        lastSessionError: errorMessage,
+        initializedAt: storedState?.initializedAt ?? null,
+        expiresAt: storedState?.expiresAt ?? null,
+      });
+      throw new Error(errorMessage);
+    }
+
+    const signature = await signAgentWalletMessage({
+      account,
+      message: challenge.message,
+    });
+
+    const verifyResponse = await fetch("/api/workflow/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        wallet: connectedWallet,
+        challengeToken: challenge.token,
+        signature,
+      }),
+    });
+
+    const verifyPayload = (await verifyResponse.json()) as {
+      success?: boolean;
+      stage?: string;
+      error?: string;
+      sessionId?: string | null;
+      expiresAt?: number | null;
+    };
+
+    if (!verifyResponse.ok || !verifyPayload.success) {
+      const verifyError =
+        verifyPayload.error ||
+        "Could not verify the secure wallet session for this action.";
+      persistWorkflowSessionState({
+        wallet: connectedWallet,
+        sessionExists: false,
+        sessionId: null,
+        sessionInitialized: false,
+        sessionRestoredFromStorage: restoredFromStorage,
+        sessionExpired: false,
+        lastSessionError: verifyError,
+        initializedAt: storedState?.initializedAt ?? null,
+        expiresAt: storedState?.expiresAt ?? null,
+      });
+      throw new Error(verifyError);
+    }
+
+    persistWorkflowSessionState({
+      wallet: connectedWallet,
+      sessionExists: true,
+      sessionId: verifyPayload.sessionId?.trim() || null,
+      sessionInitialized: true,
+      sessionRestoredFromStorage: false,
+      sessionExpired: false,
+      lastSessionError: null,
+      initializedAt: new Date().toISOString(),
+      expiresAt: typeof verifyPayload.expiresAt === "number" ? verifyPayload.expiresAt : null,
+    });
+
     return {
       wallet: connectedWallet,
       chainId: challenge.chainId ?? debugContext?.chainId ?? null,
       amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
       amountWei: challenge.amountWei ?? debugContext?.amountWei?.trim() ?? null,
       parsedAmount: challenge.parsedAmount ?? null,
-      stage: challenge.stage ?? "fallback_generated",
+      stage: verifyPayload.stage ?? challenge.stage ?? "session_initialized",
       usedExistingSession: false,
-      sessionMode: "fallback",
-      reason: challenge.fallback.reason ?? challenge.error ?? "workflow session fallback",
-      challengeResponse: null,
-    } satisfies WorkflowSessionDebugResult;
-  }
-
-  if (!challenge.token || !challenge.message) {
-    return {
-      wallet: connectedWallet,
-      chainId: challenge.chainId ?? debugContext?.chainId ?? null,
-      amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
-      amountWei: challenge.amountWei ?? debugContext?.amountWei?.trim() ?? null,
-      parsedAmount: challenge.parsedAmount ?? null,
-      stage: challenge.stage ?? "fallback_generated",
-      usedExistingSession: false,
-      sessionMode: "fallback",
-      reason: challenge.error ?? "workflow challenge missing token",
-      challengeResponse: null,
-    } satisfies WorkflowSessionDebugResult;
-  }
-
-  const signature = await signAgentWalletMessage({
-    account,
-    message: challenge.message,
-  });
-
-  const verifyResponse = await fetch("/api/workflow/session", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      wallet: connectedWallet,
-      challengeToken: challenge.token,
-      signature,
-    }),
-  });
-
-  if (!verifyResponse.ok) {
-    return {
-      wallet: connectedWallet,
-      chainId: challenge.chainId ?? debugContext?.chainId ?? null,
-      amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
-      amountWei: challenge.amountWei ?? debugContext?.amountWei?.trim() ?? null,
-      parsedAmount: challenge.parsedAmount ?? null,
-      stage: "fallback_generated",
-      usedExistingSession: false,
-      sessionMode: "fallback",
-      reason: await parseErrorMessage(
-        verifyResponse,
-        "Could not verify the secure wallet session for this action."
-      ),
+      sessionMode: "verified",
+      reason: null,
       challengeResponse: {
         tokenPresent: Boolean(challenge.token),
         message: challenge.message,
       },
     } satisfies WorkflowSessionDebugResult;
-  }
+  })();
 
-  return {
-    wallet: connectedWallet,
-    chainId: challenge.chainId ?? debugContext?.chainId ?? null,
-    amountRawValue: challenge.amountRawValue ?? debugContext?.amount?.trim() ?? null,
-    amountWei: challenge.amountWei ?? debugContext?.amountWei?.trim() ?? null,
-    parsedAmount: challenge.parsedAmount ?? null,
-    stage: challenge.stage ?? "challenge_created",
-    usedExistingSession: false,
-    sessionMode: "verified",
-    reason: null,
-    challengeResponse: {
-      tokenPresent: Boolean(challenge.token),
-      message: challenge.message,
-    },
-  } satisfies WorkflowSessionDebugResult;
+  workflowSessionInitPromises.set(connectedWallet, initializer);
+  try {
+    return await initializer;
+  } finally {
+    workflowSessionInitPromises.delete(connectedWallet);
+  }
 }
 
 async function importLegacyWorkflowIfNeeded(account?: Account | null) {
@@ -680,6 +780,13 @@ export async function syncWorkflowProjects(account?: Account | null) {
 export async function ensureWorkflowSessionForAction(
   account: Account | null | undefined,
   debugContext: WorkflowChallengeDebugContext
+) {
+  return ensureBackendWorkflowSession(account, debugContext);
+}
+
+export async function initializeWorkflowSession(
+  account: Account | null | undefined,
+  debugContext?: WorkflowChallengeDebugContext
 ) {
   return ensureBackendWorkflowSession(account, debugContext);
 }

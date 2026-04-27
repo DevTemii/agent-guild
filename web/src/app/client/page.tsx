@@ -28,7 +28,9 @@ import {
   getContractsForClient,
   getProductContractById,
   getNotificationsForWallet,
+  getStoredWorkflowSessionState,
   getWorkflowRefreshEventName,
+  initializeWorkflowSession,
   normalizeWallet,
   ProductContract,
   sendProductContract,
@@ -116,6 +118,12 @@ function ConfiguredClientWorkspacePage() {
   const [contractDebugAiStatus, setContractDebugAiStatus] = useState<string | null>(null);
   const [contractDebugFallbackUsed, setContractDebugFallbackUsed] = useState<string | null>(null);
   const [contractDebugAiRawError, setContractDebugAiRawError] = useState<string | null>(null);
+  const [workflowSessionExists, setWorkflowSessionExists] = useState("false");
+  const [workflowSessionId, setWorkflowSessionId] = useState("Not captured yet");
+  const [workflowSessionInitialized, setWorkflowSessionInitialized] = useState("false");
+  const [workflowSessionRestored, setWorkflowSessionRestored] = useState("false");
+  const [workflowSessionExpired, setWorkflowSessionExpired] = useState("false");
+  const [workflowSessionLastError, setWorkflowSessionLastError] = useState("No workflow session error captured");
   const [sendDealDebugPayload, setSendDealDebugPayload] = useState<string | null>(null);
   const [sendDealDebugResponse, setSendDealDebugResponse] = useState<string | null>(null);
   const [sendDealDebugRawError, setSendDealDebugRawError] = useState<string | null>(null);
@@ -140,6 +148,50 @@ function ConfiguredClientWorkspacePage() {
       return null;
     }
   }, [amountInput]);
+
+  useEffect(() => {
+    if (!connectedAddress || !walletSession.walletConnected || !walletSession.sessionActive) {
+      return;
+    }
+
+    const storedSession = getStoredWorkflowSessionState(connectedAddress);
+    if (storedSession) {
+      setWorkflowSessionExists(storedSession.sessionExists ? "true" : "false");
+      setWorkflowSessionId(storedSession.sessionId || "Not captured yet");
+      setWorkflowSessionInitialized(storedSession.sessionInitialized ? "true" : "false");
+      setWorkflowSessionRestored(storedSession.sessionRestoredFromStorage ? "true" : "false");
+      setWorkflowSessionExpired(storedSession.sessionExpired ? "true" : "false");
+      setWorkflowSessionLastError(storedSession.lastSessionError || "No workflow session error captured");
+    }
+
+    void initializeWorkflowSession(account, {
+      chainId: walletSession.normalizedChainId,
+      role: "client",
+      timestamp: new Date().toISOString(),
+    })
+      .then(() => {
+        const sessionState = getStoredWorkflowSessionState(connectedAddress);
+        if (!sessionState) {
+          return;
+        }
+        setWorkflowSessionExists(sessionState.sessionExists ? "true" : "false");
+        setWorkflowSessionId(sessionState.sessionId || "Not captured yet");
+        setWorkflowSessionInitialized(sessionState.sessionInitialized ? "true" : "false");
+        setWorkflowSessionRestored(sessionState.sessionRestoredFromStorage ? "true" : "false");
+        setWorkflowSessionExpired(sessionState.sessionExpired ? "true" : "false");
+        setWorkflowSessionLastError(sessionState.lastSessionError || "No workflow session error captured");
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "Failed to initialize workflow session.";
+        setWorkflowSessionLastError(message);
+      });
+  }, [
+    account,
+    connectedAddress,
+    walletSession.normalizedChainId,
+    walletSession.sessionActive,
+    walletSession.walletConnected,
+  ]);
 
   const registryContract = useMemo(
     () =>
@@ -342,6 +394,31 @@ function ConfiguredClientWorkspacePage() {
     };
 
     try {
+      const sessionResult = await initializeWorkflowSession(account, {
+        amount: amountInput,
+        amountWei: parsedWorkflowAmount,
+        chainId: resolvedChainId,
+        role: "client",
+        timestamp: new Date().toISOString(),
+      });
+      const sessionState = getStoredWorkflowSessionState(connectedAddress);
+      if (sessionState) {
+        setWorkflowSessionExists(sessionState.sessionExists ? "true" : "false");
+        setWorkflowSessionId(sessionState.sessionId || "Not captured yet");
+        setWorkflowSessionInitialized(sessionState.sessionInitialized ? "true" : "false");
+        setWorkflowSessionRestored(sessionState.sessionRestoredFromStorage ? "true" : "false");
+        setWorkflowSessionExpired(sessionState.sessionExpired ? "true" : "false");
+        setWorkflowSessionLastError(sessionState.lastSessionError || "No workflow session error captured");
+      }
+      if (!sessionResult || sessionResult.sessionMode !== "verified") {
+        const sessionError =
+          sessionResult && typeof sessionResult === "object"
+            ? sessionResult.reason
+            : "Workflow session could not be initialized.";
+        setContractStatus(sessionError || "Workflow session could not be initialized.");
+        return;
+      }
+
       setGeneratingContract(true);
       setContractDebugStage("route_entered");
       setContractDebugPayload(JSON.stringify(workflowPayload, null, 2));
@@ -1106,6 +1183,12 @@ function ConfiguredClientWorkspacePage() {
                       value={walletSession.externalChainId ? `${walletSession.externalChainId}` : "Not connected"}
                     />
                     <DetailCard label="session active" value={walletSession.sessionActive ? "true" : "false"} />
+                    <DetailCard label="session exists" value={workflowSessionExists} />
+                    <DetailCard label="session id" value={workflowSessionId} />
+                    <DetailCard label="session initialized" value={workflowSessionInitialized} />
+                    <DetailCard label="session restored from storage" value={workflowSessionRestored} />
+                    <DetailCard label="session expired" value={workflowSessionExpired} />
+                    <DetailCard label="last session error" value={workflowSessionLastError} />
                     <DetailCard label="raw wallet error" value={walletSession.rawWalletError || "No wallet error captured"} />
                   </div>
                 </WorkspacePanel>

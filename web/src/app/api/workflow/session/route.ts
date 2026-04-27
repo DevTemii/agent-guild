@@ -1,19 +1,25 @@
 import { NextResponse } from "next/server";
 import {
   clearWorkflowSession,
-  getWorkflowSessionWallet,
+  getWorkflowSession,
   setWorkflowSession,
   verifyWorkflowChallengeSignature,
 } from "@/lib/server/workflowAuth";
 import { normalizeWallet } from "@/lib/workflowTypes";
 
 export async function GET() {
-  const wallet = await getWorkflowSessionWallet();
-  return NextResponse.json({ wallet });
+  const session = await getWorkflowSession();
+  return NextResponse.json({
+    wallet: session?.wallet ?? null,
+    sessionId: session?.sessionId ?? null,
+    expiresAt: session?.expiresAt ?? null,
+  });
 }
 
 export async function POST(request: Request) {
+  let stage = "route_entered";
   try {
+    stage = "body_parsed";
     const body = (await request.json()) as {
       wallet?: string;
       challengeToken?: string;
@@ -22,9 +28,18 @@ export async function POST(request: Request) {
 
     const wallet = normalizeWallet(body.wallet);
     if (!wallet || !body.challengeToken || !body.signature) {
-      return NextResponse.json({ error: "Wallet, challenge token, and signature are required." }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          stage,
+          error: "Wallet, challenge token, and signature are required.",
+          stack: null,
+        },
+        { status: 400 }
+      );
     }
 
+    stage = "signature_verified";
     const isValid = await verifyWorkflowChallengeSignature({
       wallet,
       token: body.challengeToken,
@@ -32,14 +47,37 @@ export async function POST(request: Request) {
     });
 
     if (!isValid) {
-      return NextResponse.json({ error: "Invalid workflow signature." }, { status: 401 });
+      return NextResponse.json(
+        {
+          success: false,
+          stage,
+          error: "Invalid workflow signature.",
+          stack: null,
+        },
+        { status: 401 }
+      );
     }
 
-    await setWorkflowSession(wallet);
-    return NextResponse.json({ wallet });
+    stage = "session_initialized";
+    const session = await setWorkflowSession(wallet);
+    return NextResponse.json({
+      success: true,
+      stage,
+      wallet: session?.wallet ?? wallet,
+      sessionId: session?.sessionId ?? null,
+      expiresAt: session?.expiresAt ?? null,
+    });
   } catch (error) {
     console.error("Failed to create workflow session", error);
-    return NextResponse.json({ error: "Failed to create workflow session." }, { status: 500 });
+    return NextResponse.json(
+      {
+        success: false,
+        stage,
+        error: error instanceof Error ? error.message : "Failed to create workflow session.",
+        stack: error instanceof Error ? error.stack ?? null : null,
+      },
+      { status: 500 }
+    );
   }
 }
 

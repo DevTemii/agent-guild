@@ -17,6 +17,7 @@ type WorkflowChallengePayload = {
 };
 
 type WorkflowSessionPayload = {
+  sessionId: string;
   wallet: string;
   expiresAt: number;
 };
@@ -129,20 +130,25 @@ export async function verifyWorkflowChallengeSignature({
 
 function createWorkflowSessionToken(wallet: string) {
   return encodeSignedToken({
+    sessionId: crypto.randomUUID(),
     wallet: normalizeWallet(wallet),
     expiresAt: Date.now() + SESSION_TTL_MS,
   });
 }
 
 export async function setWorkflowSession(wallet: string) {
+  const token = createWorkflowSessionToken(wallet);
+  const payload = decodeSignedToken<WorkflowSessionPayload>(token);
   const cookieStore = await cookies();
-  cookieStore.set(WORKFLOW_SESSION_COOKIE, createWorkflowSessionToken(wallet), {
+  cookieStore.set(WORKFLOW_SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: Math.floor(SESSION_TTL_MS / 1000),
   });
+
+  return payload;
 }
 
 export async function clearWorkflowSession() {
@@ -150,7 +156,7 @@ export async function clearWorkflowSession() {
   cookieStore.delete(WORKFLOW_SESSION_COOKIE);
 }
 
-export async function getWorkflowSessionWallet() {
+export async function getWorkflowSession() {
   const cookieStore = await cookies();
   const token = cookieStore.get(WORKFLOW_SESSION_COOKIE)?.value;
   if (!token) {
@@ -163,5 +169,13 @@ export async function getWorkflowSessionWallet() {
     return null;
   }
 
-  return normalizeWallet(payload.wallet);
+  return {
+    ...payload,
+    wallet: normalizeWallet(payload.wallet),
+  };
+}
+
+export async function getWorkflowSessionWallet() {
+  const session = await getWorkflowSession();
+  return session?.wallet ?? null;
 }
