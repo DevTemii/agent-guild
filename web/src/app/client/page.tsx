@@ -50,12 +50,12 @@ import {
   getStoredWorkflowSessionState,
   getWorkflowRefreshEventName,
   initializeWorkflowSession,
-  normalizeContract,
   normalizeWallet,
   ProductContract,
   sendProductContract,
   syncWorkflowState,
 } from "@/lib/workflowStore";
+import { normalizeContract } from "@/lib/workflowTypes";
 import {
   formatDisplayBudget,
   formatSettlementAmountCelo,
