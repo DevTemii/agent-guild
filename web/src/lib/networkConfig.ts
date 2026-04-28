@@ -55,3 +55,7 @@ export const activeAgentGuildDeployment = {
 export function getExplorerAddressUrl(address: string) {
   return `${agentGuildExplorerBaseUrl}/address/${address}`;
 }
+
+export function getExplorerTransactionUrl(txHash: string) {
+  return `${agentGuildExplorerBaseUrl}/tx/${txHash}`;
+}

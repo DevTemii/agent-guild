@@ -50,6 +50,7 @@ import {
   getStoredWorkflowSessionState,
   getWorkflowRefreshEventName,
   initializeWorkflowSession,
+  normalizeContract,
   normalizeWallet,
   ProductContract,
   sendProductContract,
@@ -1328,7 +1329,6 @@ function ConfiguredClientWorkspacePage() {
                               />
                               <InlineNotice
                                 message="Deal created onchain. Syncing details..."
-                                tone="success"
                               />
                               <div className="grid gap-3 sm:grid-cols-2">
                                 <button
