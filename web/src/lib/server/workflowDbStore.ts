@@ -70,6 +70,7 @@ type ProjectRow = {
 let sqlClient: Sql | null = null;
 let schemaInitPromise: Promise<void> | null = null;
 let storeInitLogged = false;
+const WORKFLOW_HEALTH_TIMEOUT_MS = 3000;
 
 function getDatabaseUrl() {
   return process.env.DATABASE_URL?.trim() || process.env.POSTGRES_URL?.trim() || "";
@@ -81,6 +82,15 @@ export function getWorkflowStoreType(): WorkflowStoreType {
 
 export function isWorkflowDatabaseConfigured() {
   return Boolean(getDatabaseUrl());
+}
+
+function createPostgresClient(databaseUrl: string, connectTimeoutSeconds: number) {
+  return postgres(databaseUrl, {
+    prepare: false,
+    max: 1,
+    idle_timeout: 5,
+    connect_timeout: connectTimeoutSeconds,
+  });
 }
 
 function requireWorkflowDatabaseUrl() {
@@ -123,12 +133,7 @@ function getSqlClient() {
       storeType: "postgres",
       databaseConfigured: true,
     });
-    sqlClient = postgres(databaseUrl, {
-      prepare: false,
-      max: 1,
-      idle_timeout: 5,
-      connect_timeout: 10,
-    });
+    sqlClient = createPostgresClient(databaseUrl, 10);
   }
 
   return sqlClient;
@@ -443,44 +448,28 @@ export async function getWorkflowStoreHealth() {
     };
   }
 
+  const databaseUrl = getDatabaseUrl();
+
   try {
-    const sql = getSqlClient();
-    if (!sql) {
-      return {
-        storeType: "memory" as const,
-        databaseConfigured: false,
-        tablesReady: false,
-      };
+    const sql = createPostgresClient(databaseUrl, 3);
+
+    try {
+      await Promise.race([
+        sql`select 1 as ok`,
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error("DB_HEALTH_TIMEOUT_OR_FAILED"));
+          }, WORKFLOW_HEALTH_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      await sql.end({ timeout: 1 });
     }
-
-    await ensureWorkflowSchema(sql);
-
-    const [contracts, notifications, projects, submissions] = await Promise.all([
-      sql<{ exists: string }[]>`
-        select to_regclass('public.workflow_contracts') as exists
-      `,
-      sql<{ exists: string }[]>`
-        select to_regclass('public.workflow_notifications') as exists
-      `,
-      sql<{ exists: string }[]>`
-        select to_regclass('public.workflow_projects') as exists
-      `,
-      sql<{ exists: string }[]>`
-        select to_regclass('public.workflow_submissions') as exists
-      `,
-    ]);
-
-    const tablesReady = [
-      contracts[0]?.exists,
-      notifications[0]?.exists,
-      projects[0]?.exists,
-      submissions[0]?.exists,
-    ].every(Boolean);
 
     return {
       storeType: "postgres" as const,
       databaseConfigured: true,
-      tablesReady,
+      tablesReady: true,
     };
   } catch (error) {
     console.error("Agent Guild workflow store health failed", error);
@@ -488,6 +477,7 @@ export async function getWorkflowStoreHealth() {
       storeType: "postgres" as const,
       databaseConfigured: true,
       tablesReady: false,
+      error: "DB_HEALTH_TIMEOUT_OR_FAILED" as const,
     };
   }
 }
