@@ -13,6 +13,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ ...state, storeType: getWorkflowStoreType() });
   } catch (error) {
     console.error("Failed to load workflow state", error);
-    return NextResponse.json({ error: "Failed to load workflow state." }, { status: 500 });
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to load workflow state.",
+      },
+      { status: 500 }
+    );
   }
 }

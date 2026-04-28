@@ -17,7 +17,7 @@ import {
   type WorkflowDatabase,
 } from "@/lib/server/workflowMemoryStore";
 
-type WorkflowStoreType = "database" | "memory";
+export type WorkflowStoreType = "postgres" | "memory";
 
 type ContractRow = {
   id: string;
@@ -69,22 +69,60 @@ type ProjectRow = {
 
 let sqlClient: Sql | null = null;
 let schemaInitPromise: Promise<void> | null = null;
+let storeInitLogged = false;
 
 function getDatabaseUrl() {
   return process.env.DATABASE_URL?.trim() || process.env.POSTGRES_URL?.trim() || "";
 }
 
 export function getWorkflowStoreType(): WorkflowStoreType {
-  return getDatabaseUrl() ? "database" : "memory";
+  return getDatabaseUrl() ? "postgres" : "memory";
+}
+
+export function isWorkflowDatabaseConfigured() {
+  return Boolean(getDatabaseUrl());
+}
+
+function requireWorkflowDatabaseUrl() {
+  const databaseUrl = getDatabaseUrl();
+  if (databaseUrl) {
+    return databaseUrl;
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("DATABASE_URL is required for production workflow persistence.");
+  }
+
+  return "";
+}
+
+function logWorkflowStoreInitialization(message: string, extra?: Record<string, unknown>) {
+  if (storeInitLogged) {
+    return;
+  }
+
+  storeInitLogged = true;
+  console.log("Agent Guild workflow store initialized", {
+    message,
+    ...extra,
+  });
 }
 
 function getSqlClient() {
-  const databaseUrl = getDatabaseUrl();
+  const databaseUrl = requireWorkflowDatabaseUrl();
   if (!databaseUrl) {
+    logWorkflowStoreInitialization("using memory fallback in development only", {
+      storeType: "memory",
+      databaseConfigured: false,
+    });
     return null;
   }
 
   if (!sqlClient) {
+    logWorkflowStoreInitialization("using postgres", {
+      storeType: "postgres",
+      databaseConfigured: true,
+    });
     sqlClient = postgres(databaseUrl, {
       prepare: false,
       max: 1,
@@ -258,7 +296,7 @@ export async function readWorkflowDatabaseFromStore(): Promise<{
   ]);
 
   return {
-    storeType: "database",
+    storeType: "postgres",
     database: {
       contracts: contractRows.map(rowToContract),
       notifications: notificationRows
@@ -383,5 +421,73 @@ export async function writeWorkflowDatabaseToStore(database: WorkflowDatabase) {
     }
   });
 
-  return "database" as const;
+  return "postgres" as const;
+}
+
+export async function getWorkflowStoreHealth() {
+  const databaseConfigured = isWorkflowDatabaseConfigured();
+
+  if (!databaseConfigured) {
+    if (process.env.NODE_ENV === "production") {
+      return {
+        storeType: "memory" as const,
+        databaseConfigured: false,
+        tablesReady: false,
+      };
+    }
+
+    return {
+      storeType: "memory" as const,
+      databaseConfigured: false,
+      tablesReady: true,
+    };
+  }
+
+  try {
+    const sql = getSqlClient();
+    if (!sql) {
+      return {
+        storeType: "memory" as const,
+        databaseConfigured: false,
+        tablesReady: false,
+      };
+    }
+
+    await ensureWorkflowSchema(sql);
+
+    const [contracts, notifications, projects, submissions] = await Promise.all([
+      sql<{ exists: string }[]>`
+        select to_regclass('public.workflow_contracts') as exists
+      `,
+      sql<{ exists: string }[]>`
+        select to_regclass('public.workflow_notifications') as exists
+      `,
+      sql<{ exists: string }[]>`
+        select to_regclass('public.workflow_projects') as exists
+      `,
+      sql<{ exists: string }[]>`
+        select to_regclass('public.workflow_submissions') as exists
+      `,
+    ]);
+
+    const tablesReady = [
+      contracts[0]?.exists,
+      notifications[0]?.exists,
+      projects[0]?.exists,
+      submissions[0]?.exists,
+    ].every(Boolean);
+
+    return {
+      storeType: "postgres" as const,
+      databaseConfigured: true,
+      tablesReady,
+    };
+  } catch (error) {
+    console.error("Agent Guild workflow store health failed", error);
+    return {
+      storeType: "postgres" as const,
+      databaseConfigured: true,
+      tablesReady: false,
+    };
+  }
 }

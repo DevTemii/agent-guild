@@ -37,7 +37,7 @@ const cachedNotificationsByWallet = new Map<string, string[]>();
 const cachedProjectsByWallet = new Map<string, WorkflowProjectIndexEntry[]>();
 const cachedWorkflowSessionsByWallet = new Map<string, WorkflowClientSessionState>();
 const workflowSessionInitPromises = new Map<string, Promise<WorkflowSessionDebugResult | false>>();
-let lastWorkflowBackendStoreType: "database" | "memory" | null = null;
+let lastWorkflowBackendStoreType: "postgres" | "memory" | null = null;
 let lastWorkflowSyncAt: string | null = null;
 
 type WorkflowSnapshot = {
@@ -50,7 +50,7 @@ type WorkflowProjectSnapshot = {
 };
 
 export type WorkflowDebugSnapshot = {
-  storeType: "database" | "memory" | null;
+  storeType: "postgres" | "memory" | null;
   lastSyncAt: string | null;
 };
 
@@ -195,7 +195,7 @@ function emitWorkflowRefresh() {
   window.dispatchEvent(new Event(WORKFLOW_REFRESH_EVENT));
 }
 
-function recordWorkflowDebug(storeType?: "database" | "memory" | null) {
+function recordWorkflowDebug(storeType?: "postgres" | "memory" | null) {
   if (storeType) {
     lastWorkflowBackendStoreType = storeType;
   }
@@ -562,7 +562,7 @@ async function fetchWorkflowSnapshot(account?: Account | null) {
   const payload = (await response.json()) as {
     contracts: ProductContract[];
     notifications: WorkflowNotification[];
-    storeType?: "database" | "memory";
+    storeType?: "postgres" | "memory";
   };
   recordWorkflowDebug(payload.storeType ?? null);
 
@@ -611,7 +611,7 @@ async function fetchWorkflowProjects(account?: Account | null) {
 
   const payload = (await response.json()) as {
     projects: WorkflowProjectIndexEntry[];
-    storeType?: "database" | "memory";
+    storeType?: "postgres" | "memory";
   };
   recordWorkflowDebug(payload.storeType ?? null);
 
@@ -679,7 +679,7 @@ async function postWorkflowMutation<T>(
         success?: boolean;
         contract?: T;
         submission?: T;
-        storeType?: "database" | "memory";
+        storeType?: "postgres" | "memory";
       };
   if (payload && typeof payload === "object" && "storeType" in payload) {
     recordWorkflowDebug(payload.storeType ?? null);
@@ -915,7 +915,7 @@ export async function sendProductContract(
     success?: boolean;
     error?: string;
     contract?: ProductContract;
-    storeType?: "database" | "memory";
+    storeType?: "postgres" | "memory";
   }>(responseText);
   if (responsePayload?.storeType) {
     recordWorkflowDebug(responsePayload.storeType);
@@ -986,7 +986,7 @@ export async function getProjectSubmission(
 
   const payload = (await response.json()) as {
     submission?: ProjectSubmission | null;
-    storeType?: "database" | "memory";
+    storeType?: "postgres" | "memory";
   };
   recordWorkflowDebug(payload.storeType ?? null);
 
@@ -1029,7 +1029,7 @@ async function fetchFreelancerInbox(account?: Account | null) {
   const payload = (await response.json()) as {
     contracts: ProductContract[];
     notifications: WorkflowNotification[];
-    storeType?: "database" | "memory";
+    storeType?: "postgres" | "memory";
   };
   recordWorkflowDebug(payload.storeType ?? null);
 

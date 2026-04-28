@@ -13,6 +13,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ projects, storeType: getWorkflowStoreType() });
   } catch (error) {
     console.error("Failed to load workflow projects", error);
-    return NextResponse.json({ error: "Failed to load workflow projects." }, { status: 500 });
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to load workflow projects.",
+      },
+      { status: 500 }
+    );
   }
 }
