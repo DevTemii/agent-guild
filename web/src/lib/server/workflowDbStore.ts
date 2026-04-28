@@ -71,6 +71,8 @@ let sqlClient: Sql | null = null;
 let schemaInitPromise: Promise<void> | null = null;
 let storeInitLogged = false;
 const WORKFLOW_HEALTH_TIMEOUT_MS = 3000;
+const WORKFLOW_SCHEMA_TIMEOUT_MS = 5000;
+const WORKFLOW_DB_WRITE_TIMEOUT_MS = 5000;
 
 function getDatabaseUrl() {
   return process.env.DATABASE_URL?.trim() || process.env.POSTGRES_URL?.trim() || "";
@@ -91,6 +93,22 @@ function createPostgresClient(databaseUrl: string, connectTimeoutSeconds: number
     idle_timeout: 5,
     connect_timeout: connectTimeoutSeconds,
   });
+}
+
+function createTimeoutError(code: string, message: string) {
+  const error = new Error(message);
+  error.name = code;
+  return error;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, error: Error): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      const timeout = setTimeout(() => reject(error), timeoutMs);
+      promise.finally(() => clearTimeout(timeout)).catch(() => undefined);
+    }),
+  ]);
 }
 
 function requireWorkflowDatabaseUrl() {
@@ -133,7 +151,7 @@ function getSqlClient() {
       storeType: "postgres",
       databaseConfigured: true,
     });
-    sqlClient = createPostgresClient(databaseUrl, 10);
+    sqlClient = createPostgresClient(databaseUrl, 5);
   }
 
   return sqlClient;
@@ -141,7 +159,14 @@ function getSqlClient() {
 
 async function ensureWorkflowSchema(sql: Sql) {
   if (schemaInitPromise) {
-    return schemaInitPromise;
+    return withTimeout(
+      schemaInitPromise,
+      WORKFLOW_SCHEMA_TIMEOUT_MS,
+      createTimeoutError(
+        "WORKFLOW_SCHEMA_TIMEOUT",
+        "Workflow schema initialization timed out after 5 seconds."
+      )
+    );
   }
 
   schemaInitPromise = (async () => {
@@ -202,7 +227,14 @@ async function ensureWorkflowSchema(sql: Sql) {
     `;
   })();
 
-  return schemaInitPromise;
+  return withTimeout(
+    schemaInitPromise,
+    WORKFLOW_SCHEMA_TIMEOUT_MS,
+    createTimeoutError(
+      "WORKFLOW_SCHEMA_TIMEOUT",
+      "Workflow schema initialization timed out after 5 seconds."
+    )
+  );
 }
 
 function contractToRow(contract: ProductContract): ContractRow {
@@ -326,105 +358,112 @@ export async function writeWorkflowDatabaseToStore(database: WorkflowDatabase) {
 
   await ensureWorkflowSchema(sql);
 
-  await sql.begin(async (tx) => {
-    for (const contract of database.contracts) {
-      const row = contractToRow(contract);
-      await tx`
-        insert into workflow_contracts (
-          id, status, client_wallet, freelancer_wallet, client_name, freelancer_name,
-          project_brief, amount, amount_wei, display_budget, settlement_amount_celo,
-          summary, milestones, linked_project_id, created_at, updated_at
-        ) values (
-          ${row.id}, ${row.status}, ${row.client_wallet}, ${row.freelancer_wallet},
-          ${row.client_name}, ${row.freelancer_name}, ${row.project_brief}, ${row.amount},
-          ${row.amount_wei}, ${tx.json(row.display_budget)}, ${row.settlement_amount_celo},
-          ${row.summary}, ${tx.json(row.milestones)}, ${row.linked_project_id},
-          ${row.created_at}, ${row.updated_at}
-        )
-        on conflict (id) do update set
-          status = excluded.status,
-          client_wallet = excluded.client_wallet,
-          freelancer_wallet = excluded.freelancer_wallet,
-          client_name = excluded.client_name,
-          freelancer_name = excluded.freelancer_name,
-          project_brief = excluded.project_brief,
-          amount = excluded.amount,
-          amount_wei = excluded.amount_wei,
-          display_budget = excluded.display_budget,
-          settlement_amount_celo = excluded.settlement_amount_celo,
-          summary = excluded.summary,
-          milestones = excluded.milestones,
-          linked_project_id = excluded.linked_project_id,
-          created_at = excluded.created_at,
-          updated_at = excluded.updated_at
-      `;
-    }
+  await withTimeout(
+    sql.begin(async (tx) => {
+      for (const contract of database.contracts) {
+        const row = contractToRow(contract);
+        await tx`
+          insert into workflow_contracts (
+            id, status, client_wallet, freelancer_wallet, client_name, freelancer_name,
+            project_brief, amount, amount_wei, display_budget, settlement_amount_celo,
+            summary, milestones, linked_project_id, created_at, updated_at
+          ) values (
+            ${row.id}, ${row.status}, ${row.client_wallet}, ${row.freelancer_wallet},
+            ${row.client_name}, ${row.freelancer_name}, ${row.project_brief}, ${row.amount},
+            ${row.amount_wei}, ${tx.json(row.display_budget)}, ${row.settlement_amount_celo},
+            ${row.summary}, ${tx.json(row.milestones)}, ${row.linked_project_id},
+            ${row.created_at}, ${row.updated_at}
+          )
+          on conflict (id) do update set
+            status = excluded.status,
+            client_wallet = excluded.client_wallet,
+            freelancer_wallet = excluded.freelancer_wallet,
+            client_name = excluded.client_name,
+            freelancer_name = excluded.freelancer_name,
+            project_brief = excluded.project_brief,
+            amount = excluded.amount,
+            amount_wei = excluded.amount_wei,
+            display_budget = excluded.display_budget,
+            settlement_amount_celo = excluded.settlement_amount_celo,
+            summary = excluded.summary,
+            milestones = excluded.milestones,
+            linked_project_id = excluded.linked_project_id,
+            created_at = excluded.created_at,
+            updated_at = excluded.updated_at
+        `;
+      }
 
-    for (const notification of database.notifications) {
-      await tx`
-        insert into workflow_notifications (
-          id, wallet, contract_id, type, message, created_at, read_at
-        ) values (
-          ${notification.id},
-          ${notification.wallet},
-          ${null},
-          ${"workflow"},
-          ${notification.message},
-          ${notification.createdAt},
-          ${null}
-        )
-        on conflict (id) do update set
-          wallet = excluded.wallet,
-          message = excluded.message,
-          created_at = excluded.created_at
-      `;
-    }
+      for (const notification of database.notifications) {
+        await tx`
+          insert into workflow_notifications (
+            id, wallet, contract_id, type, message, created_at, read_at
+          ) values (
+            ${notification.id},
+            ${notification.wallet},
+            ${null},
+            ${"workflow"},
+            ${notification.message},
+            ${notification.createdAt},
+            ${null}
+          )
+          on conflict (id) do update set
+            wallet = excluded.wallet,
+            message = excluded.message,
+            created_at = excluded.created_at
+        `;
+      }
 
-    for (const project of database.projects) {
-      await tx`
-        insert into workflow_projects (
-          project_id, contract_id, client_wallet, freelancer_wallet, created_at, updated_at
-        ) values (
-          ${project.projectId},
-          ${project.contractId},
-          ${project.clientWallet},
-          ${project.freelancerWallet},
-          ${project.createdAt},
-          ${project.updatedAt}
-        )
-        on conflict (project_id) do update set
-          contract_id = excluded.contract_id,
-          client_wallet = excluded.client_wallet,
-          freelancer_wallet = excluded.freelancer_wallet,
-          created_at = excluded.created_at,
-          updated_at = excluded.updated_at
-      `;
-    }
+      for (const project of database.projects) {
+        await tx`
+          insert into workflow_projects (
+            project_id, contract_id, client_wallet, freelancer_wallet, created_at, updated_at
+          ) values (
+            ${project.projectId},
+            ${project.contractId},
+            ${project.clientWallet},
+            ${project.freelancerWallet},
+            ${project.createdAt},
+            ${project.updatedAt}
+          )
+          on conflict (project_id) do update set
+            contract_id = excluded.contract_id,
+            client_wallet = excluded.client_wallet,
+            freelancer_wallet = excluded.freelancer_wallet,
+            created_at = excluded.created_at,
+            updated_at = excluded.updated_at
+        `;
+      }
 
-    for (const submission of database.submissions) {
-      await tx`
-        insert into workflow_submissions (
-          project_id, client_wallet, freelancer_wallet, delivery_url,
-          submitted_at, updated_at, tx_hash
-        ) values (
-          ${submission.projectId},
-          ${submission.clientWallet},
-          ${submission.freelancerWallet},
-          ${submission.deliveryUrl},
-          ${submission.submittedAt},
-          ${submission.updatedAt},
-          ${submission.txHash}
-        )
-        on conflict (project_id) do update set
-          client_wallet = excluded.client_wallet,
-          freelancer_wallet = excluded.freelancer_wallet,
-          delivery_url = excluded.delivery_url,
-          submitted_at = excluded.submitted_at,
-          updated_at = excluded.updated_at,
-          tx_hash = excluded.tx_hash
-      `;
-    }
-  });
+      for (const submission of database.submissions) {
+        await tx`
+          insert into workflow_submissions (
+            project_id, client_wallet, freelancer_wallet, delivery_url,
+            submitted_at, updated_at, tx_hash
+          ) values (
+            ${submission.projectId},
+            ${submission.clientWallet},
+            ${submission.freelancerWallet},
+            ${submission.deliveryUrl},
+            ${submission.submittedAt},
+            ${submission.updatedAt},
+            ${submission.txHash}
+          )
+          on conflict (project_id) do update set
+            client_wallet = excluded.client_wallet,
+            freelancer_wallet = excluded.freelancer_wallet,
+            delivery_url = excluded.delivery_url,
+            submitted_at = excluded.submitted_at,
+            updated_at = excluded.updated_at,
+            tx_hash = excluded.tx_hash
+        `;
+      }
+    }),
+    WORKFLOW_DB_WRITE_TIMEOUT_MS,
+    createTimeoutError(
+      "WORKFLOW_DB_WRITE_TIMEOUT",
+      "Workflow database write timed out after 5 seconds."
+    )
+  );
 
   return "postgres" as const;
 }

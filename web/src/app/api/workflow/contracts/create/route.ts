@@ -11,10 +11,12 @@ import {
   GroqContractGeneratorError,
 } from "@/lib/server/groqContractGenerator";
 import { createWorkflowDraft, getWorkflowStoreType } from "@/lib/server/workflowBackend";
+import { isWorkflowDatabaseConfigured } from "@/lib/server/workflowDbStore";
 import { normalizeChainId } from "@/lib/chainId";
 import { normalizeWallet } from "@/lib/workflowTypes";
 
 export const runtime = "nodejs";
+const CREATE_DEAL_DB_TIMEOUT_MS = 5000;
 
 type CreateContractPayload = {
   title?: string;
@@ -62,23 +64,19 @@ function buildMilestones(amountWei: string, milestoneTitles: string[]) {
 export async function POST(request: Request) {
   let stage:
     | "route_entered"
-    | "body_parse_started"
-    | "body_parse_success"
     | "payload_validated"
-    | "groq_env_checked"
-    | "groq_request_started"
-    | "groq_response_received"
-    | "contract_parsed"
+    | "groq_started"
+    | "groq_finished"
+    | "db_write_started"
+    | "db_write_finished"
     | "response_sent"
-    | "route_failed" = "route_entered";
+    | "failed" = "route_entered";
 
   const provider = "groq";
   const model = getGroqModel();
 
   try {
     console.log("workflow contract create route entered", { stage });
-
-    stage = "body_parse_started";
     const rawBody = await request.text();
     let body: CreateContractPayload = {};
 
@@ -91,7 +89,6 @@ export async function POST(request: Request) {
       });
     }
 
-    stage = "body_parse_success";
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const description =
       typeof body.description === "string" ? body.description.trim() : "";
@@ -172,16 +169,26 @@ export async function POST(request: Request) {
       });
     }
 
-    stage = "groq_env_checked";
     if (!process.env.GROQ_API_KEY?.trim()) {
-      return createErrorResponse(stage, "GROQ_API_KEY is required.", 500, {
+      return createErrorResponse("failed", "GROQ_API_KEY is required.", 500, {
         errorCode: "GROQ_API_KEY_MISSING",
         provider,
         model,
       });
     }
 
-    stage = "groq_request_started";
+    console.log("workflow contract create stage", { stage });
+
+    if (process.env.NODE_ENV === "production" && !isWorkflowDatabaseConfigured()) {
+      return createErrorResponse("failed", "DATABASE_URL missing or invalid", 500, {
+        errorCode: "DATABASE_URL_MISSING_OR_INVALID",
+        provider,
+        model,
+      });
+    }
+
+    stage = "groq_started";
+    console.log("workflow contract create stage", { stage, provider, model });
     const generatedContract = await generateContractWithGroq({
       title,
       description,
@@ -192,25 +199,42 @@ export async function POST(request: Request) {
       chainId,
     });
 
-    stage = "groq_response_received";
-    stage = "contract_parsed";
+    stage = "groq_finished";
+    console.log("workflow contract create stage", { stage, provider, model });
     const summary = `Client agrees to pay Freelancer ${generatedContract.amount} CELO after successful delivery of ${generatedContract.deliverable}.`;
-    const contract = await createWorkflowDraft(clientWallet, {
-      amount: generatedContract.amount,
-      amountWei: generatedContract.amountWei,
-      clientWallet,
-      clientName,
-      freelancerWallet,
-      freelancerName,
-      projectBrief,
-      displayBudget: buildDisplayBudgetFromInput(displayBudgetAmountUsd),
-      settlementAmountCelo: null,
-      summary,
-      milestones: buildMilestones(generatedContract.amountWei, generatedContract.milestones),
-      linkedProjectId: null,
-    });
+    stage = "db_write_started";
+    console.log("workflow contract create stage", { stage, provider, model });
+    const contract = await Promise.race([
+      createWorkflowDraft(clientWallet, {
+        amount: generatedContract.amount,
+        amountWei: generatedContract.amountWei,
+        clientWallet,
+        clientName,
+        freelancerWallet,
+        freelancerName,
+        projectBrief,
+        displayBudget: buildDisplayBudgetFromInput(displayBudgetAmountUsd),
+        settlementAmountCelo: null,
+        summary,
+        milestones: buildMilestones(generatedContract.amountWei, generatedContract.milestones),
+        linkedProjectId: null,
+      }),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error("Workflow database write timed out after 5 seconds."));
+        }, CREATE_DEAL_DB_TIMEOUT_MS);
+      }),
+    ]);
 
+    stage = "db_write_finished";
+    console.log("workflow contract create stage", { stage, provider, model, contractId: contract.id });
     stage = "response_sent";
+    console.log("workflow contract create stage", {
+      stage,
+      provider,
+      model,
+      contractId: contract.id,
+    });
     return NextResponse.json({
       success: true,
       stage: "response_sent",
@@ -239,21 +263,33 @@ export async function POST(request: Request) {
       });
     }
 
-    stage = "route_failed";
+    const message =
+      error instanceof Error ? error.message : "Unexpected server error.";
+    const errorCode =
+      message.includes("DATABASE_URL")
+        ? "DATABASE_URL_MISSING_OR_INVALID"
+        : message.includes("database write timed out")
+          ? "DATABASE_WRITE_TIMEOUT"
+          : message.includes("Workflow schema initialization timed out")
+            ? "DATABASE_SCHEMA_TIMEOUT"
+            : stage === "db_write_started" || stage === "db_write_finished"
+              ? "DATABASE_URL_MISSING_OR_INVALID"
+            : "UNEXPECTED_SERVER_ERROR";
+    stage = "failed";
     console.error("Agent Guild workflow contract create route failed", {
       stage,
       provider,
       model,
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
       stack: error instanceof Error ? error.stack : null,
     });
     return createErrorResponse(
       stage,
-      error instanceof Error ? error.message : "Unexpected server error.",
-      500,
+      message,
+      errorCode === "UNEXPECTED_SERVER_ERROR" ? 500 : 503,
       {
         stack: error instanceof Error ? error.stack : null,
-        errorCode: "UNEXPECTED_SERVER_ERROR",
+        errorCode,
         provider,
         model,
       }

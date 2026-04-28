@@ -414,7 +414,7 @@ function ConfiguredClientWorkspacePage() {
 
     try {
       setGeneratingContract(true);
-      setContractDebugStage("route_entered");
+      setContractDebugStage("create_clicked");
       setContractDebugPayload(JSON.stringify(workflowPayload, null, 2));
       setContractDebugErrorCode(null);
       setContractDebugRawError(null);
@@ -455,14 +455,37 @@ function ConfiguredClientWorkspacePage() {
         projectBrief: projectBrief.trim(),
         displayBudgetAmountUsd: displayBudgetAmountUsd.trim(),
       };
+      setContractDebugStage("payload_built");
 
-      const response = await fetch("/api/workflow/contracts/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(createPayload),
-      });
-      const responseText = await response.text();
-      const result = responseText ? (JSON.parse(responseText) as GenerateContractApiResponse) : {};
+      const controller = new AbortController();
+      const requestTimeout = setTimeout(() => controller.abort(), 12_000);
+
+      setContractDebugStage("request_sent");
+      let responseText = "";
+      let result: GenerateContractApiResponse = {};
+      let response: Response;
+
+      try {
+        response = await fetch("/api/workflow/contracts/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(createPayload),
+          signal: controller.signal,
+        });
+        responseText = await response.text();
+      } finally {
+        clearTimeout(requestTimeout);
+      }
+
+      try {
+        result = responseText ? (JSON.parse(responseText) as GenerateContractApiResponse) : {};
+      } catch (error) {
+        throw new Error(
+          `Invalid create deal response: ${
+            error instanceof Error ? error.message : "Unable to parse response."
+          }`
+        );
+      }
 
       console.log("Agent Guild workflow contract response", result);
       setContractDebugPayload(JSON.stringify(createPayload, null, 2));
@@ -520,14 +543,19 @@ function ConfiguredClientWorkspacePage() {
       setContractStatus("Deal ready. Confirm to continue.");
       openClientView("deal");
     } catch (error) {
-      const rawError = error instanceof Error ? error.message : "Failed to create contract.";
+      const rawError =
+        error instanceof Error && error.name === "AbortError"
+          ? "CREATE_DEAL_TIMEOUT: Create Deal timed out after 12 seconds."
+          : error instanceof Error
+            ? error.message
+            : "Failed to create contract.";
       const errorStage =
         error &&
         typeof error === "object" &&
         "stage" in error &&
         typeof (error as { stage?: unknown }).stage === "string"
           ? ((error as { stage: string }).stage)
-          : contractDebugStage ?? "route_entered";
+          : contractDebugStage ?? "failed";
       console.error("Agent Guild create contract failed", {
         incomingPayload: workflowPayload,
         amountRawValue: amountInput,
