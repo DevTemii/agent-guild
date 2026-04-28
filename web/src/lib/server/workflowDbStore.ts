@@ -29,6 +29,7 @@ type ContractRow = {
   project_brief: string;
   amount: string;
   amount_wei: string;
+  create_tx_hash: string | null;
   display_budget: ProductContract["displayBudget"];
   settlement_amount_celo: string | null;
   summary: string;
@@ -181,6 +182,7 @@ async function ensureWorkflowSchema(sql: Sql) {
         project_brief text not null,
         amount text not null,
         amount_wei text not null,
+        create_tx_hash text null,
         display_budget jsonb not null,
         settlement_amount_celo text null,
         summary text not null,
@@ -189,6 +191,10 @@ async function ensureWorkflowSchema(sql: Sql) {
         created_at timestamptz not null,
         updated_at timestamptz not null
       )
+    `;
+    await sql`
+      alter table workflow_contracts
+      add column if not exists create_tx_hash text null
     `;
 
     await sql`
@@ -248,6 +254,7 @@ function contractToRow(contract: ProductContract): ContractRow {
     project_brief: contract.projectBrief,
     amount: contract.amount,
     amount_wei: contract.amountWei,
+    create_tx_hash: contract.createTxHash?.trim() || null,
     display_budget: contract.displayBudget,
     settlement_amount_celo: contract.settlementAmountCelo,
     summary: contract.summary,
@@ -269,6 +276,7 @@ function rowToContract(row: ContractRow) {
     projectBrief: row.project_brief,
     amount: row.amount,
     amountWei: row.amount_wei,
+    createTxHash: row.create_tx_hash,
     displayBudget: row.display_budget,
     settlementAmountCelo: row.settlement_amount_celo,
     summary: row.summary,
@@ -365,12 +373,12 @@ export async function writeWorkflowDatabaseToStore(database: WorkflowDatabase) {
         await tx`
           insert into workflow_contracts (
             id, status, client_wallet, freelancer_wallet, client_name, freelancer_name,
-            project_brief, amount, amount_wei, display_budget, settlement_amount_celo,
+            project_brief, amount, amount_wei, create_tx_hash, display_budget, settlement_amount_celo,
             summary, milestones, linked_project_id, created_at, updated_at
           ) values (
             ${row.id}, ${row.status}, ${row.client_wallet}, ${row.freelancer_wallet},
             ${row.client_name}, ${row.freelancer_name}, ${row.project_brief}, ${row.amount},
-            ${row.amount_wei}, ${tx.json(row.display_budget)}, ${row.settlement_amount_celo},
+            ${row.amount_wei}, ${row.create_tx_hash}, ${tx.json(row.display_budget)}, ${row.settlement_amount_celo},
             ${row.summary}, ${tx.json(row.milestones)}, ${row.linked_project_id},
             ${row.created_at}, ${row.updated_at}
           )
@@ -383,6 +391,7 @@ export async function writeWorkflowDatabaseToStore(database: WorkflowDatabase) {
             project_brief = excluded.project_brief,
             amount = excluded.amount,
             amount_wei = excluded.amount_wei,
+            create_tx_hash = excluded.create_tx_hash,
             display_budget = excluded.display_budget,
             settlement_amount_celo = excluded.settlement_amount_celo,
             summary = excluded.summary,

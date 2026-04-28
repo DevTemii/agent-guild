@@ -9,7 +9,11 @@ export async function POST(
   let stage = "route_entered";
   try {
     stage = "body_parsed";
-    const body = (await request.json()) as { projectId?: number; wallet?: string };
+    const body = (await request.json()) as {
+      projectId?: number;
+      wallet?: string;
+      txHash?: string | null;
+    };
     if (typeof body.projectId !== "number") {
       return NextResponse.json({ success: false, stage, error: "Project ID is required.", stack: null }, { status: 400 });
     }
@@ -20,7 +24,7 @@ export async function POST(
     }
 
     const { id } = await context.params;
-    const contract = await linkWorkflowContractToProject(id, wallet, body.projectId);
+    const contract = await linkWorkflowContractToProject(id, wallet, body.projectId, body.txHash);
     return NextResponse.json({ success: true, stage: "response_sent", contract });
   } catch (error) {
     const message =

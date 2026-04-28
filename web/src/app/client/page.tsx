@@ -4,7 +4,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { isAddress } from "viem";
 import { useReadContract } from "thirdweb/react";
-import { getContract } from "thirdweb";
+import {
+  getContract,
+  parseEventLogs,
+  prepareContractCall,
+  prepareEvent,
+  sendTransaction,
+  waitForReceipt,
+} from "thirdweb";
 import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
 import EscrowSimulator from "@/components/EscrowSimulator";
 import { MiniPayWalletButton, MiniPayWalletSheet } from "@/components/wallet/MiniPayWalletSheet";
@@ -19,7 +26,13 @@ import {
   MetadataPill,
 } from "@/components/workspace/WorkspacePrimitives";
 import { client } from "@/lib/client";
-import { AGENT_REGISTRY_ABI, AGENT_REGISTRY_ADDRESS } from "@/lib/contract";
+import {
+  AGENT_REGISTRY_ABI,
+  AGENT_REGISTRY_ADDRESS,
+  FREELANCE_ESCROW_ABI,
+  FREELANCE_ESCROW_ADDRESS,
+  FREELANCE_ESCROW_PROJECT_CREATED_EVENT,
+} from "@/lib/contract";
 import { getContractCacheKey, getWalletCacheKey } from "@/lib/cacheKeys";
 import { agentGuildChain, agentGuildChainId } from "@/lib/networkConfig";
 import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
@@ -32,6 +45,7 @@ import {
   getStoredWorkflowSessionState,
   getWorkflowRefreshEventName,
   initializeWorkflowSession,
+  linkProductContractToProject,
   normalizeWallet,
   ProductContract,
   sendProductContract,
@@ -78,6 +92,50 @@ type GenerateContractApiResponse = {
   storeType?: string | null;
 };
 
+const CREATE_DEAL_RECEIPT_TIMEOUT_MS = 45_000;
+const projectCreatedEvent = prepareEvent({
+  signature: FREELANCE_ESCROW_PROJECT_CREATED_EVENT,
+});
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string) {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+    }),
+  ]);
+}
+
+function resolveCreatedProjectIdFromReceipt({
+  receipt,
+  expectedClient,
+  expectedFreelancer,
+}: {
+  receipt: Awaited<ReturnType<typeof waitForReceipt>>;
+  expectedClient: string;
+  expectedFreelancer: string;
+}) {
+  const matchingEvents = parseEventLogs({
+    events: [projectCreatedEvent],
+    logs: receipt.logs,
+  }).filter((eventLog) => {
+    const clientWallet = eventLog.args.client?.toLowerCase();
+    const freelancerWallet = eventLog.args.freelancer?.toLowerCase();
+
+    return (
+      clientWallet === expectedClient.toLowerCase() &&
+      freelancerWallet === expectedFreelancer.toLowerCase()
+    );
+  });
+
+  if (matchingEvents.length !== 1) {
+    return null;
+  }
+
+  const projectId = Number(matchingEvents[0].args.projectId);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : null;
+}
+
 const PROFILE_STORAGE_KEY_PREFIX = "agent-guild-client-profile";
 const GENERATED_CONTRACT_STORAGE_KEY_PREFIX = "agent-guild-generated-contract";
 
@@ -121,6 +179,8 @@ function ConfiguredClientWorkspacePage() {
   const [contractDebugAiStatus, setContractDebugAiStatus] = useState<string | null>(null);
   const [contractDebugFallbackUsed, setContractDebugFallbackUsed] = useState<string | null>(null);
   const [contractDebugAiRawError, setContractDebugAiRawError] = useState<string | null>(null);
+  const [contractDebugTxHash, setContractDebugTxHash] = useState<string | null>(null);
+  const [contractDebugProjectId, setContractDebugProjectId] = useState<string | null>(null);
   const [workflowSessionExists, setWorkflowSessionExists] = useState("false");
   const [workflowSessionId, setWorkflowSessionId] = useState("Not captured yet");
   const [workflowSessionInitialized, setWorkflowSessionInitialized] = useState("false");
@@ -209,6 +269,16 @@ function ConfiguredClientWorkspacePage() {
         abi: AGENT_REGISTRY_ABI,
       }),
     [thirdwebClient, AGENT_REGISTRY_ADDRESS]
+  );
+  const escrowContract = useMemo(
+    () =>
+      getContract({
+        client: thirdwebClient,
+        chain: agentGuildChain,
+        address: FREELANCE_ESCROW_ADDRESS,
+        abi: FREELANCE_ESCROW_ABI,
+      }),
+    [thirdwebClient]
   );
 
   const { data } = useReadContract({ contract: registryContract, method: "getAgents", params: [] });
@@ -348,6 +418,10 @@ function ConfiguredClientWorkspacePage() {
       setContractStatus("Reconnect Wallet");
       return;
     }
+    if (!account) {
+      setContractStatus("Reconnect Wallet");
+      return;
+    }
 
     const resolvedChainId =
       walletSession.isMiniPay
@@ -424,7 +498,9 @@ function ConfiguredClientWorkspacePage() {
       setContractDebugAiStatus("loading");
       setContractDebugFallbackUsed("false");
       setContractDebugAiRawError("No AI error captured");
-      setContractStatus("Creating the deal...");
+      setContractDebugTxHash(null);
+      setContractDebugProjectId(null);
+      setContractStatus("Preparing deal");
       console.log("Agent Guild contract flow wallet debug", {
         isMiniPay: walletSession.isMiniPay,
         walletSource: walletSession.walletSource,
@@ -510,13 +586,65 @@ function ConfiguredClientWorkspacePage() {
       }
 
       const draft = result.contract;
-      setPinnedDraftContract(draft);
-      setLastCreatedContractId(draft.id);
-      setContracts((current) => [draft, ...current.filter((contract) => contract.id !== draft.id)]);
+      setContractStatus("Confirm in wallet");
+      setContractDebugStage("confirm_in_wallet");
+
+      const createProjectTx = prepareContractCall({
+        contract: escrowContract,
+        method: "createProject",
+        params: [freelancerWallet as `0x${string}`],
+      });
+
+      const transactionResult = await withTimeout(
+        sendTransaction({
+          transaction: createProjectTx,
+          account,
+        }),
+        CREATE_DEAL_RECEIPT_TIMEOUT_MS,
+        "CREATE_DEAL_TIMEOUT: Wallet confirmation timed out."
+      );
+      const transactionHash = transactionResult.transactionHash;
+      setContractDebugTxHash(transactionHash);
+      setContractStatus("Creating deal onchain");
+      setContractDebugStage("creating_onchain");
+
+      const receipt = await withTimeout(
+        waitForReceipt({
+          client: thirdwebClient,
+          chain: agentGuildChain,
+          transactionHash,
+        }),
+        CREATE_DEAL_RECEIPT_TIMEOUT_MS,
+        "CREATE_DEAL_TIMEOUT: Onchain deal confirmation timed out."
+      );
+      const createdProjectId = resolveCreatedProjectIdFromReceipt({
+        receipt,
+        expectedClient: connectedAddress,
+        expectedFreelancer: freelancerWallet,
+      });
+
+      if (createdProjectId === null) {
+        throw new Error(
+          "PROJECT_CREATED_EVENT_MISSING: The deal transaction succeeded, but ProjectCreated could not be verified from the receipt."
+        );
+      }
+
+      setContractDebugProjectId(String(createdProjectId));
+      const linkedContract =
+        (await linkProductContractToProject(
+          draft.id,
+          createdProjectId,
+          transactionHash,
+          account
+        )) ?? {
+          ...draft,
+          linkedProjectId: createdProjectId,
+          createTxHash: transactionHash,
+        };
 
       const generatedContractStorageKey = getContractCacheKey(GENERATED_CONTRACT_STORAGE_KEY_PREFIX, {
         wallet: connectedAddress,
-        contractId: draft.id,
+        contractId: linkedContract.id,
       });
 
       if (generatedContractStorageKey) {
@@ -524,23 +652,32 @@ function ConfiguredClientWorkspacePage() {
           generatedContractStorageKey,
           JSON.stringify({
             ...result,
-            contract: draft,
-            summary: draft.summary,
-            milestones: draft.milestones,
+            contract: linkedContract,
+            summary: linkedContract.summary,
+            milestones: linkedContract.milestones,
+            txHash: transactionHash,
+            projectId: createdProjectId,
           })
         );
       }
 
+      setPinnedDraftContract(linkedContract);
+      setLastCreatedContractId(linkedContract.id);
+      setContracts((current) => [
+        linkedContract,
+        ...current.filter((contract) => contract.id !== linkedContract.id),
+      ]);
       await syncWorkflowState(account);
       {
         const syncedContracts = getContractsForClient(connectedAddress);
-        const mergedContracts = syncedContracts.some((contract) => contract.id === draft.id)
+        const mergedContracts = syncedContracts.some((contract) => contract.id === linkedContract.id)
           ? syncedContracts
-          : [draft, ...syncedContracts];
+          : [linkedContract, ...syncedContracts];
         setContracts(mergedContracts);
       }
       setNotifications(getNotificationsForWallet(connectedAddress));
-      setContractStatus("Deal ready. Confirm to continue.");
+      setContractDebugStage("deal_created");
+      setContractStatus(`Deal created onchain. Project #${createdProjectId}`);
       openClientView("deal");
     } catch (error) {
       const rawError =
@@ -1040,6 +1177,8 @@ function ConfiguredClientWorkspacePage() {
                             <DetailCard label="amount input" value={amountInput || "No amount entered"} />
                             <DetailCard label="amountWei" value={parsedWorkflowAmount || "Amount not parsed yet"} />
                             <DetailCard label="created contract id" value={lastCreatedContractId || "Not captured yet"} />
+                            <DetailCard label="tx hash" value={contractDebugTxHash || "Not captured yet"} />
+                            <DetailCard label="project id" value={contractDebugProjectId || "Not captured yet"} />
                             <DetailCard label="workflow stage" value={contractDebugStage || "Not captured yet"} />
                             <DetailCard label="API errorCode" value={contractDebugErrorCode || "No API error code captured"} />
                             <DetailCard label="AI provider" value={contractDebugAiProvider || "Not captured yet"} />

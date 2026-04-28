@@ -374,14 +374,19 @@ export async function updateWorkflowSettlementAmount(
 export async function linkWorkflowContractToProject(
   contractId: string,
   wallet: string,
-  projectId: number
+  projectId: number,
+  txHash?: string | null
 ) {
   return mutateWorkflowDatabase((database) => {
     const contract = getContractOrThrow(database, contractId);
     requireWalletMatch(wallet, contract.clientWallet, "Only the client wallet can link this contract to a project.");
 
-    if (contract.status !== "approved") {
-      throw new Error("Only approved contracts can be linked to escrow.");
+    if (
+      contract.status !== "draft" &&
+      contract.status !== "sent" &&
+      contract.status !== "approved"
+    ) {
+      throw new Error("Only draft, sent, or approved contracts can be linked to escrow.");
     }
 
     const normalizedProjectId = normalizeLinkedProjectId(projectId);
@@ -401,6 +406,7 @@ export async function linkWorkflowContractToProject(
     }
 
     contract.linkedProjectId = normalizedProjectId;
+    contract.createTxHash = txHash?.trim() || contract.createTxHash || null;
     touchContract(contract);
     upsertProjectIndexEntry(database, {
       projectId: normalizedProjectId,
@@ -412,11 +418,11 @@ export async function linkWorkflowContractToProject(
     appendNotifications(database, [
       {
         wallet: contract.clientWallet,
-        message: `Escrow created for Project #${normalizedProjectId}.`,
+        message: `Deal created onchain for Project #${normalizedProjectId}.`,
       },
       {
         wallet: contract.freelancerWallet,
-        message: `${contract.clientName} created escrow for Project #${normalizedProjectId}.`,
+        message: `${contract.clientName} created an onchain deal for Project #${normalizedProjectId}.`,
       },
     ]);
 

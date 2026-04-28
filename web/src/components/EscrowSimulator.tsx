@@ -885,11 +885,13 @@ export default function EscrowSimulator({
                     ? await linkProductContractToProject(
                         contractWithSettlement.id,
                         createdProjectId,
+                        null,
                         account
                     )
                     : await linkProductContractToProject(
                         selectedSourceContract.id,
                         createdProjectId,
+                        null,
                         account
                     );
 

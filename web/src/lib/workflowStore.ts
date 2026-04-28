@@ -874,11 +874,12 @@ export async function updateProductContractSettlementAmount(
 export async function linkProductContractToProject(
   id: string,
   projectId: number,
+  txHash: string | null | undefined,
   account: Account | null | undefined
 ) {
   return postWorkflowMutation<ProductContract>(account, {
     path: `/api/workflow/contracts/${id}/link-project`,
-    body: { projectId },
+    body: { projectId, txHash: txHash?.trim() || null },
   });
 }
 

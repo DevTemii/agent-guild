@@ -19,6 +19,7 @@ export type ProductContract = {
   id: string;
   amount: string;
   amountWei: string;
+  createTxHash?: string | null;
   clientWallet: string;
   clientName: string;
   freelancerWallet: string;
@@ -122,6 +123,7 @@ export function normalizeContract(contract: LegacyProductContract): ProductContr
     ...contract,
     amount: normalizedAmount,
     amountWei: normalizedAmountWei,
+    createTxHash: contract.createTxHash?.trim() || null,
     clientWallet: normalizeWallet(contract.clientWallet),
     freelancerWallet: normalizeWallet(contract.freelancerWallet),
     linkedProjectId: normalizeLinkedProjectId(contract.linkedProjectId),
