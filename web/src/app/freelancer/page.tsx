@@ -29,6 +29,7 @@ import { useAgentWalletSession } from "@/lib/walletSession";
 import { getReputationForWallet } from "@/lib/reputationStore";
 import {
   getContractsForFreelancer,
+  getWorkflowDebugSnapshot,
   getNotificationsForWallet,
   getStoredWorkflowSessionState,
   getWorkflowRefreshEventName,
@@ -165,6 +166,8 @@ function ConfiguredFreelancerWorkspacePage() {
   const [redirectReason, setRedirectReason] = useState<string>("freelancer_route_loaded");
   const [notifications, setNotifications] = useState<string[]>([]);
   const [contracts, setContracts] = useState<ProductContract[]>([]);
+  const [backendStoreType, setBackendStoreType] = useState<string>("Not captured yet");
+  const [lastWorkflowSyncTime, setLastWorkflowSyncTime] = useState<string>("Not captured yet");
   const [activeView, setActiveView] = useState<FreelancerView>("home");
   const [hasManualViewSelection, setHasManualViewSelection] = useState(false);
 
@@ -273,6 +276,9 @@ function ConfiguredFreelancerWorkspacePage() {
         return;
       }
       await syncFreelancerInbox(account);
+      const workflowDebug = getWorkflowDebugSnapshot();
+      setBackendStoreType(workflowDebug.storeType ?? "Not captured yet");
+      setLastWorkflowSyncTime(workflowDebug.lastSyncAt ?? "Not captured yet");
       const nextContracts = getContractsForFreelancer(connectedAddress);
       const nextNotifications = getNotificationsForWallet(connectedAddress);
 
@@ -827,6 +833,9 @@ function ConfiguredFreelancerWorkspacePage() {
                     <DetailCard label="session restored from storage" value={workflowSessionRestored} />
                     <DetailCard label="session expired" value={workflowSessionExpired} />
                     <DetailCard label="last session error" value={workflowSessionLastError} />
+                    <DetailCard label="inbox query wallet" value={connectedAddress || "Not connected"} />
+                    <DetailCard label="backend store type" value={backendStoreType} />
+                    <DetailCard label="last sync time" value={lastWorkflowSyncTime} />
                     <DetailCard label="Raw error" value={profileRawError || walletSession.rawWalletError || "No error captured"} />
                   </div>
                 </WorkspacePanel>

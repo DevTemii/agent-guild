@@ -37,6 +37,8 @@ const cachedNotificationsByWallet = new Map<string, string[]>();
 const cachedProjectsByWallet = new Map<string, WorkflowProjectIndexEntry[]>();
 const cachedWorkflowSessionsByWallet = new Map<string, WorkflowClientSessionState>();
 const workflowSessionInitPromises = new Map<string, Promise<WorkflowSessionDebugResult | false>>();
+let lastWorkflowBackendStoreType: "database" | "memory" | null = null;
+let lastWorkflowSyncAt: string | null = null;
 
 type WorkflowSnapshot = {
   contracts: ProductContract[];
@@ -45,6 +47,11 @@ type WorkflowSnapshot = {
 
 type WorkflowProjectSnapshot = {
   projects: WorkflowProjectIndexEntry[];
+};
+
+export type WorkflowDebugSnapshot = {
+  storeType: "database" | "memory" | null;
+  lastSyncAt: string | null;
 };
 
 export type WorkflowChallengeDebugContext = {
@@ -186,6 +193,13 @@ export function getStoredWorkflowSessionState(wallet?: string | null) {
 function emitWorkflowRefresh() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(WORKFLOW_REFRESH_EVENT));
+}
+
+function recordWorkflowDebug(storeType?: "database" | "memory" | null) {
+  if (storeType) {
+    lastWorkflowBackendStoreType = storeType;
+  }
+  lastWorkflowSyncAt = new Date().toISOString();
 }
 
 function setCachedContracts(wallet: string, contracts: ProductContract[]) {
@@ -548,7 +562,9 @@ async function fetchWorkflowSnapshot(account?: Account | null) {
   const payload = (await response.json()) as {
     contracts: ProductContract[];
     notifications: WorkflowNotification[];
+    storeType?: "database" | "memory";
   };
+  recordWorkflowDebug(payload.storeType ?? null);
 
   return {
     contracts: (payload.contracts ?? []).map(normalizeContract),
@@ -595,7 +611,9 @@ async function fetchWorkflowProjects(account?: Account | null) {
 
   const payload = (await response.json()) as {
     projects: WorkflowProjectIndexEntry[];
+    storeType?: "database" | "memory";
   };
+  recordWorkflowDebug(payload.storeType ?? null);
 
   return {
     projects: (payload.projects ?? [])
@@ -661,7 +679,13 @@ async function postWorkflowMutation<T>(
         success?: boolean;
         contract?: T;
         submission?: T;
+        storeType?: "database" | "memory";
       };
+  if (payload && typeof payload === "object" && "storeType" in payload) {
+    recordWorkflowDebug(payload.storeType ?? null);
+  } else {
+    recordWorkflowDebug(null);
+  }
   await refreshWorkflowSnapshot(account);
 
   if (payload && typeof payload === "object") {
@@ -891,7 +915,11 @@ export async function sendProductContract(
     success?: boolean;
     error?: string;
     contract?: ProductContract;
+    storeType?: "database" | "memory";
   }>(responseText);
+  if (responsePayload?.storeType) {
+    recordWorkflowDebug(responsePayload.storeType);
+  }
 
   if (!response.ok) {
     const errorBody = responseText || "No response body returned.";
@@ -958,7 +986,9 @@ export async function getProjectSubmission(
 
   const payload = (await response.json()) as {
     submission?: ProjectSubmission | null;
+    storeType?: "database" | "memory";
   };
+  recordWorkflowDebug(payload.storeType ?? null);
 
   return payload.submission ? normalizeProjectSubmission(payload.submission) : null;
 }
@@ -999,7 +1029,9 @@ async function fetchFreelancerInbox(account?: Account | null) {
   const payload = (await response.json()) as {
     contracts: ProductContract[];
     notifications: WorkflowNotification[];
+    storeType?: "database" | "memory";
   };
+  recordWorkflowDebug(payload.storeType ?? null);
 
   return {
     contracts: (payload.contracts ?? []).map(normalizeContract),
@@ -1026,6 +1058,13 @@ export async function syncFreelancerInbox(account?: Account | null) {
       notifications: getCachedNotificationsForWallet(wallet),
     } satisfies WorkflowSnapshot;
   }
+}
+
+export function getWorkflowDebugSnapshot(): WorkflowDebugSnapshot {
+  return {
+    storeType: lastWorkflowBackendStoreType,
+    lastSyncAt: lastWorkflowSyncAt,
+  };
 }
 
 export function getContractsForClient(wallet?: string | null) {

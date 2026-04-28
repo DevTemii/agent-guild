@@ -10,7 +10,7 @@ import {
   getGroqModel,
   GroqContractGeneratorError,
 } from "@/lib/server/groqContractGenerator";
-import { createWorkflowDraft } from "@/lib/server/workflowBackend";
+import { createWorkflowDraft, getWorkflowStoreType } from "@/lib/server/workflowBackend";
 import { normalizeChainId } from "@/lib/chainId";
 import { normalizeWallet } from "@/lib/workflowTypes";
 
@@ -218,7 +218,9 @@ export async function POST(request: Request) {
       debug: {
         provider,
         model,
+        storeType: getWorkflowStoreType(),
       },
+      storeType: getWorkflowStoreType(),
     });
   } catch (error) {
     if (error instanceof GroqContractGeneratorError) {

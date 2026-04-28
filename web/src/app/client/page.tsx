@@ -26,6 +26,7 @@ import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import { useAgentWalletSession } from "@/lib/walletSession";
 import {
   getContractsForClient,
+  getWorkflowDebugSnapshot,
   getProductContractById,
   getNotificationsForWallet,
   getStoredWorkflowSessionState,
@@ -72,7 +73,9 @@ type GenerateContractApiResponse = {
   debug?: {
     provider?: string | null;
     model?: string | null;
+    storeType?: string | null;
   };
+  storeType?: string | null;
 };
 
 const PROFILE_STORAGE_KEY_PREFIX = "agent-guild-client-profile";
@@ -132,6 +135,10 @@ function ConfiguredClientWorkspacePage() {
   const [selectedFreelancerWallet, setSelectedFreelancerWallet] = useState("");
   const [customFreelancerWallet, setCustomFreelancerWallet] = useState("");
   const [contracts, setContracts] = useState<ProductContract[]>([]);
+  const [pinnedDraftContract, setPinnedDraftContract] = useState<ProductContract | null>(null);
+  const [lastCreatedContractId, setLastCreatedContractId] = useState<string | null>(null);
+  const [backendStoreType, setBackendStoreType] = useState<string>("Not captured yet");
+  const [lastWorkflowSyncTime, setLastWorkflowSyncTime] = useState<string>("Not captured yet");
   const [selectedApprovedContractId, setSelectedApprovedContractId] = useState<string | null>(null);
   const [escrowSelectionNonce, setEscrowSelectionNonce] = useState(0);
   const [activeView, setActiveView] = useState<ClientView>("home");
@@ -271,8 +278,20 @@ function ConfiguredClientWorkspacePage() {
     const syncWorkflow = async () => {
       await syncWorkflowState(account);
 
+      const workflowDebug = getWorkflowDebugSnapshot();
+      setBackendStoreType(workflowDebug.storeType ?? "Not captured yet");
+      setLastWorkflowSyncTime(workflowDebug.lastSyncAt ?? "Not captured yet");
+
       const nextContracts = getContractsForClient(connectedAddress);
-      setContracts(nextContracts);
+      const mergedContracts =
+        pinnedDraftContract && !nextContracts.some((contract) => contract.id === pinnedDraftContract.id)
+          ? [pinnedDraftContract, ...nextContracts]
+          : nextContracts;
+      setContracts(mergedContracts);
+      if (pinnedDraftContract && nextContracts.some((contract) => contract.id === pinnedDraftContract.id)) {
+        const backendDraft = nextContracts.find((contract) => contract.id === pinnedDraftContract.id) ?? null;
+        setPinnedDraftContract(backendDraft);
+      }
       const availableApprovedContracts = nextContracts.filter(
         (contract) => contract.status === "approved" && !contract.linkedProjectId
       );
@@ -293,7 +312,7 @@ function ConfiguredClientWorkspacePage() {
       window.removeEventListener("storage", syncWorkflow);
       window.removeEventListener(getWorkflowRefreshEventName(), syncWorkflow);
     };
-  }, [account, connectedAddress]);
+  }, [account, connectedAddress, pinnedDraftContract]);
 
   function saveClientProfile() {
     const profileStorageKey = getWalletCacheKey(PROFILE_STORAGE_KEY_PREFIX, connectedAddress);
@@ -452,6 +471,9 @@ function ConfiguredClientWorkspacePage() {
       setContractDebugErrorCode(result.errorCode ?? null);
       setContractDebugAiProvider(result.debug?.provider ?? "groq");
       setContractDebugAiModel(result.debug?.model ?? "llama-3.1-8b-instant");
+      setBackendStoreType(
+        result.debug?.storeType || result.storeType || "Not captured yet"
+      );
       setContractDebugAiStatus(response.ok && result.success ? "success" : "failed");
       setContractDebugFallbackUsed("false");
       setContractDebugAiRawError(result.error ?? "No AI error captured");
@@ -465,6 +487,9 @@ function ConfiguredClientWorkspacePage() {
       }
 
       const draft = result.contract;
+      setPinnedDraftContract(draft);
+      setLastCreatedContractId(draft.id);
+      setContracts((current) => [draft, ...current.filter((contract) => contract.id !== draft.id)]);
 
       const generatedContractStorageKey = getContractCacheKey(GENERATED_CONTRACT_STORAGE_KEY_PREFIX, {
         wallet: connectedAddress,
@@ -484,7 +509,13 @@ function ConfiguredClientWorkspacePage() {
       }
 
       await syncWorkflowState(account);
-      setContracts(getContractsForClient(connectedAddress));
+      {
+        const syncedContracts = getContractsForClient(connectedAddress);
+        const mergedContracts = syncedContracts.some((contract) => contract.id === draft.id)
+          ? syncedContracts
+          : [draft, ...syncedContracts];
+        setContracts(mergedContracts);
+      }
       setNotifications(getNotificationsForWallet(connectedAddress));
       setContractStatus("Deal ready. Confirm to continue.");
       openClientView("deal");
@@ -593,6 +624,7 @@ function ConfiguredClientWorkspacePage() {
         throw new Error(`Send deal did not complete. Returned status: ${next.status}.`);
       }
 
+      setPinnedDraftContract((current) => (current?.id === contractId ? next : current));
       setContracts((current) =>
         current.map((contract) => (contract.id === contractId ? next : contract))
       );
@@ -979,6 +1011,7 @@ function ConfiguredClientWorkspacePage() {
                             <DetailCard label="request payload" value={contractDebugPayload || "No payload captured yet"} />
                             <DetailCard label="amount input" value={amountInput || "No amount entered"} />
                             <DetailCard label="amountWei" value={parsedWorkflowAmount || "Amount not parsed yet"} />
+                            <DetailCard label="created contract id" value={lastCreatedContractId || "Not captured yet"} />
                             <DetailCard label="workflow stage" value={contractDebugStage || "Not captured yet"} />
                             <DetailCard label="API errorCode" value={contractDebugErrorCode || "No API error code captured"} />
                             <DetailCard label="AI provider" value={contractDebugAiProvider || "Not captured yet"} />
@@ -999,6 +1032,8 @@ function ConfiguredClientWorkspacePage() {
                               label="send deal response"
                               value={sendDealDebugResponse || "No send deal response captured yet"}
                             />
+                            <DetailCard label="backend store type" value={backendStoreType} />
+                            <DetailCard label="last sync time" value={lastWorkflowSyncTime} />
                             <DetailCard
                               label="send deal raw error"
                               value={sendDealDebugRawError || "No send deal error captured"}

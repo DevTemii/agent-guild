@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listWorkflowInboxForWallet } from "@/lib/server/workflowBackend";
+import { getWorkflowStoreType, listWorkflowInboxForWallet } from "@/lib/server/workflowBackend";
 import { normalizeWallet } from "@/lib/workflowTypes";
 
 export async function GET(
@@ -32,6 +32,7 @@ export async function GET(
       wallet: normalizedWallet,
       contracts: inbox.contracts,
       notifications: inbox.notifications,
+      storeType: getWorkflowStoreType(),
     });
   } catch (error) {
     return NextResponse.json(

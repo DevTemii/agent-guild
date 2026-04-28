@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listWorkflowStateForWallet } from "@/lib/server/workflowBackend";
+import { getWorkflowStoreType, listWorkflowStateForWallet } from "@/lib/server/workflowBackend";
 import { resolveWorkflowRequestWallet } from "@/lib/server/workflowAuth";
 
 export async function GET(request: Request) {
@@ -10,7 +10,7 @@ export async function GET(request: Request) {
 
   try {
     const state = await listWorkflowStateForWallet(wallet);
-    return NextResponse.json(state);
+    return NextResponse.json({ ...state, storeType: getWorkflowStoreType() });
   } catch (error) {
     console.error("Failed to load workflow state", error);
     return NextResponse.json({ error: "Failed to load workflow state." }, { status: 500 });

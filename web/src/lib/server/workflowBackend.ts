@@ -14,10 +14,11 @@ import {
   nowIso,
 } from "@/lib/workflowTypes";
 import {
-  readWorkflowMemoryDatabase,
-  writeWorkflowMemoryDatabase,
-  type WorkflowDatabase,
-} from "@/lib/server/workflowMemoryStore";
+  readWorkflowDatabaseFromStore,
+  writeWorkflowDatabaseToStore,
+  getWorkflowStoreType,
+} from "@/lib/server/workflowDbStore";
+import type { WorkflowDatabase } from "@/lib/server/workflowMemoryStore";
 
 type WorkflowDraftInput = Omit<
   ProductContract,
@@ -29,28 +30,31 @@ const MAX_NOTIFICATIONS_PER_WALLET = 12;
 let writeQueue = Promise.resolve();
 
 async function readWorkflowDatabase(): Promise<WorkflowDatabase> {
+  const { database } = await readWorkflowDatabaseFromStore();
   return {
-    contracts: readWorkflowMemoryDatabase().contracts.map(normalizeContract),
-    notifications: readWorkflowMemoryDatabase().notifications
+    contracts: database.contracts.map(normalizeContract),
+    notifications: database.notifications
       .map((entry) => normalizeNotification(entry))
       .filter((entry): entry is WorkflowNotification => entry !== null),
-    submissions: readWorkflowMemoryDatabase().submissions
+    submissions: database.submissions
       .map((entry) => normalizeProjectSubmission(entry))
       .filter((entry): entry is ProjectSubmission => entry !== null),
-    projects: readWorkflowMemoryDatabase().projects
+    projects: database.projects
       .map((entry) => normalizeWorkflowProjectIndexEntry(entry))
       .filter((entry): entry is WorkflowProjectIndexEntry => entry !== null),
   };
 }
 
 async function writeWorkflowDatabase(database: WorkflowDatabase) {
-  writeWorkflowMemoryDatabase({
+  await writeWorkflowDatabaseToStore({
     contracts: database.contracts.map(normalizeContract),
     notifications: database.notifications,
     submissions: database.submissions,
     projects: database.projects,
   });
 }
+
+export { getWorkflowStoreType };
 
 async function mutateWorkflowDatabase<T>(
   mutate: (database: WorkflowDatabase) => T | Promise<T>

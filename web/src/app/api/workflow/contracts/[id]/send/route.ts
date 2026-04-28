@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sendWorkflowContract } from "@/lib/server/workflowBackend";
+import { getWorkflowStoreType, sendWorkflowContract } from "@/lib/server/workflowBackend";
 import { resolveWorkflowRequestWallet } from "@/lib/server/workflowAuth";
 import { normalizeWallet } from "@/lib/workflowTypes";
 
@@ -93,6 +93,7 @@ export async function POST(
       contractId,
       status: contract.status,
       contract,
+      storeType: getWorkflowStoreType(),
     });
   } catch (error) {
     return NextResponse.json(
