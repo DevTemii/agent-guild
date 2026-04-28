@@ -73,7 +73,7 @@ let schemaInitPromise: Promise<void> | null = null;
 let storeInitLogged = false;
 const WORKFLOW_HEALTH_TIMEOUT_MS = 3000;
 const WORKFLOW_SCHEMA_TIMEOUT_MS = 5000;
-const WORKFLOW_DB_WRITE_TIMEOUT_MS = 5000;
+const WORKFLOW_DB_WRITE_TIMEOUT_MS = 12_000;
 
 function getDatabaseUrl() {
   return process.env.DATABASE_URL?.trim() || process.env.POSTGRES_URL?.trim() || "";
@@ -468,10 +468,10 @@ export async function writeWorkflowDatabaseToStore(database: WorkflowDatabase) {
       }
     }),
     WORKFLOW_DB_WRITE_TIMEOUT_MS,
-    createTimeoutError(
-      "WORKFLOW_DB_WRITE_TIMEOUT",
-      "Workflow database write timed out after 5 seconds."
-    )
+      createTimeoutError(
+        "WORKFLOW_DB_WRITE_TIMEOUT",
+        "Workflow database write timed out after 12 seconds."
+      )
   );
 
   return "postgres" as const;

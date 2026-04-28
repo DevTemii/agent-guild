@@ -38,6 +38,7 @@ import { agentGuildChain, agentGuildChainId } from "@/lib/networkConfig";
 import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import { useAgentWalletSession } from "@/lib/walletSession";
 import {
+  createDraftContract,
   getContractsForClient,
   getWorkflowDebugSnapshot,
   getProductContractById,
@@ -45,7 +46,6 @@ import {
   getStoredWorkflowSessionState,
   getWorkflowRefreshEventName,
   initializeWorkflowSession,
-  linkProductContractToProject,
   normalizeWallet,
   ProductContract,
   sendProductContract,
@@ -84,6 +84,7 @@ type GenerateContractApiResponse = {
   errorCode?: string;
   error?: string | null;
   contract?: ProductContract | null;
+  draft?: Omit<ProductContract, "id" | "status" | "createdAt" | "updatedAt"> | null;
   debug?: {
     provider?: string | null;
     model?: string | null;
@@ -93,6 +94,7 @@ type GenerateContractApiResponse = {
 };
 
 const CREATE_DEAL_RECEIPT_TIMEOUT_MS = 45_000;
+const CREATE_DEAL_DB_RETRY_TIMEOUT_MS = 12_000;
 const projectCreatedEvent = prepareEvent({
   signature: FREELANCE_ESCROW_PROJECT_CREATED_EVENT,
 });
@@ -530,6 +532,7 @@ function ConfiguredClientWorkspacePage() {
         freelancerName,
         projectBrief: projectBrief.trim(),
         displayBudgetAmountUsd: displayBudgetAmountUsd.trim(),
+        persist: false,
       };
       setContractDebugStage("payload_built");
 
@@ -577,7 +580,7 @@ function ConfiguredClientWorkspacePage() {
       setContractDebugFallbackUsed("false");
       setContractDebugAiRawError(result.error ?? "No AI error captured");
 
-      if (!response.ok || !result.success || !result.contract) {
+      if (!response.ok || !result.success || !result.draft) {
         throw new Error(
           result.errorCode
             ? `${result.errorCode}: ${result.error ?? "Contract generation failed."}`
@@ -585,7 +588,7 @@ function ConfiguredClientWorkspacePage() {
         );
       }
 
-      const draft = result.contract;
+      const generatedDraft = result.draft;
       setContractStatus("Confirm in wallet");
       setContractDebugStage("confirm_in_wallet");
 
@@ -595,6 +598,10 @@ function ConfiguredClientWorkspacePage() {
         params: [freelancerWallet as `0x${string}`],
       });
 
+      console.log("Agent Guild create contract stage", {
+        stage: "onchain_tx_started",
+        freelancerWallet,
+      });
       const transactionResult = await withTimeout(
         sendTransaction({
           transaction: createProjectTx,
@@ -630,17 +637,86 @@ function ConfiguredClientWorkspacePage() {
       }
 
       setContractDebugProjectId(String(createdProjectId));
-      const linkedContract =
-        (await linkProductContractToProject(
-          draft.id,
-          createdProjectId,
-          transactionHash,
-          account
-        )) ?? {
-          ...draft,
-          linkedProjectId: createdProjectId,
-          createTxHash: transactionHash,
-        };
+      console.log("Agent Guild create contract stage", {
+        stage: "onchain_tx_success",
+        txHash: transactionHash,
+        projectId: createdProjectId,
+      });
+
+      let linkedContract: ProductContract | null = null;
+      const persistableDraft = {
+        ...generatedDraft,
+        linkedProjectId: createdProjectId,
+        createTxHash: transactionHash,
+      };
+
+      try {
+        console.log("Agent Guild create contract stage", {
+          stage: "db_write_started",
+          txHash: transactionHash,
+          projectId: createdProjectId,
+        });
+        linkedContract = await createDraftContract(persistableDraft, account, {
+          timeoutMs: CREATE_DEAL_DB_RETRY_TIMEOUT_MS,
+        });
+        console.log("Agent Guild create contract stage", {
+          stage: "db_write_finished",
+          txHash: transactionHash,
+          projectId: createdProjectId,
+        });
+      } catch (error) {
+        console.error("Agent Guild create contract persistence failed", error);
+        setContractDebugStage("db_write_timeout");
+        setContractDebugRawError(
+          error instanceof Error ? error.message : "Workflow draft persistence failed."
+        );
+        setContractStatus("Deal created onchain, syncing details...");
+
+        try {
+          console.log("Agent Guild create contract stage", {
+            stage: "db_retry_started",
+            txHash: transactionHash,
+            projectId: createdProjectId,
+          });
+          linkedContract = await createDraftContract(persistableDraft, account, {
+            timeoutMs: CREATE_DEAL_DB_RETRY_TIMEOUT_MS,
+          });
+          console.log("Agent Guild create contract stage", {
+            stage: "db_write_finished",
+            txHash: transactionHash,
+            projectId: createdProjectId,
+          });
+        } catch (retryError) {
+          console.error("Agent Guild create contract persistence retry failed", retryError);
+          console.log("Agent Guild create contract stage", {
+            stage: "db_retry_failed",
+            txHash: transactionHash,
+            projectId: createdProjectId,
+          });
+          setContractDebugStage("db_retry_failed");
+          setContractDebugRawError(
+            retryError instanceof Error
+              ? retryError.message
+              : "Workflow draft retry failed."
+          );
+        }
+      }
+
+      if (!linkedContract) {
+        setLastCreatedContractId(null);
+        setContractDebugApiResponse(
+          JSON.stringify(
+            {
+              txHash: transactionHash,
+              projectId: createdProjectId,
+              draftPersisted: false,
+            },
+            null,
+            2
+          )
+        );
+        return;
+      }
 
       const generatedContractStorageKey = getContractCacheKey(GENERATED_CONTRACT_STORAGE_KEY_PREFIX, {
         wallet: connectedAddress,

@@ -648,6 +648,7 @@ async function postWorkflowMutation<T>(
   input: {
     path: string;
     body?: unknown;
+    timeoutMs?: number;
   }
 ) {
   const wallet = await resolveWorkflowWalletAddress(account);
@@ -655,19 +656,40 @@ async function postWorkflowMutation<T>(
     throw new Error("Reconnect Wallet");
   }
 
-  const response = await fetch(input.path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body:
-      input.body === undefined
-        ? JSON.stringify({ wallet })
-        : JSON.stringify({
-            ...(input.body as Record<string, unknown>),
-            wallet,
-          }),
-  });
+  const controller =
+    typeof AbortController !== "undefined" && input.timeoutMs ? new AbortController() : null;
+  const timeout =
+    controller && input.timeoutMs
+      ? setTimeout(() => controller.abort(), input.timeoutMs)
+      : null;
+
+  let response: Response;
+
+  try {
+    response = await fetch(input.path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body:
+        input.body === undefined
+          ? JSON.stringify({ wallet })
+          : JSON.stringify({
+              ...(input.body as Record<string, unknown>),
+              wallet,
+            }),
+      signal: controller?.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Workflow request timed out after ${input.timeoutMs}ms.`);
+    }
+    throw error;
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 
   if (!response.ok) {
     throw new Error(await parseErrorMessage(response, "Workflow request failed."));
@@ -827,11 +849,15 @@ export function getProductContractByLinkedProjectId(projectId?: number | null) {
 
 export async function createDraftContract(
   input: Omit<ProductContract, "id" | "status" | "createdAt" | "updatedAt">,
-  account: Account | null | undefined
+  account: Account | null | undefined,
+  options?: {
+    timeoutMs?: number;
+  }
 ) {
   return postWorkflowMutation<ProductContract>(account, {
     path: "/api/workflow/contracts",
     body: input,
+    timeoutMs: options?.timeoutMs,
   });
 }
 

@@ -13,10 +13,11 @@ import {
 import { createWorkflowDraft, getWorkflowStoreType } from "@/lib/server/workflowBackend";
 import { isWorkflowDatabaseConfigured } from "@/lib/server/workflowDbStore";
 import { normalizeChainId } from "@/lib/chainId";
+import { type ProductContract } from "@/lib/workflowTypes";
 import { normalizeWallet } from "@/lib/workflowTypes";
 
 export const runtime = "nodejs";
-const CREATE_DEAL_DB_TIMEOUT_MS = 5000;
+const CREATE_DEAL_DB_TIMEOUT_MS = 12_000;
 
 type CreateContractPayload = {
   title?: string;
@@ -30,7 +31,13 @@ type CreateContractPayload = {
   projectBrief?: string;
   displayBudgetAmountUsd?: string;
   chainId?: number | string;
+  persist?: boolean;
 };
+
+type WorkflowDraftPayload = Omit<
+  ProductContract,
+  "id" | "status" | "createdAt" | "updatedAt"
+>;
 
 function createErrorResponse(
   stage: string,
@@ -74,6 +81,7 @@ export async function POST(request: Request) {
 
   const provider = "groq";
   const model = getGroqModel();
+  let draftPayload: WorkflowDraftPayload | null = null;
 
   try {
     console.log("workflow contract create route entered", { stage });
@@ -105,6 +113,7 @@ export async function POST(request: Request) {
       typeof body.displayBudgetAmountUsd === "string"
         ? body.displayBudgetAmountUsd.trim()
         : "";
+    const shouldPersist = body.persist === true;
     const chainId = normalizeChainId(body.chainId);
 
     stage = "payload_validated";
@@ -202,27 +211,44 @@ export async function POST(request: Request) {
     stage = "groq_finished";
     console.log("workflow contract create stage", { stage, provider, model });
     const summary = `Client agrees to pay Freelancer ${generatedContract.amount} CELO after successful delivery of ${generatedContract.deliverable}.`;
+    draftPayload = {
+      amount: generatedContract.amount,
+      amountWei: generatedContract.amountWei,
+      createTxHash: null,
+      clientWallet,
+      clientName,
+      freelancerWallet,
+      freelancerName,
+      projectBrief,
+      displayBudget: buildDisplayBudgetFromInput(displayBudgetAmountUsd),
+      settlementAmountCelo: generatedContract.amount,
+      summary,
+      milestones: buildMilestones(generatedContract.amountWei, generatedContract.milestones),
+      linkedProjectId: null,
+    };
+
+    if (!shouldPersist) {
+      stage = "response_sent";
+      return NextResponse.json({
+        success: true,
+        stage,
+        draft: draftPayload,
+        debug: {
+          provider,
+          model,
+          storeType: getWorkflowStoreType(),
+        },
+        storeType: getWorkflowStoreType(),
+      });
+    }
+
     stage = "db_write_started";
     console.log("workflow contract create stage", { stage, provider, model });
     const contract = await Promise.race([
-      createWorkflowDraft(clientWallet, {
-        amount: generatedContract.amount,
-        amountWei: generatedContract.amountWei,
-        createTxHash: null,
-        clientWallet,
-        clientName,
-        freelancerWallet,
-        freelancerName,
-        projectBrief,
-        displayBudget: buildDisplayBudgetFromInput(displayBudgetAmountUsd),
-        settlementAmountCelo: generatedContract.amount,
-        summary,
-        milestones: buildMilestones(generatedContract.amountWei, generatedContract.milestones),
-        linkedProjectId: null,
-      }),
+      createWorkflowDraft(clientWallet, draftPayload),
       new Promise<never>((_, reject) => {
         setTimeout(() => {
-          reject(new Error("Workflow database write timed out after 5 seconds."));
+          reject(new Error("Workflow database write timed out after 12 seconds."));
         }, CREATE_DEAL_DB_TIMEOUT_MS);
       }),
     ]);
@@ -293,6 +319,7 @@ export async function POST(request: Request) {
         errorCode,
         provider,
         model,
+        draft: draftPayload,
       }
     );
   }
