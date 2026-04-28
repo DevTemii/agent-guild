@@ -6,11 +6,17 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     const health = await getWorkflowStoreHealth();
-    return NextResponse.json(health);
+    return NextResponse.json({
+      success: true,
+      storeType: health.storeType,
+      databaseConfigured: health.databaseConfigured,
+      tablesReady: health.tablesReady,
+    });
   } catch (error) {
     console.error("Agent Guild workflow health route failed", error);
     return NextResponse.json(
       {
+        success: false,
         storeType: "memory",
         databaseConfigured: false,
         tablesReady: false,
