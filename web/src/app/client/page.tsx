@@ -703,18 +703,33 @@ function ConfiguredClientWorkspacePage() {
       }
 
       if (!linkedContract) {
-        setLastCreatedContractId(null);
+        const localPendingContract: ProductContract = {
+          id: `pending-onchain-${createdProjectId}`,
+          status: "draft",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          ...persistableDraft,
+        };
+
+        setPinnedDraftContract(localPendingContract);
+        setLastCreatedContractId(localPendingContract.id);
+        setContracts((current) => [
+          localPendingContract,
+          ...current.filter((contract) => contract.id !== localPendingContract.id),
+        ]);
         setContractDebugApiResponse(
           JSON.stringify(
             {
               txHash: transactionHash,
               projectId: createdProjectId,
               draftPersisted: false,
+              localContractId: localPendingContract.id,
             },
             null,
             2
           )
         );
+        setContractStatus(`Deal created onchain, syncing details... Project #${createdProjectId}`);
         return;
       }
 
