@@ -142,6 +142,7 @@ function ConfiguredFreelancerWorkspacePage() {
   const walletSession = useAgentWalletSession();
   const account = walletSession.thirdwebAccount;
   const connectedAddress = walletSession.address;
+  const normalizedConnectedAddress = normalizeWallet(connectedAddress);
   const activeChainId = walletSession.externalChainId;
   const providerChainId = walletSession.providerChainId;
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
@@ -270,7 +271,7 @@ function ConfiguredFreelancerWorkspacePage() {
 
   useEffect(() => {
     const syncWorkflow = async () => {
-      if (!connectedAddress) {
+      if (!normalizedConnectedAddress) {
         setNotifications([]);
         setContracts([]);
         return;
@@ -279,11 +280,11 @@ function ConfiguredFreelancerWorkspacePage() {
       const workflowDebug = getWorkflowDebugSnapshot();
       setBackendStoreType(workflowDebug.storeType ?? "Not captured yet");
       setLastWorkflowSyncTime(workflowDebug.lastSyncAt ?? "Not captured yet");
-      const nextContracts = getContractsForFreelancer(connectedAddress);
-      const nextNotifications = getNotificationsForWallet(connectedAddress);
+      const nextContracts = getContractsForFreelancer(normalizedConnectedAddress);
+      const nextNotifications = getNotificationsForWallet(normalizedConnectedAddress);
 
       console.log("Agent Guild freelancer inbox sync", {
-        wallet: connectedAddress,
+        wallet: normalizedConnectedAddress,
         pendingCount: nextContracts.filter((entry) => entry.status === "sent").length,
         contractIds: nextContracts.map((entry) => entry.id),
       });
@@ -299,7 +300,7 @@ function ConfiguredFreelancerWorkspacePage() {
       window.removeEventListener("storage", syncWorkflow);
       window.removeEventListener(getWorkflowRefreshEventName(), syncWorkflow);
     };
-  }, [account, connectedAddress]);
+  }, [account, normalizedConnectedAddress]);
 
   const allAgents = (data as Agent[] | undefined) || [];
   const uniqueAgents = allAgents.filter((agent, index, arr) => {
@@ -347,16 +348,16 @@ function ConfiguredFreelancerWorkspacePage() {
     const next = await updateProductContractStatus(contractId, "approved", account);
     if (!next) return;
     await syncFreelancerInbox(account);
-    if (connectedAddress) setContracts(getContractsForFreelancer(connectedAddress));
-    if (connectedAddress) setNotifications(getNotificationsForWallet(connectedAddress));
+    if (normalizedConnectedAddress) setContracts(getContractsForFreelancer(normalizedConnectedAddress));
+    if (normalizedConnectedAddress) setNotifications(getNotificationsForWallet(normalizedConnectedAddress));
   }
 
   async function rejectContract(contractId: string) {
     const next = await updateProductContractStatus(contractId, "rejected", account);
     if (!next) return;
     await syncFreelancerInbox(account);
-    if (connectedAddress) setContracts(getContractsForFreelancer(connectedAddress));
-    if (connectedAddress) setNotifications(getNotificationsForWallet(connectedAddress));
+    if (normalizedConnectedAddress) setContracts(getContractsForFreelancer(normalizedConnectedAddress));
+    if (normalizedConnectedAddress) setNotifications(getNotificationsForWallet(normalizedConnectedAddress));
   }
 
   async function createAgent() {

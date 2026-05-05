@@ -24,7 +24,13 @@ export async function GET(
     }
 
     stage = "wallet_normalized";
+    console.log("inbox_query_wallet", { wallet: normalizedWallet });
     const inbox = await listWorkflowInboxForWallet(normalizedWallet);
+    console.log("inbox_results_count", {
+      wallet: normalizedWallet,
+      contracts: inbox.contracts.length,
+      notifications: inbox.notifications.length,
+    });
 
     return NextResponse.json({
       success: true,

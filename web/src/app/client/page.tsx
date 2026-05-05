@@ -33,7 +33,7 @@ import {
   FREELANCE_ESCROW_ADDRESS,
   FREELANCE_ESCROW_PROJECT_CREATED_EVENT,
 } from "@/lib/contract";
-import { getContractCacheKey, getWalletCacheKey } from "@/lib/cacheKeys";
+import { getWalletCacheKey } from "@/lib/cacheKeys";
 import {
   agentGuildChain,
   agentGuildChainId,
@@ -42,7 +42,6 @@ import {
 import { agentGuildRuntimeConfig } from "@/lib/runtimeConfig";
 import { useAgentWalletSession } from "@/lib/walletSession";
 import {
-  createDraftContract,
   getContractsForClient,
   getWorkflowDebugSnapshot,
   getProductContractById,
@@ -53,9 +52,9 @@ import {
   normalizeWallet,
   ProductContract,
   sendProductContract,
+  syncOnchainDeal,
   syncWorkflowState,
 } from "@/lib/workflowStore";
-import { normalizeContract } from "@/lib/workflowTypes";
 import {
   formatDisplayBudget,
   formatSettlementAmountCelo,
@@ -144,8 +143,6 @@ function resolveCreatedProjectIdFromReceipt({
 }
 
 const PROFILE_STORAGE_KEY_PREFIX = "agent-guild-client-profile";
-const GENERATED_CONTRACT_STORAGE_KEY_PREFIX = "agent-guild-generated-contract";
-const PENDING_ONCHAIN_DEAL_STORAGE_KEY_PREFIX = "agent-guild-pending-onchain-deal";
 
 export default function ClientWorkspacePage() {
   if (!agentGuildRuntimeConfig.valid || !client) {
@@ -348,46 +345,6 @@ function ConfiguredClientWorkspacePage() {
 
   useEffect(() => {
     if (!connectedAddress) {
-      return;
-    }
-
-    const pendingStorageKey = getWalletCacheKey(
-      PENDING_ONCHAIN_DEAL_STORAGE_KEY_PREFIX,
-      connectedAddress
-    );
-    if (!pendingStorageKey) {
-      return;
-    }
-
-    const rawPendingDeal = localStorage.getItem(pendingStorageKey);
-    if (!rawPendingDeal) {
-      return;
-    }
-
-    try {
-      const pendingContract = normalizeContract(
-        JSON.parse(rawPendingDeal) as ProductContract
-      );
-      if (!pendingContract.linkedProjectId || !pendingContract.createTxHash) {
-        localStorage.removeItem(pendingStorageKey);
-        return;
-      }
-
-      setPinnedDraftContract(pendingContract);
-      setLastCreatedContractId(pendingContract.id);
-      setContractDebugTxHash(pendingContract.createTxHash);
-      setContractDebugProjectId(String(pendingContract.linkedProjectId));
-      setContractStatus(
-        `Deal created onchain. Syncing details... Project #${pendingContract.linkedProjectId}`
-      );
-    } catch (error) {
-      console.error("Failed to restore pending onchain deal", error);
-      localStorage.removeItem(pendingStorageKey);
-    }
-  }, [connectedAddress]);
-
-  useEffect(() => {
-    if (!connectedAddress) {
       setContracts([]);
       setNotifications([]);
       setSelectedApprovedContractId(null);
@@ -402,11 +359,7 @@ function ConfiguredClientWorkspacePage() {
       setLastWorkflowSyncTime(workflowDebug.lastSyncAt ?? "Not captured yet");
 
       const nextContracts = getContractsForClient(connectedAddress);
-      const mergedContracts =
-        pinnedDraftContract && !nextContracts.some((contract) => contract.id === pinnedDraftContract.id)
-          ? [pinnedDraftContract, ...nextContracts]
-          : nextContracts;
-      setContracts(mergedContracts);
+      setContracts(nextContracts);
       if (pinnedDraftContract && nextContracts.some((contract) => contract.id === pinnedDraftContract.id)) {
         const backendDraft = nextContracts.find((contract) => contract.id === pinnedDraftContract.id) ?? null;
         setPinnedDraftContract(backendDraft);
@@ -433,31 +386,8 @@ function ConfiguredClientWorkspacePage() {
     };
   }, [account, connectedAddress, pinnedDraftContract]);
 
-  const pendingOnchainStorageKey = getWalletCacheKey(
-    PENDING_ONCHAIN_DEAL_STORAGE_KEY_PREFIX,
-    connectedAddress
-  );
-
   function clearPendingOnchainDeal() {
-    if (!pendingOnchainStorageKey) {
-      return;
-    }
-
-    localStorage.removeItem(pendingOnchainStorageKey);
-  }
-
-  function persistPendingOnchainDeal(contract: ProductContract) {
-    if (!pendingOnchainStorageKey) {
-      return;
-    }
-
-    console.log("Agent Guild create contract stage", {
-      stage: "local_recovery_saved",
-      txHash: contract.createTxHash,
-      projectId: contract.linkedProjectId,
-      contractId: contract.id,
-    });
-    localStorage.setItem(pendingOnchainStorageKey, JSON.stringify(contract));
+    setPinnedDraftContract(null);
   }
 
   function saveClientProfile() {
@@ -717,114 +647,58 @@ function ConfiguredClientWorkspacePage() {
         projectId: createdProjectId,
       });
 
-      let linkedContract: ProductContract | null = null;
-      const persistableDraft = {
+      setGeneratingContract(false);
+      setContractStatus("Deal created onchain");
+      setContractDebugStage("sync_started");
+      setSyncingPendingDeal(true);
+
+      const retryableContract: ProductContract = {
         ...generatedDraft,
+        id: `onchain-${createdProjectId}`,
+        status: "sent",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
         linkedProjectId: createdProjectId,
         createTxHash: transactionHash,
       };
-      const localPendingContract: ProductContract = {
-        id: `pending-onchain-${createdProjectId}`,
-        status: "draft",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        ...persistableDraft,
-      };
-      persistPendingOnchainDeal(localPendingContract);
+      setPinnedDraftContract(retryableContract);
+      setContractStatus("Syncing...");
 
+      let linkedContract: ProductContract;
       try {
-        console.log("Agent Guild create contract stage", {
-          stage: "db_write_started",
-          txHash: transactionHash,
-          projectId: createdProjectId,
-        });
-        linkedContract = await createDraftContract(persistableDraft, account, {
-          timeoutMs: CREATE_DEAL_DB_RETRY_TIMEOUT_MS,
-        });
-        console.log("Agent Guild create contract stage", {
-          stage: "db_write_finished",
-          txHash: transactionHash,
-          projectId: createdProjectId,
-        });
-      } catch (error) {
-        console.error("Agent Guild create contract persistence failed", error);
-        setContractDebugStage("db_write_timeout");
-        setContractDebugRawError(
-          error instanceof Error ? error.message : "Workflow draft persistence failed."
+        linkedContract = await syncOnchainDeal(
+          {
+            ...generatedDraft,
+            projectId: createdProjectId,
+            txHash: transactionHash,
+          },
+          account,
+          { timeoutMs: CREATE_DEAL_DB_RETRY_TIMEOUT_MS }
         );
-        setContractStatus("Deal created onchain, syncing details...");
-
-        try {
-          console.log("Agent Guild create contract stage", {
-            stage: "db_retry_started",
-            txHash: transactionHash,
-            projectId: createdProjectId,
-          });
-          linkedContract = await createDraftContract(persistableDraft, account, {
-            timeoutMs: CREATE_DEAL_DB_RETRY_TIMEOUT_MS,
-          });
-          console.log("Agent Guild create contract stage", {
-            stage: "db_write_finished",
-            txHash: transactionHash,
-            projectId: createdProjectId,
-          });
-        } catch (retryError) {
-          console.error("Agent Guild create contract persistence retry failed", retryError);
-          console.log("Agent Guild create contract stage", {
-            stage: "db_retry_failed",
-            txHash: transactionHash,
-            projectId: createdProjectId,
-          });
-          setContractDebugStage("db_retry_failed");
-          setContractDebugRawError(
-            retryError instanceof Error
-              ? retryError.message
-              : "Workflow draft retry failed."
-          );
-        }
-      }
-
-      if (!linkedContract) {
-        setPinnedDraftContract(localPendingContract);
-        setLastCreatedContractId(localPendingContract.id);
-        setContracts((current) => [
-          localPendingContract,
-          ...current.filter((contract) => contract.id !== localPendingContract.id),
-        ]);
+      } catch (syncError) {
+        console.error("Agent Guild create contract sync failed", syncError);
+        setContractDebugStage("sync_failed");
+        setContractDebugRawError(
+          syncError instanceof Error ? syncError.message : "Workflow sync failed."
+        );
         setContractDebugApiResponse(
           JSON.stringify(
             {
               txHash: transactionHash,
               projectId: createdProjectId,
-              draftPersisted: false,
-              localContractId: localPendingContract.id,
+              synced: false,
+              retryContractId: retryableContract.id,
             },
             null,
             2
           )
         );
-        setContractStatus(`Deal created onchain, syncing details... Project #${createdProjectId}`);
+        setContractStatus(`Deal created onchain. Sync failed for Project #${createdProjectId}.`);
         return;
+      } finally {
+        setSyncingPendingDeal(false);
       }
 
-      const generatedContractStorageKey = getContractCacheKey(GENERATED_CONTRACT_STORAGE_KEY_PREFIX, {
-        wallet: connectedAddress,
-        contractId: linkedContract.id,
-      });
-
-      if (generatedContractStorageKey) {
-        localStorage.setItem(
-          generatedContractStorageKey,
-          JSON.stringify({
-            ...result,
-            contract: linkedContract,
-            summary: linkedContract.summary,
-            milestones: linkedContract.milestones,
-            txHash: transactionHash,
-            projectId: createdProjectId,
-          })
-        );
-      }
       clearPendingOnchainDeal();
 
       setPinnedDraftContract(linkedContract);
@@ -836,14 +710,11 @@ function ConfiguredClientWorkspacePage() {
       await syncWorkflowState(account);
       {
         const syncedContracts = getContractsForClient(connectedAddress);
-        const mergedContracts = syncedContracts.some((contract) => contract.id === linkedContract.id)
-          ? syncedContracts
-          : [linkedContract, ...syncedContracts];
-        setContracts(mergedContracts);
+        setContracts(syncedContracts);
       }
       setNotifications(getNotificationsForWallet(connectedAddress));
-      setContractDebugStage("deal_created");
-      setContractStatus(`Deal created onchain. Project #${createdProjectId}`);
+      setContractDebugStage("sync_finished");
+      setContractStatus(`Deal created onchain and synced. Project #${createdProjectId}`);
       openClientView("deal");
     } catch (error) {
       const rawError =
@@ -887,15 +758,15 @@ function ConfiguredClientWorkspacePage() {
     try {
       setSyncingPendingDeal(true);
       console.log("Agent Guild create contract stage", {
-        stage: "db_retry_started",
+        stage: "sync_retry_started",
         txHash: pinnedDraftContract.createTxHash,
         projectId: pinnedDraftContract.linkedProjectId,
       });
-      const persistedContract = await createDraftContract(
+      setContractStatus("Syncing...");
+      const persistedContract = await syncOnchainDeal(
         {
           amount: pinnedDraftContract.amount,
           amountWei: pinnedDraftContract.amountWei,
-          createTxHash: pinnedDraftContract.createTxHash,
           clientWallet: pinnedDraftContract.clientWallet,
           clientName: pinnedDraftContract.clientName,
           freelancerWallet: pinnedDraftContract.freelancerWallet,
@@ -905,7 +776,8 @@ function ConfiguredClientWorkspacePage() {
           settlementAmountCelo: pinnedDraftContract.settlementAmountCelo,
           summary: pinnedDraftContract.summary,
           milestones: pinnedDraftContract.milestones,
-          linkedProjectId: pinnedDraftContract.linkedProjectId,
+          projectId: pinnedDraftContract.linkedProjectId,
+          txHash: pinnedDraftContract.createTxHash,
         },
         account,
         { timeoutMs: CREATE_DEAL_DB_RETRY_TIMEOUT_MS }
@@ -925,16 +797,16 @@ function ConfiguredClientWorkspacePage() {
       await syncWorkflowState(account);
       setContracts(getContractsForClient(connectedAddress));
       setNotifications(getNotificationsForWallet(connectedAddress));
-      setContractDebugStage("db_write_finished");
+      setContractDebugStage("sync_finished");
       setContractStatus(`Deal synced. Project #${persistedContract.linkedProjectId}`);
     } catch (error) {
       console.error("Agent Guild pending deal sync retry failed", error);
       console.log("Agent Guild create contract stage", {
-        stage: "db_retry_failed",
+        stage: "sync_retry_failed",
         txHash: pinnedDraftContract.createTxHash,
         projectId: pinnedDraftContract.linkedProjectId,
       });
-      setContractDebugStage("db_retry_failed");
+      setContractDebugStage("sync_retry_failed");
       setContractDebugRawError(
         error instanceof Error ? error.message : "Workflow draft retry failed."
       );

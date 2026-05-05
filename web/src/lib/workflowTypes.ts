@@ -49,6 +49,8 @@ export type LegacyProductContract = Omit<
 export type WorkflowNotification = {
   id: string;
   wallet: string;
+  contractId: string | null;
+  type: string;
   message: string;
   createdAt: string;
 };
@@ -135,8 +137,10 @@ export function normalizeContract(contract: LegacyProductContract): ProductContr
 }
 
 export function normalizeNotification(
-  notification: Omit<WorkflowNotification, "wallet"> & {
+  notification: Omit<WorkflowNotification, "wallet" | "contractId" | "type"> & {
     wallet?: string | null;
+    contractId?: string | null;
+    type?: string | null;
   }
 ): WorkflowNotification | null {
   const wallet = normalizeWallet(notification.wallet);
@@ -147,6 +151,8 @@ export function normalizeNotification(
   return {
     ...notification,
     wallet,
+    contractId: notification.contractId?.trim() || null,
+    type: notification.type?.trim() || "workflow",
   };
 }
 

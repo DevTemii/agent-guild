@@ -118,6 +118,14 @@ export type CreateWorkflowContractInput = {
   chainId: number;
 };
 
+export type SyncOnchainDealInput = Omit<
+  ProductContract,
+  "id" | "status" | "createdAt" | "updatedAt" | "linkedProjectId" | "createTxHash"
+> & {
+  projectId: number;
+  txHash: string;
+};
+
 function getWalletScopedStorageKey(prefix: string, wallet?: string | null) {
   return getWalletCacheKey(prefix, wallet);
 }
@@ -587,8 +595,8 @@ async function refreshWorkflowSnapshot(account?: Account | null) {
   } catch (error) {
     console.error("Failed to refresh workflow snapshot", error);
     return {
-      contracts: getCachedContractsForWallet(wallet),
-      notifications: getCachedNotificationsForWallet(wallet),
+      contracts: [],
+      notifications: [],
     } satisfies WorkflowSnapshot;
   }
 }
@@ -909,6 +917,35 @@ export async function linkProductContractToProject(
   });
 }
 
+export async function syncOnchainDeal(
+  input: SyncOnchainDealInput,
+  account: Account | null | undefined,
+  options?: {
+    timeoutMs?: number;
+  }
+) {
+  const result = await postWorkflowMutation<ProductContract>(account, {
+    path: `/api/workflow/projects/${input.projectId}/sync`,
+    body: {
+      txHash: input.txHash,
+      clientWallet: input.clientWallet,
+      clientName: input.clientName,
+      freelancerWallet: input.freelancerWallet,
+      freelancerName: input.freelancerName,
+      projectBrief: input.projectBrief,
+      amount: input.amount,
+      amountWei: input.amountWei,
+      displayBudget: input.displayBudget,
+      settlementAmountCelo: input.settlementAmountCelo,
+      summary: input.summary,
+      milestones: input.milestones,
+    },
+    timeoutMs: options?.timeoutMs ?? 5_000,
+  });
+
+  return normalizeContract(result);
+}
+
 export async function sendProductContract(
   id: string,
   account: Account | null | undefined,
@@ -1045,7 +1082,7 @@ async function fetchFreelancerInbox(account?: Account | null) {
     } satisfies WorkflowSnapshot;
   }
 
-  const response = await fetch(`/api/workflow/inbox/${wallet}`, {
+  const response = await fetch(`/api/workflow/inbox/${encodeURIComponent(wallet)}`, {
     cache: "no-store",
   });
 
@@ -1081,8 +1118,8 @@ export async function syncFreelancerInbox(account?: Account | null) {
   } catch (error) {
     console.error("Failed to refresh freelancer inbox", error);
     return {
-      contracts: getCachedContractsForWallet(wallet),
-      notifications: getCachedNotificationsForWallet(wallet),
+      contracts: [],
+      notifications: [],
     } satisfies WorkflowSnapshot;
   }
 }

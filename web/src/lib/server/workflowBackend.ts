@@ -14,7 +14,10 @@ import {
   nowIso,
 } from "@/lib/workflowTypes";
 import {
+  appendWorkflowNotificationToStore,
+  readWorkflowInboxFromStore,
   readWorkflowDatabaseFromStore,
+  upsertSyncedWorkflowDealToStore,
   writeWorkflowDatabaseToStore,
   getWorkflowStoreType,
 } from "@/lib/server/workflowDbStore";
@@ -74,21 +77,33 @@ async function mutateWorkflowDatabase<T>(
   return nextOperation;
 }
 
-function createNotification(wallet: string, message: string): WorkflowNotification {
+function createNotification(input: {
+  wallet: string;
+  message: string;
+  contractId?: string | null;
+  type?: string | null;
+}): WorkflowNotification {
   return {
     id: crypto.randomUUID(),
-    wallet: normalizeWallet(wallet),
-    message,
+    wallet: normalizeWallet(input.wallet),
+    contractId: input.contractId?.trim() || null,
+    type: input.type?.trim() || "workflow",
+    message: input.message,
     createdAt: nowIso(),
   };
 }
 
 function appendNotifications(
   database: WorkflowDatabase,
-  entries: Array<{ wallet: string; message: string }>
+  entries: Array<{
+    wallet: string;
+    message: string;
+    contractId?: string | null;
+    type?: string | null;
+  }>
 ) {
   const normalizedEntries = entries
-    .map(({ wallet, message }) => createNotification(wallet, message))
+    .map((entry) => createNotification(entry))
     .filter((entry) => entry.wallet);
 
   database.notifications = [...normalizedEntries, ...database.notifications];
@@ -222,28 +237,11 @@ export async function listWorkflowProjectsForWallet(wallet: string) {
 
 export async function listWorkflowInboxForWallet(wallet: string) {
   const normalizedWallet = normalizeWallet(wallet);
-  const database = await readWorkflowDatabase();
-  repairProjectIndex(database);
-
-  const inboxStatuses: ContractStatus[] = [
-    "sent",
-    "approved",
-    "funded",
-    "submitted",
-    "completed",
-  ];
+  const inbox = await readWorkflowInboxFromStore(normalizedWallet);
 
   return {
-    contracts: database.contracts
-      .filter(
-        (contract) =>
-          contract.freelancerWallet === normalizedWallet &&
-          inboxStatuses.includes(contract.status)
-      )
-      .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)),
-    notifications: database.notifications
-      .filter((notification) => notification.wallet === normalizedWallet)
-      .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
+    contracts: inbox.contracts,
+    notifications: inbox.notifications,
   };
 }
 
@@ -252,24 +250,114 @@ export async function createWorkflowDraft(wallet: string, input: WorkflowDraftIn
 
   return mutateWorkflowDatabase((database) => {
     requireWalletMatch(normalizedWallet, input.clientWallet, "Only the client wallet can create this draft.");
+    const shouldSendImmediately = Boolean(input.createTxHash?.trim() && normalizeLinkedProjectId(input.linkedProjectId));
 
     const contract = normalizeContract({
       ...input,
       id: crypto.randomUUID(),
-      status: "draft",
+      status: shouldSendImmediately ? "sent" : "draft",
       createdAt: nowIso(),
       updatedAt: nowIso(),
     });
 
     database.contracts = [contract, ...database.contracts];
-    appendNotifications(database, [
-      {
-        wallet: contract.clientWallet,
-        message: `Contract draft created for ${contract.freelancerName}.`,
-      },
-    ]);
+    if (shouldSendImmediately) {
+      const linkedProjectId = normalizeLinkedProjectId(contract.linkedProjectId);
+      if (linkedProjectId) {
+        upsertProjectIndexEntry(database, {
+          projectId: linkedProjectId,
+          contractId: contract.id,
+          clientWallet: contract.clientWallet,
+          freelancerWallet: contract.freelancerWallet,
+        });
+      }
+
+      appendNotifications(database, [
+        {
+          wallet: contract.clientWallet,
+          contractId: contract.id,
+          type: "deal_sent",
+          message: `Deal sent to ${contract.freelancerName} for approval.`,
+        },
+        {
+          wallet: contract.freelancerWallet,
+          contractId: contract.id,
+          type: "deal_sent",
+          message: `New contract received from ${contract.clientName}. Review and approve before escrow begins.`,
+        },
+      ]);
+    } else {
+      appendNotifications(database, [
+        {
+          wallet: contract.clientWallet,
+          contractId: contract.id,
+          type: "workflow",
+          message: `Contract draft created for ${contract.freelancerName}.`,
+        },
+      ]);
+    }
 
     return contract;
+  });
+}
+
+export async function createWorkflowTestNotification(input: {
+  wallet: string;
+  contractId?: string | null;
+  message?: string | null;
+}) {
+  const normalizedWallet = normalizeWallet(input.wallet);
+  if (!normalizedWallet) {
+    throw new Error("Wallet is required.");
+  }
+
+  return appendWorkflowNotificationToStore({
+    wallet: normalizedWallet,
+    contractId: input.contractId,
+    type: "deal_sent",
+    message:
+      input.message?.trim() ||
+      "Test deal notification. If you can see this, inbox delivery is connected.",
+  });
+}
+
+export async function syncWorkflowProjectDeal(input: {
+  projectId: number;
+  txHash: string;
+  clientWallet: string;
+  clientName: string;
+  freelancerWallet: string;
+  freelancerName: string;
+  projectBrief: string;
+  amount: string;
+  amountWei: string;
+  displayBudget: ProductContract["displayBudget"];
+  settlementAmountCelo: string | null;
+  summary: string;
+  milestones: ProductContract["milestones"];
+}) {
+  const normalizedProjectId = normalizeLinkedProjectId(input.projectId);
+  if (!normalizedProjectId) {
+    throw new Error("Project ID must be a valid non-zero integer.");
+  }
+
+  const txHash = input.txHash.trim();
+  if (!txHash) {
+    throw new Error("Transaction hash is required.");
+  }
+
+  const clientWallet = normalizeWallet(input.clientWallet);
+  const freelancerWallet = normalizeWallet(input.freelancerWallet);
+  if (!clientWallet || !freelancerWallet) {
+    throw new Error("Client and freelancer wallets are required.");
+  }
+
+  return upsertSyncedWorkflowDealToStore({
+    ...input,
+    projectId: normalizedProjectId,
+    txHash,
+    clientWallet,
+    freelancerWallet,
   });
 }
 
@@ -299,10 +387,14 @@ export async function sendWorkflowContract(
     appendNotifications(database, [
       {
         wallet: contract.clientWallet,
+        contractId: contract.id,
+        type: "deal_sent",
         message: `Contract sent to ${contract.freelancerName} for approval.`,
       },
       {
         wallet: contract.freelancerWallet,
+        contractId: contract.id,
+        type: "deal_sent",
         message: `New contract received from ${contract.clientName}. Review and approve before escrow begins.`,
       },
     ]);
@@ -330,6 +422,7 @@ export async function respondToWorkflowContract(
     appendNotifications(database, [
       {
         wallet: contract.freelancerWallet,
+        contractId: contract.id,
         message:
           status === "approved"
             ? `You approved ${contract.clientName}'s contract and unlocked escrow setup.`
@@ -337,6 +430,7 @@ export async function respondToWorkflowContract(
       },
       {
         wallet: contract.clientWallet,
+        contractId: contract.id,
         message:
           status === "approved"
             ? `${contract.freelancerName} approved your contract. Escrow can now be created.`
@@ -418,10 +512,12 @@ export async function linkWorkflowContractToProject(
     appendNotifications(database, [
       {
         wallet: contract.clientWallet,
+        contractId: contract.id,
         message: `Deal created onchain for Project #${normalizedProjectId}.`,
       },
       {
         wallet: contract.freelancerWallet,
+        contractId: contract.id,
         message: `${contract.clientName} created an onchain deal for Project #${normalizedProjectId}.`,
       },
     ]);
@@ -474,6 +570,8 @@ export async function importLegacyWorkflowForWallet(
         database,
         notifications.map((notification) => ({
           wallet: notification.wallet,
+          contractId: notification.contractId,
+          type: notification.type,
           message: notification.message,
         }))
       );
@@ -578,10 +676,12 @@ export async function upsertWorkflowSubmission(input: {
     appendNotifications(database, [
       {
         wallet: clientWallet,
+        contractId: linkedContract.id,
         message: `Delivery submitted for Project #${projectId}. Review the work and release when ready.`,
       },
       {
         wallet: freelancerWallet,
+        contractId: linkedContract.id,
         message: `Delivery synced for Project #${projectId}. The client can now review your submission.`,
       },
     ]);

@@ -1,4 +1,4 @@
-import postgres, { type Sql } from "postgres";
+import postgres, { type Sql, type TransactionSql } from "postgres";
 import type {
   ProductContract,
   ProjectSubmission,
@@ -10,6 +10,8 @@ import {
   normalizeNotification,
   normalizeProjectSubmission,
   normalizeWorkflowProjectIndexEntry,
+  normalizeWallet,
+  nowIso,
 } from "@/lib/workflowTypes";
 import {
   readWorkflowMemoryDatabase,
@@ -71,9 +73,11 @@ type ProjectRow = {
 let sqlClient: Sql | null = null;
 let schemaInitPromise: Promise<void> | null = null;
 let storeInitLogged = false;
+let queuedNotificationRetries: WorkflowNotification[] = [];
 const WORKFLOW_HEALTH_TIMEOUT_MS = 3000;
 const WORKFLOW_SCHEMA_TIMEOUT_MS = 5000;
-const WORKFLOW_DB_WRITE_TIMEOUT_MS = 12_000;
+const WORKFLOW_DB_WRITE_TIMEOUT_MS = 5_000;
+const WORKFLOW_DB_READ_TIMEOUT_MS = 5_000;
 
 function getDatabaseUrl() {
   return process.env.DATABASE_URL?.trim() || process.env.POSTGRES_URL?.trim() || "";
@@ -231,6 +235,15 @@ async function ensureWorkflowSchema(sql: Sql) {
         tx_hash text null
       )
     `;
+
+    await sql`create index if not exists workflow_contracts_client_wallet_idx on workflow_contracts (client_wallet)`;
+    await sql`create index if not exists workflow_contracts_freelancer_wallet_idx on workflow_contracts (freelancer_wallet)`;
+    await sql`create index if not exists workflow_contracts_linked_project_id_idx on workflow_contracts (linked_project_id)`;
+    await sql`create index if not exists workflow_notifications_wallet_idx on workflow_notifications (wallet)`;
+    await sql`create index if not exists workflow_notifications_contract_id_idx on workflow_notifications (contract_id)`;
+    await sql`create index if not exists workflow_projects_project_id_idx on workflow_projects (project_id)`;
+    await sql`create index if not exists workflow_projects_contract_id_idx on workflow_projects (contract_id)`;
+    await sql`create index if not exists workflow_submissions_project_id_idx on workflow_submissions (project_id)`;
   })();
 
   return withTimeout(
@@ -291,9 +304,129 @@ function rowToNotification(row: NotificationRow) {
   return normalizeNotification({
     id: row.id,
     wallet: row.wallet,
+    contractId: row.contract_id,
+    type: row.type,
     message: row.message,
     createdAt: row.created_at,
   });
+}
+
+async function insertWorkflowNotification(
+  sql: Sql | TransactionSql,
+  notification: WorkflowNotification
+) {
+  console.log("notification_insert_started", {
+    wallet: notification.wallet,
+    contract_id: notification.contractId,
+    type: notification.type,
+    notificationId: notification.id,
+  });
+
+  try {
+    await withTimeout(
+      sql`
+    insert into workflow_notifications (
+      id, wallet, contract_id, type, message, created_at, read_at
+    ) values (
+      ${notification.id},
+      ${notification.wallet},
+      ${notification.contractId},
+      ${notification.type},
+      ${notification.message},
+      ${notification.createdAt},
+      ${null}
+    )
+    on conflict (id) do update set
+      wallet = excluded.wallet,
+      contract_id = excluded.contract_id,
+      type = excluded.type,
+      message = excluded.message,
+      created_at = excluded.created_at
+      `,
+      WORKFLOW_DB_WRITE_TIMEOUT_MS,
+      createTimeoutError(
+        "WORKFLOW_NOTIFICATION_WRITE_TIMEOUT",
+        "Workflow notification insert timed out after 5 seconds."
+      )
+    );
+  } catch (error) {
+    console.error("notification_insert_error", {
+      wallet: notification.wallet,
+      contract_id: notification.contractId,
+      type: notification.type,
+      notificationId: notification.id,
+      error: error instanceof Error ? error.message : "Failed to insert workflow notification.",
+      stack: error instanceof Error ? error.stack ?? null : null,
+    });
+    throw error;
+  }
+
+  console.log("notification_insert_success", {
+    wallet: notification.wallet,
+    contract_id: notification.contractId,
+    type: notification.type,
+    notificationId: notification.id,
+  });
+}
+
+async function flushQueuedNotificationRetries(sql: Sql) {
+  if (queuedNotificationRetries.length === 0) {
+    return;
+  }
+
+  const retryBatch = queuedNotificationRetries;
+  queuedNotificationRetries = [];
+
+  for (const notification of retryBatch) {
+    try {
+      await insertWorkflowNotification(sql, notification);
+    } catch (error) {
+      queuedNotificationRetries.push(notification);
+      console.error("notification_insert_error", {
+        wallet: notification.wallet,
+        contract_id: notification.contractId,
+        type: notification.type,
+        notificationId: notification.id,
+        queuedForRetry: true,
+        error: error instanceof Error ? error.message : "Failed to retry notification insert.",
+        stack: error instanceof Error ? error.stack ?? null : null,
+      });
+    }
+  }
+}
+
+async function writeWorkflowNotificationsToStore(
+  sql: Sql,
+  notifications: WorkflowNotification[]
+) {
+  await flushQueuedNotificationRetries(sql);
+
+  const existingNotificationRows = await sql<{ id: string }[]>`
+    select id from workflow_notifications
+  `;
+  const existingNotificationIds = new Set(
+    existingNotificationRows.map((row) => row.id)
+  );
+  const pendingNotifications = notifications.filter(
+    (notification) => !existingNotificationIds.has(notification.id)
+  );
+
+  for (const notification of pendingNotifications) {
+    try {
+      await insertWorkflowNotification(sql, notification);
+    } catch (error) {
+      queuedNotificationRetries.push(notification);
+      console.error("notification_insert_error", {
+        wallet: notification.wallet,
+        contract_id: notification.contractId,
+        type: notification.type,
+        notificationId: notification.id,
+        queuedForRetry: true,
+        error: error instanceof Error ? error.message : "Failed to insert workflow notification.",
+        stack: error instanceof Error ? error.stack ?? null : null,
+      });
+    }
+  }
 }
 
 function rowToProject(row: ProjectRow) {
@@ -357,6 +490,199 @@ export async function readWorkflowDatabaseFromStore(): Promise<{
   };
 }
 
+export async function readWorkflowInboxFromStore(wallet: string): Promise<{
+  storeType: WorkflowStoreType;
+  contracts: ProductContract[];
+  notifications: WorkflowNotification[];
+}> {
+  const normalizedWallet = normalizeWallet(wallet);
+  const sql = getSqlClient();
+  if (!sql) {
+    throw new Error("Postgres workflow database is required for inbox reads.");
+  }
+
+  await ensureWorkflowSchema(sql);
+
+  const [contractRows, notificationRows] = await withTimeout(
+    Promise.all([
+    sql<ContractRow[]>`
+      select * from workflow_contracts
+      where freelancer_wallet = ${normalizedWallet}
+      and status in ('sent', 'approved', 'funded', 'submitted', 'completed')
+      order by updated_at desc
+    `,
+    sql<NotificationRow[]>`
+      select * from workflow_notifications
+      where wallet = ${normalizedWallet}
+      order by created_at desc
+    `,
+    ]),
+    WORKFLOW_DB_READ_TIMEOUT_MS,
+    createTimeoutError("WORKFLOW_INBOX_READ_TIMEOUT", "Workflow inbox read timed out after 5 seconds.")
+  );
+
+  return {
+    storeType: "postgres",
+    contracts: contractRows
+      .map(rowToContract)
+      .filter((entry): entry is ProductContract => entry !== null),
+    notifications: notificationRows
+      .map(rowToNotification)
+      .filter((entry): entry is WorkflowNotification => entry !== null),
+  };
+}
+
+export async function upsertSyncedWorkflowDealToStore(input: {
+  projectId: number;
+  txHash: string;
+  clientWallet: string;
+  clientName: string;
+  freelancerWallet: string;
+  freelancerName: string;
+  projectBrief: string;
+  amount: string;
+  amountWei: string;
+  displayBudget: ProductContract["displayBudget"];
+  settlementAmountCelo: string | null;
+  summary: string;
+  milestones: ProductContract["milestones"];
+}) {
+  const sql = getSqlClient();
+  if (!sql) {
+    throw new Error("Postgres workflow database is required for deal sync.");
+  }
+
+  await ensureWorkflowSchema(sql);
+
+  const timestamp = nowIso();
+  const contract = normalizeContract({
+    id: `onchain-${input.projectId}`,
+    status: "sent",
+    clientWallet: input.clientWallet,
+    clientName: input.clientName,
+    freelancerWallet: input.freelancerWallet,
+    freelancerName: input.freelancerName,
+    projectBrief: input.projectBrief,
+    amount: input.amount,
+    amountWei: input.amountWei,
+    createTxHash: input.txHash,
+    displayBudget: input.displayBudget,
+    settlementAmountCelo: input.settlementAmountCelo,
+    summary: input.summary,
+    milestones: input.milestones,
+    linkedProjectId: input.projectId,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+  const row = contractToRow(contract);
+  const notification = normalizeNotification({
+    id: `deal-sent-${contract.id}-${contract.freelancerWallet}`,
+    wallet: contract.freelancerWallet,
+    contractId: contract.id,
+    type: "deal_sent",
+    message: `${contract.clientName} created an onchain deal for Project #${input.projectId}.`,
+    createdAt: timestamp,
+  });
+
+  if (!notification?.contractId || notification.type !== "deal_sent") {
+    throw new Error("Deal sync notification could not be normalized.");
+  }
+
+  await withTimeout(
+    sql.begin(async (tx) => {
+      await tx`
+        insert into workflow_contracts (
+          id, status, client_wallet, freelancer_wallet, client_name, freelancer_name,
+          project_brief, amount, amount_wei, create_tx_hash, display_budget, settlement_amount_celo,
+          summary, milestones, linked_project_id, created_at, updated_at
+        ) values (
+          ${row.id}, ${row.status}, ${row.client_wallet}, ${row.freelancer_wallet},
+          ${row.client_name}, ${row.freelancer_name}, ${row.project_brief}, ${row.amount},
+          ${row.amount_wei}, ${row.create_tx_hash}, ${tx.json(row.display_budget)}, ${row.settlement_amount_celo},
+          ${row.summary}, ${tx.json(row.milestones)}, ${row.linked_project_id},
+          ${row.created_at}, ${row.updated_at}
+        )
+        on conflict (id) do update set
+          status = excluded.status,
+          client_wallet = excluded.client_wallet,
+          freelancer_wallet = excluded.freelancer_wallet,
+          client_name = excluded.client_name,
+          freelancer_name = excluded.freelancer_name,
+          project_brief = excluded.project_brief,
+          amount = excluded.amount,
+          amount_wei = excluded.amount_wei,
+          create_tx_hash = excluded.create_tx_hash,
+          display_budget = excluded.display_budget,
+          settlement_amount_celo = excluded.settlement_amount_celo,
+          summary = excluded.summary,
+          milestones = excluded.milestones,
+          linked_project_id = excluded.linked_project_id,
+          updated_at = excluded.updated_at
+      `;
+
+      await tx`
+        insert into workflow_projects (
+          project_id, contract_id, client_wallet, freelancer_wallet, created_at, updated_at
+        ) values (
+          ${input.projectId},
+          ${contract.id},
+          ${contract.clientWallet},
+          ${contract.freelancerWallet},
+          ${timestamp},
+          ${timestamp}
+        )
+        on conflict (project_id) do update set
+          contract_id = excluded.contract_id,
+          client_wallet = excluded.client_wallet,
+          freelancer_wallet = excluded.freelancer_wallet,
+          updated_at = excluded.updated_at
+      `;
+
+      await insertWorkflowNotification(tx, notification);
+    }),
+    WORKFLOW_DB_WRITE_TIMEOUT_MS,
+    createTimeoutError("WORKFLOW_DEAL_SYNC_TIMEOUT", "Workflow deal sync timed out after 5 seconds.")
+  );
+
+  return {
+    contract,
+    notification,
+    storeType: "postgres" as const,
+  };
+}
+
+export async function appendWorkflowNotificationToStore(input: {
+  wallet: string;
+  contractId?: string | null;
+  type?: string | null;
+  message: string;
+}) {
+  const notification = normalizeNotification({
+    id: crypto.randomUUID(),
+    wallet: input.wallet,
+    contractId: input.contractId,
+    type: input.type,
+    message: input.message,
+    createdAt: nowIso(),
+  });
+
+  if (!notification) {
+    throw new Error("Wallet is required.");
+  }
+
+  const sql = getSqlClient();
+  if (!sql) {
+    const database = readWorkflowMemoryDatabase();
+    database.notifications = [notification, ...database.notifications];
+    writeWorkflowMemoryDatabase(database);
+    return notification;
+  }
+
+  await ensureWorkflowSchema(sql);
+  await insertWorkflowNotification(sql, notification);
+  return notification;
+}
+
 export async function writeWorkflowDatabaseToStore(database: WorkflowDatabase) {
   const sql = getSqlClient();
   if (!sql) {
@@ -399,26 +725,6 @@ export async function writeWorkflowDatabaseToStore(database: WorkflowDatabase) {
             linked_project_id = excluded.linked_project_id,
             created_at = excluded.created_at,
             updated_at = excluded.updated_at
-        `;
-      }
-
-      for (const notification of database.notifications) {
-        await tx`
-          insert into workflow_notifications (
-            id, wallet, contract_id, type, message, created_at, read_at
-          ) values (
-            ${notification.id},
-            ${notification.wallet},
-            ${null},
-            ${"workflow"},
-            ${notification.message},
-            ${notification.createdAt},
-            ${null}
-          )
-          on conflict (id) do update set
-            wallet = excluded.wallet,
-            message = excluded.message,
-            created_at = excluded.created_at
         `;
       }
 
@@ -473,6 +779,8 @@ export async function writeWorkflowDatabaseToStore(database: WorkflowDatabase) {
         "Workflow database write timed out after 12 seconds."
       )
   );
+
+  await writeWorkflowNotificationsToStore(sql, database.notifications);
 
   return "postgres" as const;
 }
