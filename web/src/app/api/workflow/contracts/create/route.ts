@@ -10,14 +10,12 @@ import {
   getGroqModel,
   GroqContractGeneratorError,
 } from "@/lib/server/groqContractGenerator";
-import { createWorkflowDraft, getWorkflowStoreType } from "@/lib/server/workflowBackend";
-import { isWorkflowDatabaseConfigured } from "@/lib/server/workflowDbStore";
+import { getWorkflowStoreType } from "@/lib/server/workflowBackend";
 import { normalizeChainId } from "@/lib/chainId";
 import { type ProductContract } from "@/lib/workflowTypes";
 import { normalizeWallet } from "@/lib/workflowTypes";
 
 export const runtime = "nodejs";
-const CREATE_DEAL_DB_TIMEOUT_MS = 12_000;
 
 type CreateContractPayload = {
   title?: string;
@@ -74,8 +72,6 @@ export async function POST(request: Request) {
     | "payload_validated"
     | "groq_started"
     | "groq_finished"
-    | "db_write_started"
-    | "db_write_finished"
     | "response_sent"
     | "failed" = "route_entered";
 
@@ -188,14 +184,6 @@ export async function POST(request: Request) {
 
     console.log("workflow contract create stage", { stage });
 
-    if (process.env.NODE_ENV === "production" && !isWorkflowDatabaseConfigured()) {
-      return createErrorResponse("failed", "DATABASE_URL missing or invalid", 500, {
-        errorCode: "DATABASE_URL_MISSING_OR_INVALID",
-        provider,
-        model,
-      });
-    }
-
     stage = "groq_started";
     console.log("workflow contract create stage", { stage, provider, model });
     const generatedContract = await generateContractWithGroq({
@@ -227,45 +215,25 @@ export async function POST(request: Request) {
       linkedProjectId: null,
     };
 
-    if (!shouldPersist) {
-      stage = "response_sent";
-      return NextResponse.json({
-        success: true,
-        stage,
-        draft: draftPayload,
-        debug: {
+    if (shouldPersist) {
+      return createErrorResponse(
+        "failed",
+        "Contract generation no longer persists workflow state. Create the onchain project first, then call the project sync route.",
+        400,
+        {
+          errorCode: "PERSIST_DISABLED",
           provider,
           model,
-          storeType: getWorkflowStoreType(),
-        },
-        storeType: getWorkflowStoreType(),
-      });
+          draft: draftPayload,
+        }
+      );
     }
 
-    stage = "db_write_started";
-    console.log("workflow contract create stage", { stage, provider, model });
-    const contract = await Promise.race([
-      createWorkflowDraft(clientWallet, draftPayload),
-      new Promise<never>((_, reject) => {
-        setTimeout(() => {
-          reject(new Error("Workflow database write timed out after 12 seconds."));
-        }, CREATE_DEAL_DB_TIMEOUT_MS);
-      }),
-    ]);
-
-    stage = "db_write_finished";
-    console.log("workflow contract create stage", { stage, provider, model, contractId: contract.id });
     stage = "response_sent";
-    console.log("workflow contract create stage", {
-      stage,
-      provider,
-      model,
-      contractId: contract.id,
-    });
     return NextResponse.json({
       success: true,
-      stage: "response_sent",
-      contract,
+      stage,
+      draft: draftPayload,
       debug: {
         provider,
         model,
@@ -295,13 +263,9 @@ export async function POST(request: Request) {
     const errorCode =
       message.includes("DATABASE_URL")
         ? "DATABASE_URL_MISSING_OR_INVALID"
-        : message.includes("database write timed out")
-          ? "DATABASE_WRITE_TIMEOUT"
-          : message.includes("Workflow schema initialization timed out")
-            ? "DATABASE_SCHEMA_TIMEOUT"
-            : stage === "db_write_started" || stage === "db_write_finished"
-              ? "DATABASE_URL_MISSING_OR_INVALID"
-            : "UNEXPECTED_SERVER_ERROR";
+        : message.includes("Workflow schema initialization timed out")
+          ? "DATABASE_SCHEMA_TIMEOUT"
+          : "UNEXPECTED_SERVER_ERROR";
     stage = "failed";
     console.error("Agent Guild workflow contract create route failed", {
       stage,
